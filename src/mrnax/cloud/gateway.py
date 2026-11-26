@@ -27,6 +27,7 @@ class LeaseAcquireRequest(BaseModel):
 
 class CommitAttemptRequest(BaseModel):
     lease_epoch: int
+    lease_token: str
     sealed_file_id: str
     sealed_sha256: str
 
@@ -67,6 +68,7 @@ def create_control_plane_app(store: ExecutionCASStore) -> FastAPI:
                 execution_id=execution_id,
                 attempt_id=attempt_id,
                 lease_epoch=req.lease_epoch,
+                lease_token=req.lease_token,
                 sealed_file_id=req.sealed_file_id,
                 sealed_sha256=req.sealed_sha256,
             )

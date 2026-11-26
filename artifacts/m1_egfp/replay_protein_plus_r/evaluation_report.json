@@ -44,9 +44,9 @@
     },
     {
       "changed_candidate_ids": [
-        "bnd_3aa6_dnachisel",
-        "bnd_3aa6_pareto_04",
-        "bnd_3aa6_pareto_08"
+        "bnd_3c40_dnachisel",
+        "bnd_3c40_pareto_04",
+        "bnd_3c40_pareto_08"
       ],
       "eliminated_count": 0,
       "proof_diff_summary": "Objective 'kozak_unpaired_prob' (maximize) participated in Pareto selection across 12 qualified bundles.",
@@ -55,9 +55,9 @@
     },
     {
       "changed_candidate_ids": [
-        "bnd_3aa6_dnachisel",
-        "bnd_3aa6_pareto_04",
-        "bnd_3aa6_pareto_08"
+        "bnd_3c40_dnachisel",
+        "bnd_3c40_pareto_04",
+        "bnd_3c40_pareto_08"
       ],
       "eliminated_count": 0,
       "proof_diff_summary": "Objective 'cds_mean_window_mfe' (minimize) participated in Pareto selection across 12 qualified bundles.",
@@ -74,7 +74,7 @@
   ],
   "candidate_evaluations": [
     {
-      "bundle_id": "bnd_3aa6_dnachisel",
+      "bundle_id": "bnd_3c40_dnachisel",
       "metrics": [
         {
           "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
@@ -144,7 +144,7 @@
       "version_digest": "220a8b3d606b6d4f88e24cdddfaba7f6f138781fc5d018de5e00671b82686a24"
     },
     {
-      "bundle_id": "bnd_3aa6_pareto_04",
+      "bundle_id": "bnd_3c40_pareto_04",
       "metrics": [
         {
           "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
@@ -214,7 +214,7 @@
       "version_digest": "b4306bacdde9b3f20f7ca4b29bfba7f92df9b10ecc3fcf8dcf7c09086e26573a"
     },
     {
-      "bundle_id": "bnd_3aa6_pareto_08",
+      "bundle_id": "bnd_3c40_pareto_08",
       "metrics": [
         {
           "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
@@ -284,7 +284,7 @@
       "version_digest": "de9d58c4898c9d13fd27f5f7202c265ebc88305ce9ad419a1f4ce3f67435bd6a"
     },
     {
-      "bundle_id": "bnd_3aa6_pareto_01",
+      "bundle_id": "bnd_3c40_pareto_01",
       "metrics": [
         {
           "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
@@ -354,7 +354,7 @@
       "version_digest": "7e01dc461afdd1ecb6d2da9fdedf690df44587e72490a5e5068f5a0f939c3611"
     },
     {
-      "bundle_id": "bnd_3aa6_pareto_02",
+      "bundle_id": "bnd_3c40_pareto_02",
       "metrics": [
         {
           "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
@@ -424,7 +424,7 @@
       "version_digest": "2f328e15473e22cd1f683cd8f28146612ab72192f45a4cc850672f6ff1673d7c"
     },
     {
-      "bundle_id": "bnd_3aa6_pareto_07",
+      "bundle_id": "bnd_3c40_pareto_07",
       "metrics": [
         {
           "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
@@ -494,7 +494,7 @@
       "version_digest": "bfbac2be3e87d06e01d24f4c594ec3296b2023b7118d9635e6abc5ec67cbe7f4"
     },
     {
-      "bundle_id": "bnd_3aa6_stage0_ref",
+      "bundle_id": "bnd_3c40_stage0_ref",
       "metrics": [
         {
           "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
@@ -564,7 +564,7 @@
       "version_digest": "9029824196726b9000c7df603ad02db8c66ed12c7ba4861164d409c966377a2c"
     },
     {
-      "bundle_id": "bnd_3aa6_pareto_06",
+      "bundle_id": "bnd_3c40_pareto_06",
       "metrics": [
         {
           "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
@@ -634,7 +634,7 @@
       "version_digest": "6b178b81df771de1838b13f2a2455fe85a8a23f7b900a72c865f627bc150c2cc"
     },
     {
-      "bundle_id": "bnd_3aa6_pareto_03",
+      "bundle_id": "bnd_3c40_pareto_03",
       "metrics": [
         {
           "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
@@ -704,7 +704,7 @@
       "version_digest": "b8e671a1df34ced432958c124551b107793a41cc27a8894fb31da92928abaf5b"
     },
     {
-      "bundle_id": "bnd_3aa6_pareto_05",
+      "bundle_id": "bnd_3c40_pareto_05",
       "metrics": [
         {
           "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
@@ -844,7 +844,7 @@
       "version_digest": "a35a1cf57777f278a4ac3a47c96413a4d478e01a090b1ef2804b203dc6389198"
     },
     {
-      "bundle_id": "bnd_3aa6_minA",
+      "bundle_id": "bnd_3c40_minA",
       "metrics": [
         {
           "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
@@ -915,10 +915,10 @@
     }
   ],
   "compliance_track": "research_max",
-  "execution_id": "exec_05a5688b3aa6",
+  "execution_id": "exec_e8a2ee733c40",
   "failed_diagnostics": [],
   "fto_alerts": [],
-  "intent_id": "int_ac59b81f",
+  "intent_id": "int_539d3b68",
   "intent_version": 1,
   "outcome_status": "COMPLETED_WITH_CANDIDATES",
   "pre_synthesis_advisories": [
@@ -948,10 +948,10 @@
     }
   ],
   "recommended_bundle_ids": [
-    "bnd_3aa6_dnachisel",
-    "bnd_3aa6_pareto_04",
-    "bnd_3aa6_pareto_08"
+    "bnd_3c40_dnachisel",
+    "bnd_3c40_pareto_04",
+    "bnd_3c40_pareto_08"
   ],
-  "report_id": "rep_688b3aa6",
+  "report_id": "rep_ee733c40",
   "uncomparable_reason": null
 }

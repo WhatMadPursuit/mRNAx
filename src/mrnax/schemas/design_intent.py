@@ -120,5 +120,16 @@ class DesignIntent(FrozenSchemaModel):
     runtime_policy: RuntimePolicySpec = Field(default_factory=RuntimePolicySpec)
 
     def digest(self) -> str:
-        canonical = json.dumps(self.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+        def _canon(obj: Any) -> Any:
+            if isinstance(obj, dict):
+                return {k: _canon(v) for k, v in sorted(obj.items())}
+            if isinstance(obj, (set, frozenset)):
+                return sorted(_canon(x) for x in obj)
+            if isinstance(obj, list):
+                return [_canon(x) for x in obj]
+            return obj
+
+        # Normalize ConstraintSpec.target_scopes frozenset order deterministically across PYTHONHASHSEED
+        raw = self.model_dump(mode="python")
+        canonical = json.dumps(_canon(raw), sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()

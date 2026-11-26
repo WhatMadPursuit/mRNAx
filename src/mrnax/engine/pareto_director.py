@@ -219,6 +219,7 @@ def run_design_pipeline(
     intent: DesignIntent,
     *,
     reference_bundle: ConstructBundle | None = None,
+    cached_candidates: list[ConstructBundle] | None = None,
     seed_dir: Path,
     rule_snapshot_version: str = "rules_research_v1@1.0.0",
     isolated_sandbox_override: bool = False,
@@ -231,11 +232,12 @@ def run_design_pipeline(
     if intent.status != "ready":
         raise ValueError(f"DesignIntent status is '{intent.status}' (must be 'ready' before engine run)")
 
-    # 1. Fail-closed check for disabled generators when cache is disallowed
-    if not intent.runtime_policy.enabled_generators and not intent.runtime_policy.allow_cached_candidates:
-        raise NoAvailableGeneratorError(
-            "enabled_generators is empty and allow_cached_candidates=False; refusing silent fallback."
-        )
+    # 1. Fail-closed check when generators are disabled and no valid cache is provided
+    if not intent.runtime_policy.enabled_generators:
+        if not intent.runtime_policy.allow_cached_candidates or not cached_candidates:
+            raise NoAvailableGeneratorError(
+                "enabled_generators is empty and no cached_candidates were supplied; refusing silent zero-candidate fallback."
+            )
 
     # 2. Clean-Room profile readiness check (`commercial_clean` vs `research_max`)
     readiness = check_profile_readiness(intent)
@@ -340,7 +342,7 @@ def run_design_pipeline(
             return assembled, anns
         return raw_u3, []
 
-    raw_candidates: list[ConstructBundle] = []
+    raw_candidates: list[ConstructBundle] = list(cached_candidates or [])
     comp_records: list[ComponentInvocationRecord] = []
 
     # Include reference R verbatim or minimally adapted A when reference_bundle provided
@@ -617,7 +619,11 @@ def run_design_pipeline(
 
     for b in dedup_candidates:
         outcome = constraint_engine.evaluate_bundle(
-            b, intent.constraints, compliance_track=intent.compliance_track
+            b,
+            intent.constraints,
+            compliance_track=intent.compliance_track,
+            expected_chemistry=intent.uridine_chemistry,
+            locked_scopes=intent.locked_scopes,
         )
         all_fto_alerts.extend(outcome.fto_alerts)
         if outcome.passed_all_hard_gates:
@@ -789,7 +795,7 @@ def run_design_pipeline(
         action_transparency=action_traces,
     )
 
-    rep_bytes = json.dumps(report.model_dump(mode="json"), sort_keys=True).encode("utf-8")
+    rep_bytes = (json.dumps(report.model_dump(mode="json"), indent=2, sort_keys=True) + "\n").encode("utf-8")
     manifest = RunManifest(
         submission_id=f"sub_{intent.intent_id}_v{intent.intent_version}",
         execution_id=exec_id,

@@ -1,0 +1,136 @@
+{
+  "bundle_id": "bnd_b3f5_stage0_ref",
+  "co_expression_mode": "single_monocistronic",
+  "derivation_action": "de_novo_design",
+  "molecules": [
+    {
+      "annotations": [
+        {
+          "feature_id": "kozak_tis",
+          "feature_key": "regulatory",
+          "intervals": [
+            [
+              44,
+              54
+            ]
+          ],
+          "qualifiers": {
+            "regulatory_class": [
+              "ribosome_binding_site"
+            ]
+          },
+          "strand": 1
+        },
+        {
+          "feature_id": "mirna_site_hsa_miR_122_5p_1",
+          "feature_key": "misc_binding",
+          "intervals": [
+            [
+              794,
+              816
+            ]
+          ],
+          "qualifiers": {
+            "bound_moiety": [
+              "hsa-miR-122-5p"
+            ],
+            "note": [
+              "FANTOM5_CC_BY_4_detarget_cassette"
+            ]
+          },
+          "strand": 1
+        },
+        {
+          "feature_id": "mirna_site_hsa_miR_122_5p_2",
+          "feature_key": "misc_binding",
+          "intervals": [
+            [
+              826,
+              848
+            ]
+          ],
+          "qualifiers": {
+            "bound_moiety": [
+              "hsa-miR-122-5p"
+            ],
+            "note": [
+              "FANTOM5_CC_BY_4_detarget_cassette"
+            ]
+          },
+          "strand": 1
+        }
+      ],
+      "chemistry_track": {
+        "cap_chemistry": "cap1_cleancap_ag",
+        "custom_modification_notes": null,
+        "source": "user_declared",
+        "uridine_chemistry": "m1psi"
+      },
+      "effective_translation_target": {
+        "accession_or_source": "U55762.1 / AAB02572.1 (eGFP, Aequorea victoria, P42212-derived)",
+        "confirmation_status": "confirmed",
+        "entry_version": null,
+        "has_signal_peptide": false,
+        "is_secreted_or_membrane": false,
+        "protein_sequence": "MVSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPTLVTTLTYGVQCFSRYPDHMKQHDFFKSAMPEGYVQERTIFFKDDGNYKTRAEVKFEGDTLVNRIELKGIDFKEDGNILGHKLEYNYNSHNVYIMADKQKNGIKVNFKIRHNIEDGSVQLADHYQQNTPIGDGPVLLPDNHYLSTQSALSKDPNEKRDHMVLLEFVTAAGITLGMDELYK",
+        "transl_table": 1
+      },
+      "modality": "linear_mrna",
+      "molecule_id": "mol_primary",
+      "segments": [
+        {
+          "action_taken": "selected_from_library",
+          "component_id": "utr5_hbb_NM_000518_5",
+          "end": 50,
+          "license_track": "commercial_clean",
+          "origin_source": "NCBI_RefSeq:NM_000518.5",
+          "segment_type": "five_prime_utr",
+          "start": 0
+        },
+        {
+          "action_taken": "generated_novo",
+          "component_id": null,
+          "end": 767,
+          "license_track": "commercial_clean",
+          "origin_source": "mrnax:stage0_random",
+          "segment_type": "cds",
+          "start": 50
+        },
+        {
+          "action_taken": "locked_verbatim",
+          "component_id": "stop_uga_uaa",
+          "end": 770,
+          "license_track": "commercial_clean",
+          "origin_source": "mrnax:standard",
+          "segment_type": "stop_cassette",
+          "start": 767
+        },
+        {
+          "action_taken": "selected_from_library",
+          "component_id": "utr3_hbb_NM_000518_5",
+          "end": 966,
+          "license_track": "commercial_clean",
+          "origin_source": "NCBI_RefSeq:NM_000518.5",
+          "segment_type": "three_prime_utr",
+          "start": 770
+        },
+        {
+          "action_taken": "locked_verbatim",
+          "component_id": "polya_a100",
+          "end": 1066,
+          "license_track": "commercial_clean",
+          "origin_source": "mrnax:homopolymer_tail",
+          "segment_type": "poly_a",
+          "start": 966
+        }
+      ],
+      "sequence": "ACAUUUGCUUCUGACACAACUGUGUUCACUAGCAACCUCAAACAGACACCAUGGUGAGUAAAGGAGAGGAGUUAUUCACCGGUGUGGUGCCCAUCCUCGUGGAGUUAGAUGGAGAUGUUAACGGACAUAAAUUCUCCGUCUCUGGCGAGGGUGAGGGGGAUGCAACCUAUGGCAAACUGACAUUAAAAUUCAUAUGCACCACUGGGAAGCUCCCCGUACCAUGGCCAACUCUUGUUACUACAUUAACCUACGGAGUCCAAUGCUUCAGUCGAUACCCAGACCACAUGAAACAACAUGACUUCUUUAAGAGUGCGAUGCCGGAGGGGUACGUCCAAGAACGUACGAUCUUCUUCAAAGACGACGGCAACUACAAAACCAGGGCGGAAGUUAAGUUCGAAGGGGACACACUAGUCAAUCGGAUAGAAUUGAAGGGCAUAGAUUUCAAGGAAGACGGCAAUAUUCUGGGCCAUAAACUCGAGUACAACUACAAUAGCCACAACGUAUACAUUAUGGCUGACAAACAAAAAAAUGGUAUCAAGGUCAACUUUAAGAUACGUCACAACAUCGAGGACGGAAGCGUGCAACUGGCUGAUCAUUACCAGCAAAACACGCCGAUCGGCGACGGUCCAGUACUACUACCCGACAACCAUUAUCUGUCCACUCAGUCGGCGCUCUCAAAGGAUCCGAACGAGAAACGUGACCACAUGGUGCUCCUCGAAUUUGUAACUGCGGCCGGAAUUACCCUAGGGAUGGAUGAAUUAUAUAAGUGAGCUCGCUUUCUUGCUGUCCAAUUUCAAACACCAUUGUCACACUCCACUAACUAACUCAAACACCAUUGUCACACUCCACAAACAAACACUAUUAAAGGUUCCUUUGUUCCCUAAGUCCAACUACUAAACUGGGGGAUAUUAUGAAGGGCCUUGAGCAUCUGGAUUCUGCCUAAUAAAAAACAUUUAUUUUCAUUGCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "topology": "linear"
+    }
+  ],
+  "parent_bundle_id": "bnd_6c0a_dnachisel",
+  "target_stoichiometry": {
+    "mol_primary": 1.0
+  },
+  "version_digest": "68116d239fbd5f7c0629e5f013e0040216ddcca26303f34c94c0e9d31613b266"
+}

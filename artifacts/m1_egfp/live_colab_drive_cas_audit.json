@@ -1,0 +1,19 @@
+{
+  "bit_exact_trajectory_match": true,
+  "colab_session_name": "ft26-a78db5",
+  "drive_commits_folder_id": "1JSBSdLp0OS9kPKY0qOkhITqZYf4m8L5b",
+  "drive_runs_root_id": "1arzl4-0633ZHjUT4_XSCVkwD6HqMZKX7",
+  "drive_workspace_folder_id": "1nyeK6f5M234X8a1E32pNK2qaqzQQS1Dc",
+  "epoch1_attempt_id": "att_434ff5_001",
+  "epoch1_checkpoint_file_id": "1jn9sTDiVUSXnSOjPBjXJri5GUqD5zh5W",
+  "epoch1_zombie_commit_http_status": 409,
+  "epoch1_zombie_sealed_file_id": "12gevgHBqzBLsvF1cUqZbSjvQgbhhwZhu",
+  "epoch2_commit_http_status": 200,
+  "epoch2_result_file_id": "1iGfjbyXgrXp8DKIjk2pY3IFN2eoZrvcO",
+  "epoch2_winning_attempt_id": "att_434ff5_002",
+  "epoch2_winning_sealed_file_id": "104W_ANPtmNuNFROxLI71AqRajIxjEISa",
+  "epoch2_winning_sealed_sha256": "8343a9dcda93ea1d6a14b6dcf6bcb0affeb70d42fc3cc36b0866a58575f1cbc5",
+  "execution_id": "exec_2988b1434ff5",
+  "live_drive_rest_v3_enabled": true,
+  "power_loss_drive_reconciled": true
+}

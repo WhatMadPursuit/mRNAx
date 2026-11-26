@@ -1,6 +1,6 @@
 {
-  "v1_id": "int_b1b7db74",
-  "v2_id": "int_59afa722",
+  "v1_id": "int_c8c7d3f1",
+  "v2_id": "int_c6843a27",
   "parent_intent_id_matches": true,
   "protein_lock_preserved": true,
   "chemistry_preserved": true,
@@ -10,7 +10,23 @@
   "v2_enzymes": [
     "BspQI"
   ],
-  "v1_cell_control": null,
+  "v1_cell_control": {
+    "detarget_tissues": [
+      "liver_hepatocyte"
+    ],
+    "protected_tissues": [
+      "skeletal_muscle"
+    ],
+    "mirna_copy_range": [
+      2,
+      4
+    ],
+    "spacer_nt_range": [
+      8,
+      16
+    ],
+    "min_stop_offset_nt": 15
+  },
   "v2_cell_control": {
     "detarget_tissues": [
       "liver_hepatocyte"

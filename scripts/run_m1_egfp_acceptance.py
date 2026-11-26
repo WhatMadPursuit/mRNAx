@@ -145,13 +145,13 @@ def main() -> None:
 
     turn1_prompt = (
         "我们要从零设计一条非临床哺乳动物报告蛋白 eGFP 的线性 mRNA（请先用工具查询 eGFP 蛋白标准序列 U55762.1）。"
-        "要求：蛋白氨基酸序列 100% 保持不变，采用 m1Psi 化学修饰，避开 BsaI 线性化内切酶位点，走 research_max 档生成候选。"
+        "要求：蛋白氨基酸序列 100% 保持不变，采用 m1Psi 化学修饰，开启肝脏去靶向（detarget_liver=true），避开 BsaI 线性化内切酶位点，走 research_max 档生成候选。"
     )
     reply_1 = agent.send_user_message(turn1_prompt)
 
     turn2_prompt = (
-        "很好！现在只改两项增量要求，其余蛋白和 m1Psi 锁定项全部继承不变："
-        "1) 把线性化内切酶改成避开 BspQI；2) 开启肝脏去靶向（detarget_liver=true）。请调用 refine_construct 生成新版并调用 explain_tradeoffs 说明结果。"
+        "很好！现在只改一项：把线性化内切酶从 BsaI 改成避开 BspQI，其余蛋白序列、m1Psi 修饰和肝脏去靶向锁定项全部继承不变。"
+        "请调用 refine_construct 生成新版并调用 explain_tradeoffs 说明结果。"
     )
     reply_2 = agent.send_user_message(turn2_prompt)
     agent.save_transcript(str(OUT_ROOT / "blank_dialogue_transcript.json"))
@@ -244,14 +244,25 @@ def main() -> None:
         check=True,
     )
 
-    # Verify CLI replay digests match session digests 100%!
-    replay_r_rep = json.loads(
-        (OUT_ROOT / "replay_protein_plus_r" / "evaluation_report.json").read_text(encoding="utf-8")
-    )
-    session_r_rep = list(session_e2._reports.values())[-1]
-    assert [e["version_digest"] for e in replay_r_rep["candidate_evaluations"]] == [
-        e.version_digest for e in session_r_rep.candidate_evaluations
-    ], "CLI replay digest mismatch!"
+    # Verify CLI replay digests AND RunManifest SHA-256 checksums match 100% on BOTH Entry 1 and Entry 2!
+    import hashlib
+
+    for sub_name, sess_obj in [
+        ("replay_protein_only", session_e1),
+        ("replay_protein_plus_r", session_e2),
+    ]:
+        rep_dir = OUT_ROOT / sub_name
+        rep_bytes = (rep_dir / "evaluation_report.json").read_bytes()
+        man_doc = json.loads((rep_dir / "run_manifest.json").read_text(encoding="utf-8"))
+        art_rec = man_doc["artifacts"][0]
+        assert hashlib.sha256(rep_bytes).hexdigest() == art_rec["sha256"], f"Manifest SHA mismatch in {sub_name}"
+        assert len(rep_bytes) == art_rec["bytes"], f"Manifest byte length mismatch in {sub_name}"
+
+        replay_rep = json.loads(rep_bytes.decode("utf-8"))
+        sess_rep = list(sess_obj._reports.values())[-1]
+        assert [e["version_digest"] for e in replay_rep["candidate_evaluations"]] == [
+            e.version_digest for e in sess_rep.candidate_evaluations
+        ], f"CLI replay digest mismatch in {sub_name}"
 
     # 4. Paired-Seed Ablation (Stage 0 vs Sliding-Window Pareto) + Two-Tier Comparison (research_max vs commercial_clean)
     ablation_rows = run_paired_seed_generator_ablation(

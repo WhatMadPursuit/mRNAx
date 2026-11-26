@@ -43,7 +43,7 @@ def count_independent_dataset_votes(claims: list[ClaimCard]) -> DeduplicatedVote
         if c.source_type == "review":
             excluded_reviews += 1
             continue
-        if c.status != "verified_observation":
+        if c.status != "verified_observation" or c.evidence_layer != "raw_observation":
             excluded_drafts += 1
             continue
         norm_ds = normalize_dataset_id(c.underlying_dataset_id)

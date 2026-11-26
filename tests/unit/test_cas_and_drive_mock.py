@@ -19,15 +19,21 @@ from mrnax.cloud.drive_rest_v3 import DriveRestV3Client, InMemoryDriveV3Transpor
 
 def test_cas_commit_rejects_stale_zombie_epoch_with_409_ft08(tmp_path: Path) -> None:
     """FT-08: Zombie worker (epoch=1) wakes up after recovery worker (epoch=2) committed -> rejected (409)."""
-    store = ExecutionCASStore(tmp_path / "control_plane.sqlite3")
     transport = InMemoryDriveV3Transport()
     drive = DriveRestV3Client(transport=transport)
     runs_root = drive.create_folder(parent_id="root", name="runs")
+    commits_root = drive.create_folder(parent_id="root", name="control_plane_commits")
+    store = ExecutionCASStore(
+        tmp_path / "control_plane.sqlite3",
+        drive_verifier=drive,
+        commits_snapshot_folder_id=commits_root,
+    )
 
     row = store.submit_execution(
         submission_id="sub_zombie_test",
         request_digest="req_sha256_001",
         intent_id="int_001",
+        now_ts=1000.0,
     )
 
     # Worker 1 acquires lease (epoch=1)
@@ -58,6 +64,8 @@ def test_cas_commit_rejects_stale_zombie_epoch_with_409_ft08(tmp_path: Path) -> 
         lease_epoch=lease_2.lease_epoch,
         sealed_file_id=seal_2.file_id,
         sealed_sha256=seal_2.sha256,
+        lease_token=lease_2.lease_token,
+        now_ts=1050.0,
     )
     assert commit_ok.status == "COMMITTED"
     assert commit_ok.winning_attempt_id == lease_2.attempt_id
@@ -77,6 +85,8 @@ def test_cas_commit_rejects_stale_zombie_epoch_with_409_ft08(tmp_path: Path) -> 
             lease_epoch=lease_1.lease_epoch,
             sealed_file_id=seal_1.file_id,
             sealed_sha256=seal_1.sha256,
+            lease_token=lease_1.lease_token,
+            now_ts=1055.0,
         )
     assert exc_info.value.http_status == 409
 
@@ -85,8 +95,12 @@ def test_cas_commit_rejects_stale_zombie_epoch_with_409_ft08(tmp_path: Path) -> 
     assert final_row.winning_attempt_id == lease_2.attempt_id
     assert final_row.winning_sealed_file_id == seal_2.file_id
 
-    # Simulate total SQLite DB loss -> reconstruct from Drive SEALED.json records (picks highest sealed epoch!)
-    recovered_store = ExecutionCASStore(tmp_path / "recovered_after_power_loss.sqlite3")
+    # Simulate total SQLite DB loss -> reconstruct from authoritative COMMIT_RECEIPT snapshot on Drive!
+    recovered_store = ExecutionCASStore(
+        tmp_path / "recovered_after_power_loss.sqlite3",
+        drive_verifier=drive,
+        commits_snapshot_folder_id=commits_root,
+    )
     recovered_store.reconcile_from_drive_seals(drive, runs_root)
     rec_row = recovered_store.get_execution(row.execution_id)
     assert rec_row.status == "COMMITTED"

@@ -51,7 +51,9 @@ def export_construct_package(
 ) -> dict[str, Any]:
     """Re-verify with the exact shared `ScopedConstraintEngine` then export INSDC 4-file package."""
     outcome = constraint_engine.evaluate_bundle(
-        bundle, constraints, compliance_track=compliance_track
+        bundle,
+        constraints,
+        compliance_track=compliance_track,
     )
     if not outcome.passed_all_hard_gates:
         reasons = "; ".join(f"{v.violated_requirement_id}@{v.violated_scope}:{v.reason}" for v in outcome.violations)
@@ -166,8 +168,17 @@ def export_construct_package(
 
 
 def import_construct_from_genbank_package(pkg_dir: Path) -> ConstructBundle:
-    """Reconstruct ConstructBundle losslessly from exported `construct.gb` + `chemistry_metadata.json`."""
+    """Reconstruct ConstructBundle losslessly from exported `construct.gb` + `chemistry_metadata.json` after SHA-256 verification."""
     chem_meta = json.loads((pkg_dir / "chemistry_metadata.json").read_text(encoding="utf-8"))
+    for fname, file_rec in chem_meta.get("files", {}).items():
+        fpath = pkg_dir / fname
+        if not fpath.is_file():
+            raise ValueError(f"Missing package file '{fname}'")
+        actual_sha = _sha256_file(fpath)
+        if actual_sha != file_rec["sha256"]:
+            raise ValueError(
+                f"Package SHA-256 verification failed for '{fname}': expected {file_rec['sha256']}, got {actual_sha}"
+            )
     mol_meta_list = chem_meta["molecules"]
     gb_records = list(SeqIO.parse(str(pkg_dir / "construct.gb"), "genbank"))
     if len(gb_records) != len(mol_meta_list):
@@ -229,7 +240,7 @@ def import_construct_from_genbank_package(pkg_dir: Path) -> ConstructBundle:
             )
         )
 
-    return ConstructBundle.create(
+    reconstructed = ConstructBundle.create(
         bundle_id=chem_meta["bundle_id"],
         parent_bundle_id=chem_meta.get("parent_bundle_id"),
         derivation_action=chem_meta["derivation_action"],
@@ -237,3 +248,6 @@ def import_construct_from_genbank_package(pkg_dir: Path) -> ConstructBundle:
         co_expression_mode=chem_meta["co_expression_mode"],
         molecules=molecules,
     )
+    if reconstructed.version_digest != chem_meta["version_digest"]:
+        raise ValueError("Reconstructed ConstructBundle version_digest disagrees with chemistry_metadata.json")
+    return reconstructed

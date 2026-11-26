@@ -101,15 +101,27 @@ class EvaluationReport(FrozenSchemaModel):
 
     @model_validator(mode="after")
     def _enforce_zero_qualified_and_uncomparable_rules(self) -> Self:
-        if self.outcome_status == "COMPLETED_ZERO_QUALIFIED" and self.recommended_bundle_ids:
+        if self.outcome_status in {
+            "COMPLETED_ZERO_QUALIFIED",
+            "UNCOMPARABLE_MISSING_APPROVED_COMPONENT",
+        }:
+            if self.recommended_bundle_ids:
+                raise ValueError(
+                    f"recommended_bundle_ids must be empty when outcome_status is {self.outcome_status}"
+                )
+            if self.candidate_evaluations:
+                raise ValueError(
+                    f"candidate_evaluations must be empty when outcome_status is {self.outcome_status}"
+                )
+        for ev in self.candidate_evaluations:
+            if not ev.passed_all_hard_gates:
+                raise ValueError(
+                    f"Disqualified candidate '{ev.bundle_id}' cannot appear in candidate_evaluations; use failed_diagnostics"
+                )
+        qualified_ids = {ev.bundle_id for ev in self.candidate_evaluations}
+        unknown_recs = [bid for bid in self.recommended_bundle_ids if bid not in qualified_ids]
+        if unknown_recs:
             raise ValueError(
-                "recommended_bundle_ids must be empty when outcome_status is COMPLETED_ZERO_QUALIFIED"
-            )
-        if (
-            self.outcome_status == "UNCOMPARABLE_MISSING_APPROVED_COMPONENT"
-            and self.recommended_bundle_ids
-        ):
-            raise ValueError(
-                "recommended_bundle_ids must be empty when outcome_status is UNCOMPARABLE_MISSING_APPROVED_COMPONENT"
+                f"recommended_bundle_ids {unknown_recs} must reference qualified candidate_evaluations"
             )
         return self

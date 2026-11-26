@@ -4,9 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import shutil
+import subprocess
+import tempfile
+import time
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable, Protocol
 
 import httpx
@@ -199,20 +205,27 @@ class HttpDriveV3Transport:
         if name_exact is not None:
             escaped = name_exact.replace("'", "\\'")
             q_parts.append(f"name = '{escaped}'")
+        all_files: list[dict[str, Any]] = []
+        page_token: str | None = None
         with httpx.Client(timeout=self._timeout) as client:
-            resp = client.get(
-                self.FILES_API,
-                params={
+            while True:
+                params: dict[str, Any] = {
                     "q": " and ".join(q_parts),
-                    "fields": "files(id,name,mimeType,parents,md5Checksum,size)",
+                    "fields": "nextPageToken,files(id,name,mimeType,parents,md5Checksum,size)",
                     "pageSize": 200,
                     "supportsAllDrives": "true",
                     "includeItemsFromAllDrives": "true",
-                },
-                headers=self._headers(),
-            )
-            self._raise_for_drive_error(resp)
-            return resp.json().get("files", [])
+                }
+                if page_token:
+                    params["pageToken"] = page_token
+                resp = client.get(self.FILES_API, params=params, headers=self._headers())
+                self._raise_for_drive_error(resp)
+                body = resp.json()
+                all_files.extend(body.get("files", []))
+                page_token = body.get("nextPageToken")
+                if not page_token:
+                    break
+        return all_files
 
     def get_metadata(self, file_id: str) -> dict[str, Any]:
         with httpx.Client(timeout=self._timeout) as client:
@@ -245,6 +258,131 @@ class HttpDriveV3Transport:
                 headers=self._headers(),
             )
             self._raise_for_drive_error(resp)
+
+
+class GdriveCliDriveV3Transport:
+    """Managed-auth Google Drive REST v3 transport delegating HTTPS API calls to bare `gdrive` CLI (zero FUSE)."""
+
+    _RATE_LIMIT_TOKENS = ("Quota exceeded", "rateLimitExceeded", "userRateLimitExceeded", "429")
+    _BACKOFF_SCHEDULE = (2.0, 5.0, 10.0, 20.0, 30.0)
+
+    def __init__(self, gdrive_bin: str = "gdrive", timeout: float = 60.0) -> None:
+        resolved = shutil.which(gdrive_bin)
+        if not resolved:
+            raise FileNotFoundError(f"gdrive CLI '{gdrive_bin}' not found on PATH")
+        self._bin = resolved
+        self._timeout = timeout
+        self._verified_md5_cache: dict[str, tuple[str, str]] = {}
+
+    @classmethod
+    def _is_rate_limit(cls, err: str) -> bool:
+        return any(tok in err for tok in cls._RATE_LIMIT_TOKENS)
+
+    def _run_with_backoff(self, cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        for attempt, delay in enumerate((*self._BACKOFF_SCHEDULE, None)):
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=self._timeout,
+            )
+            if proc.returncode == 0:
+                return proc
+            err = (proc.stderr or proc.stdout).strip()
+            if delay is not None and self._is_rate_limit(err):
+                time.sleep(delay)
+                continue
+            return proc
+        raise RuntimeError(f"Unreachable backoff loop for {cmd}")
+
+    def _run_json(self, args: list[str]) -> Any:
+        proc = self._run_with_backoff([self._bin, *args, "--json"])
+        if proc.returncode != 0:
+            err = (proc.stderr or proc.stdout).strip()
+            if "403" in err and not self._is_rate_limit(err):
+                raise DrivePermissionError(403, err[:300])
+            if "404" in err or "notFound" in err:
+                raise DrivePermissionError(404, err[:300])
+            raise RuntimeError(f"gdrive {' '.join(args)} failed ({proc.returncode}): {err[:300]}")
+        out = proc.stdout.strip()
+        if not out or out == "null":
+            return None
+        if out[0] in "{[":
+            return json.loads(out)
+        m = re.search(r"\bID:\s*([A-Za-z0-9_-]+)", out)
+        if m:
+            return {"id": m.group(1)}
+        raise RuntimeError(f"Unrecognized gdrive output for {' '.join(args)}: {out[:200]}")
+
+    def create_file(
+        self, *, parent_id: str, name: str, mime_type: str, content: bytes | None = None
+    ) -> dict[str, Any]:
+        if mime_type == DRIVE_FOLDER_MIME or content is None:
+            res = self._run_json(["mutate", "mkdir", name, "--parent", parent_id])
+            meta = dict(res) if isinstance(res, dict) else {"id": str(res), "name": name}
+            meta.setdefault("mimeType", DRIVE_FOLDER_MIME)
+            meta.setdefault("parents", [parent_id])
+            return meta
+
+        with tempfile.TemporaryDirectory(prefix="mrnax_drv_") as td:
+            src_path = Path(td) / name
+            src_path.write_bytes(content)
+            res = self._run_json(
+                ["mutate", "upload", str(src_path), "--parent", parent_id, "--mime-type", mime_type]
+            )
+            fid = str(res["id"])
+            # Download back from Google Drive REST v3 server to verify landed payload md5Checksum
+            landed = self.download_bytes(fid)
+            md5_hex = hashlib.md5(landed).hexdigest()
+            size_str = str(len(landed))
+            self._verified_md5_cache[fid] = (md5_hex, size_str)
+            meta = dict(res)
+            meta["md5Checksum"] = md5_hex
+            meta["size"] = size_str
+            meta.setdefault("parents", [parent_id])
+            return meta
+
+    def list_children(self, *, parent_id: str, name_exact: str | None = None) -> list[dict[str, Any]]:
+        rows = self._run_json(["readonly", "ls", parent_id]) or []
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            if name_exact is None or r.get("name") == name_exact:
+                item = dict(r)
+                item.setdefault("parents", [parent_id])
+                out.append(item)
+        return out
+
+    def get_metadata(self, file_id: str) -> dict[str, Any]:
+        meta = dict(self._run_json(["readonly", "info", file_id]))
+        if meta.get("mimeType") != DRIVE_FOLDER_MIME and "md5Checksum" not in meta:
+            if file_id in self._verified_md5_cache:
+                md5_hex, size_str = self._verified_md5_cache[file_id]
+            else:
+                landed = self.download_bytes(file_id)
+                md5_hex = hashlib.md5(landed).hexdigest()
+                size_str = str(len(landed))
+                self._verified_md5_cache[file_id] = (md5_hex, size_str)
+            meta["md5Checksum"] = md5_hex
+            meta["size"] = size_str
+        return meta
+
+    def download_bytes(self, file_id: str) -> bytes:
+        with tempfile.TemporaryDirectory(prefix="mrnax_dl_") as td:
+            dst = Path(td) / "payload.bin"
+            proc = self._run_with_backoff([self._bin, "readonly", "download", file_id, "--out", str(dst)])
+            if proc.returncode != 0:
+                err = (proc.stderr or proc.stdout).strip()
+                if "403" in err and not self._is_rate_limit(err):
+                    raise DrivePermissionError(403, err[:300])
+                if "404" in err or "notFound" in err:
+                    raise DrivePermissionError(404, err[:300])
+                raise RuntimeError(f"gdrive download {file_id} failed: {err[:300]}")
+            return dst.read_bytes()
+
+    def delete_file(self, file_id: str) -> None:
+        proc = self._run_with_backoff([self._bin, "mutate", "trash", file_id])
+        if proc.returncode != 0:
+            raise RuntimeError(f"gdrive trash {file_id} failed: {(proc.stderr or proc.stdout)[:300]}")
 
 
 class DriveRestV3Client:

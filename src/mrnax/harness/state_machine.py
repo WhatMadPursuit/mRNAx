@@ -378,6 +378,7 @@ class ProjectHarnessSession:
             intent_version=prev.intent_version + 1,
             parent_intent_id=prev.intent_id,
             created_from_turn_ids=[*prev.created_from_turn_ids, turn_id],
+            reference_bundle_id=self.active_reference_bundle_id or prev.reference_bundle_id,
             uridine_chemistry=updated_chemistry or prev.uridine_chemistry,
             compliance_track=updated_compliance_track or prev.compliance_track,
             locked_scopes=new_locks,
@@ -587,28 +588,80 @@ class ProjectHarnessSession:
             out_path.write_text(json.dumps(updated.model_dump(mode="json"), indent=2) + "\n", encoding="utf-8")
             return updated
 
-        # Compute biological replicate mean & 95% CI per construct
-        crit = record.pre_registered_criteria
-        stats: list[tuple[str, float, float, float, int]] = []  # (bundle_id, mean, ci_lo, ci_hi, n_bio)
+        # Verify all observed construct IDs & digests match registered session bundles
         for obs in record.observations:
-            unit_vals = [b.unit_mean for b in obs.biological_replicates]
+            if obs.bundle_id not in self._bundles:
+                dec = FeedbackDecisionRecord(
+                    branch="experimental_confound_blocked",
+                    new_reference_bundle_id=None,
+                    weight_update_allowed=False,
+                    rationale=f"Observed bundle '{obs.bundle_id}' is not registered in this project.",
+                )
+                updated = record.model_copy_validated(feedback_decision=dec)
+                out_path.write_text(json.dumps(updated.model_dump(mode="json"), indent=2) + "\n", encoding="utf-8")
+                return updated
+            if self._bundles[obs.bundle_id].version_digest != obs.version_digest:
+                dec = FeedbackDecisionRecord(
+                    branch="experimental_confound_blocked",
+                    new_reference_bundle_id=None,
+                    weight_update_allowed=False,
+                    rationale=f"Version digest mismatch on '{obs.bundle_id}'; cannot align wet-lab observation.",
+                )
+                updated = record.model_copy_validated(feedback_decision=dec)
+                out_path.write_text(json.dumps(updated.model_dump(mode="json"), indent=2) + "\n", encoding="utf-8")
+                return updated
+
+        if self.active_reference_bundle_id is not None and self.active_reference_bundle_id not in {
+            obs.bundle_id for obs in record.observations
+        }:
+            dec = FeedbackDecisionRecord(
+                branch="experimental_confound_blocked",
+                new_reference_bundle_id=None,
+                weight_update_allowed=False,
+                rationale=(
+                    f"Active reference '{self.active_reference_bundle_id}' was not measured in batch "
+                    f"'{record.batch_id}'; refusing unanchored reference switch."
+                ),
+            )
+            updated = record.model_copy_validated(feedback_decision=dec)
+            out_path.write_text(json.dumps(updated.model_dump(mode="json"), indent=2) + "\n", encoding="utf-8")
+            return updated
+
+        # Compute biological replicate summary & interval per pre_registered_criteria
+        crit = record.pre_registered_criteria
+        stats: list[tuple[str, float, float, float, int]] = []  # (bundle_id, center, lo, hi, n_bio)
+        for obs in record.observations:
+            unit_vals = sorted(b.unit_mean for b in obs.biological_replicates)
             n_bio = len(unit_vals)
-            mean_v = sum(unit_vals) / n_bio
-            if n_bio > 1:
-                var = sum((x - mean_v) ** 2 for x in unit_vals) / (n_bio - 1)
-                se = math.sqrt(var / n_bio)
-                half_w = 1.96 * se
+            if crit.aggregation_method == "median":
+                mid = n_bio // 2
+                center = unit_vals[mid] if n_bio % 2 == 1 else 0.5 * (unit_vals[mid - 1] + unit_vals[mid])
+            elif crit.aggregation_method == "geometric_mean":
+                center = math.exp(sum(math.log(max(x, 1e-12)) for x in unit_vals) / n_bio)
             else:
-                half_w = abs(mean_v) * 0.25
-            stats.append((obs.bundle_id, mean_v, mean_v - half_w, mean_v + half_w, n_bio))
+                center = sum(unit_vals) / n_bio
+
+            if crit.variance_estimator == "iqr" and n_bio >= 3:
+                q25 = unit_vals[int(0.25 * (n_bio - 1))]
+                q75 = unit_vals[int(0.75 * (n_bio - 1))]
+                lo, hi = q25, q75
+            elif n_bio > 1:
+                mean_v = sum(unit_vals) / n_bio
+                sd = math.sqrt(sum((x - mean_v) ** 2 for x in unit_vals) / (n_bio - 1))
+                half_w = sd if crit.variance_estimator == "sd" else (1.96 * sd / math.sqrt(n_bio))
+                lo, hi = center - half_w, center + half_w
+            else:
+                half_w = abs(center) * 0.25
+                lo, hi = center - half_w, center + half_w
+            stats.append((obs.bundle_id, center, lo, hi, n_bio))
 
         stats.sort(key=lambda t: -t[1])
-        best_id, best_mean, best_lo, _, best_nbio = stats[0]
+        best_id, best_center, best_lo, _, best_nbio = stats[0]
         cur_ref_id = self.active_reference_bundle_id or stats[-1][0]
-        ref_stat = next((s for s in stats if s[0] == cur_ref_id), stats[-1])
-        _, ref_mean, _, ref_hi, ref_nbio = ref_stat
+        ref_stat = next(s for s in stats if s[0] == cur_ref_id)
+        _, ref_center, _, ref_hi, ref_nbio = ref_stat
 
-        fold = best_mean / max(1e-9, ref_mean)
+        fold = best_center / max(1e-9, ref_center)
         ci_non_overlap = best_lo > ref_hi
 
         if (
@@ -631,22 +684,25 @@ class ProjectHarnessSession:
             out_path.write_text(json.dumps(updated.model_dump(mode="json"), indent=2) + "\n", encoding="utf-8")
             return updated
 
-        # Rank reversal met pre-registered criteria -> switch project reference to best_id!
+        # Rank reversal met pre-registered criteria -> switch project reference to best_id first!
         ref_bundle = self._bundles[cur_ref_id]
         win_bundle = self._bundles[best_id]
+        self.active_reference_bundle_id = best_id
+        self._save_state_meta()
+
         changed_scopes = [
             s
-            for s in ("five_prime_utr", "cds", "three_prime_utr", "poly_a")
+            for s in ("five_prime_utr", "cds", "stop_cassette", "three_prime_utr", "poly_a")
             if ref_bundle.molecules[0].get_segment_sequence(s) != win_bundle.molecules[0].get_segment_sequence(s)
         ]
         attr_status = "multi_region_ambiguous" if len(changed_scopes) >= 2 else "single_region_resolved"
         chimera_id: str | None = None
         if attr_status == "multi_region_ambiguous":
-            chimera = self._spawn_verbatim_disambiguation_chimera(ref_bundle, win_bundle)
-            chimera_id = chimera.bundle_id
-
-        self.active_reference_bundle_id = best_id
-        self._save_state_meta()
+            try:
+                chimera = self._spawn_verbatim_disambiguation_chimera(ref_bundle, win_bundle)
+                chimera_id = chimera.bundle_id
+            except RuntimeError:
+                chimera_id = None
 
         n_ind = record.n_independent_constructs
         iso_cal_id = f"cal_iso_{uuid.uuid4().hex[:8]}" if n_ind >= 6 else None

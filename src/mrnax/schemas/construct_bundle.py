@@ -23,6 +23,13 @@ from mrnax.schemas.common import (
 
 _RNA_RE = re.compile(r"^[ACGU]+$")
 _STOP_CODONS = frozenset({"UAA", "UAG", "UGA"})
+_SEGMENT_ORDER: dict[str, int] = {
+    "five_prime_utr": 0,
+    "cds": 1,
+    "stop_cassette": 2,
+    "three_prime_utr": 3,
+    "poly_a": 4,
+}
 
 
 class FrozenSchemaModel(BaseModel):
@@ -109,15 +116,24 @@ class RNAMoleculeSpec(FrozenSchemaModel):
 
         seq_len = len(self.sequence)
         cursor = 0
+        last_order = -1
         cds_spans: list[SegmentSpan] = []
         stop_spans: list[SegmentSpan] = []
 
-        for seg in self.segments:
+        for idx, seg in enumerate(self.segments):
             if seg.start != cursor:
                 raise ValueError(
                     f"Segments must be contiguous and non-overlapping: expected start {cursor}, "
                     f"got {seg.start} for {seg.segment_type}"
                 )
+            seg_rank = _SEGMENT_ORDER[seg.segment_type]
+            if seg_rank <= last_order:
+                raise ValueError(
+                    f"Segments must follow unique canonical 5'->3' order; unexpected '{seg.segment_type}' at index {idx}"
+                )
+            if seg.segment_type == "poly_a" and idx != len(self.segments) - 1:
+                raise ValueError("poly_a segment may only appear as the terminal 3' segment")
+            last_order = seg_rank
             cursor = seg.end
             if seg.segment_type == "cds":
                 cds_spans.append(seg)
@@ -181,6 +197,17 @@ class ConstructBundle(FrozenSchemaModel):
     target_stoichiometry: dict[str, float]
     co_expression_mode: CoExpressionMode = "single_monocistronic"
     molecules: list[RNAMoleculeSpec] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _verify_digest_integrity(self) -> Self:
+        expected = self.compute_digest(
+            self.molecules, self.target_stoichiometry, self.co_expression_mode
+        )
+        if self.version_digest != expected:
+            raise ValueError(
+                f"ConstructBundle version_digest mismatch: expected {expected}, got {self.version_digest}"
+            )
+        return self
 
     @classmethod
     def compute_digest(

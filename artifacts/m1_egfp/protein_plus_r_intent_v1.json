@@ -25,9 +25,9 @@
       "source_locator": "mrnax:safety:homopolymer_v1",
       "source_type": "system_safety_gate",
       "target_scopes": [
+        "three_prime_utr",
         "five_prime_utr",
         "stop_cassette",
-        "three_prime_utr",
         "cds"
       ]
     },
@@ -50,9 +50,9 @@
       "source_locator": "mrnax:ivt:t7_terminator_v1",
       "source_type": "system_safety_gate",
       "target_scopes": [
+        "three_prime_utr",
         "five_prime_utr",
         "stop_cassette",
-        "three_prime_utr",
         "cds"
       ]
     },
@@ -67,9 +67,9 @@
       "source_locator": "mrnax:safety:dsrna_loopback_v1",
       "source_type": "system_safety_gate",
       "target_scopes": [
-        "inter_chain",
         "full_transcript",
-        "three_prime_terminal"
+        "three_prime_terminal",
+        "inter_chain"
       ]
     },
     {
@@ -93,7 +93,7 @@
     "turn_r1"
   ],
   "entry_mode": "protein_with_reference_r",
-  "intent_id": "int_ac59b81f",
+  "intent_id": "int_539d3b68",
   "intent_version": 1,
   "locked_scopes": {
     "protein_sequence": {

@@ -25,7 +25,7 @@ class FixedPoolScorerReplayResult:
     rank_participating_ordered_ids: list[str]
     order_changed_in_group3: bool
     display_only_evaluations: list[BundleEvaluation]
-    honesty_banner: str = "本次未改善核心生成器"
+    honesty_banner: str = "本次未改善生成器"
 
 
 def run_fixed_pool_scorer_replay(
@@ -37,6 +37,18 @@ def run_fixed_pool_scorer_replay(
 ) -> FixedPoolScorerReplayResult:
     """Replay a fixed candidate pool across 3 modes with deterministic tie-breaking."""
     eval_by_id = {e.bundle_id: e for e in base_evaluations}
+    for b in candidate_pool:
+        if b.bundle_id not in eval_by_id:
+            raise ValueError(f"Missing base BundleEvaluation for candidate '{b.bundle_id}'")
+        ev = eval_by_id[b.bundle_id]
+        if ev.version_digest != b.version_digest:
+            raise ValueError(
+                f"Evaluation version_digest mismatch for '{b.bundle_id}': {ev.version_digest} != {b.version_digest}"
+            )
+        if not ev.passed_all_hard_gates:
+            raise ValueError(
+                f"Disqualified candidate '{b.bundle_id}' cannot enter fixed-pool ranking replay"
+            )
     input_index = {b.bundle_id: idx for idx, b in enumerate(candidate_pool)}
 
     # Group 1: Baseline order (pareto_rank asc, original pool index asc)
@@ -88,7 +100,7 @@ def run_fixed_pool_scorer_replay(
         rank_participating_ordered_ids=ranked_ids,
         order_changed_in_group3=(ranked_ids != baseline_ids),
         display_only_evaluations=display_evals,
-        honesty_banner="本次未改善核心生成器",
+        honesty_banner="本次未改善生成器",
     )
 
 

@@ -1,23 +1,26 @@
 """SQLite WAL persistent control-plane task lease & single-statement CAS store.
 
 Configured with `journal_mode=WAL` and `synchronous=FULL` for power-loss durability on VPS/local,
-plus `reconcile_from_drive_seals()` to self-heal state from Google Drive `SEALED.json` records.
+with cryptographic per-attempt `lease_token`, Drive `SEALED.json` checksum verification prior to
+CAS commit, and authoritative `COMMIT_RECEIPT` disaster-recovery snapshots.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
+import secrets
 import sqlite3
 import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from mrnax.cloud.drive_rest_v3 import DRIVE_FOLDER_MIME, DriveRestV3Client
+from mrnax.cloud.drive_rest_v3 import DRIVE_FOLDER_MIME, DrivePermissionError, DriveRestV3Client
 
 
 class StaleLeaseConflictError(RuntimeError):
-    """Raised when a stale or superseded worker attempts to renew or commit (HTTP 409)."""
+    """Raised when a stale, expired, unauthenticated, or unverified worker attempts to commit (HTTP 409)."""
 
     http_status: int = 409
 
@@ -50,6 +53,7 @@ class LeaseGrant:
     attempt_id: str
     worker_id: str
     lease_epoch: int
+    lease_token: str
     lease_expires_at: float
     previous_attempt_id: str | None
 
@@ -66,8 +70,16 @@ class CommitReceipt:
 class ExecutionCASStore:
     """Crash-safe SQLite WAL execution lease & CAS coordinator."""
 
-    def __init__(self, db_path: Path) -> None:
+    def __init__(
+        self,
+        db_path: Path,
+        *,
+        drive_verifier: DriveRestV3Client | None = None,
+        commits_snapshot_folder_id: str | None = None,
+    ) -> None:
         self.db_path = db_path
+        self.drive_verifier = drive_verifier
+        self.commits_snapshot_folder_id = commits_snapshot_folder_id
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
@@ -93,6 +105,7 @@ class ExecutionCASStore:
                     lease_epoch INTEGER NOT NULL DEFAULT 0,
                     current_attempt_id TEXT,
                     current_worker_id TEXT,
+                    current_lease_token TEXT,
                     lease_expires_at REAL,
                     winning_attempt_id TEXT,
                     winning_sealed_file_id TEXT,
@@ -109,6 +122,7 @@ class ExecutionCASStore:
                     execution_id TEXT NOT NULL REFERENCES executions(execution_id),
                     worker_id TEXT NOT NULL,
                     lease_epoch INTEGER NOT NULL,
+                    lease_token TEXT NOT NULL,
                     started_at REAL NOT NULL,
                     sealed_file_id TEXT,
                     commit_outcome TEXT
@@ -209,9 +223,10 @@ class ExecutionCASStore:
                 cur_exp = row["lease_expires_at"]
                 cur_attempt = row["current_attempt_id"]
                 cur_epoch = int(row["lease_epoch"])
+                cur_token = row["current_lease_token"]
 
                 if row["status"] == "RUNNING" and cur_exp is not None and ts < float(cur_exp):
-                    if cur_worker == worker_id and cur_attempt is not None:
+                    if cur_worker == worker_id and cur_attempt is not None and cur_token is not None:
                         conn.execute(
                             "UPDATE executions SET lease_expires_at = ?, updated_at = ? WHERE execution_id = ?",
                             (expires, ts, execution_id),
@@ -222,6 +237,7 @@ class ExecutionCASStore:
                             attempt_id=cur_attempt,
                             worker_id=worker_id,
                             lease_epoch=cur_epoch,
+                            lease_token=str(cur_token),
                             lease_expires_at=expires,
                             previous_attempt_id=None,
                         )
@@ -232,6 +248,7 @@ class ExecutionCASStore:
 
                 new_epoch = cur_epoch + 1
                 new_attempt = f"att_{execution_id[-6:]}_{new_epoch:03d}"
+                new_token = f"lzk_{secrets.token_urlsafe(18)}"
                 conn.execute(
                     """
                     UPDATE executions
@@ -239,18 +256,19 @@ class ExecutionCASStore:
                            lease_epoch = ?,
                            current_attempt_id = ?,
                            current_worker_id = ?,
+                           current_lease_token = ?,
                            lease_expires_at = ?,
                            updated_at = ?
                      WHERE execution_id = ?
                     """,
-                    (new_epoch, new_attempt, worker_id, expires, ts, execution_id),
+                    (new_epoch, new_attempt, worker_id, new_token, expires, ts, execution_id),
                 )
                 conn.execute(
                     """
-                    INSERT INTO attempts (attempt_id, execution_id, worker_id, lease_epoch, started_at)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO attempts (attempt_id, execution_id, worker_id, lease_epoch, lease_token, started_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """,
-                    (new_attempt, execution_id, worker_id, new_epoch, ts),
+                    (new_attempt, execution_id, worker_id, new_epoch, new_token, ts),
                 )
                 conn.execute("COMMIT;")
                 return LeaseGrant(
@@ -258,6 +276,7 @@ class ExecutionCASStore:
                     attempt_id=new_attempt,
                     worker_id=worker_id,
                     lease_epoch=new_epoch,
+                    lease_token=new_token,
                     lease_expires_at=expires,
                     previous_attempt_id=cur_attempt,
                 )
@@ -265,6 +284,38 @@ class ExecutionCASStore:
                 if conn.in_transaction:
                     conn.execute("ROLLBACK;")
                 raise
+
+    def _verify_drive_seal_before_commit(
+        self,
+        *,
+        execution_id: str,
+        attempt_id: str,
+        lease_epoch: int,
+        sealed_file_id: str,
+        sealed_sha256: str,
+    ) -> None:
+        if self.drive_verifier is None:
+            return
+        try:
+            raw_seal = self.drive_verifier.transport.download_bytes(sealed_file_id)
+        except DrivePermissionError as exc:
+            raise StaleLeaseConflictError(f"Drive seal '{sealed_file_id}' unreadable: {exc}") from exc
+        actual_sha = hashlib.sha256(raw_seal).hexdigest()
+        if actual_sha != sealed_sha256:
+            raise StaleLeaseConflictError(
+                f"Drive seal sha256 mismatch: expected {sealed_sha256}, got {actual_sha}"
+            )
+        doc = json.loads(raw_seal.decode("utf-8"))
+        if (
+            doc.get("execution_id") != execution_id
+            or doc.get("attempt_id") != attempt_id
+            or int(doc.get("lease_epoch", -1)) != lease_epoch
+        ):
+            raise StaleLeaseConflictError("Drive seal metadata does not match execution/attempt/epoch")
+        for art in doc.get("artifacts", []):
+            meta = self.drive_verifier.transport.get_metadata(str(art["file_id"]))
+            if meta.get("md5Checksum") != art.get("md5"):
+                raise StaleLeaseConflictError(f"Drive seal artifact md5 mismatch for {art.get('name')}")
 
     def commit_attempt_cas(
         self,
@@ -274,13 +325,44 @@ class ExecutionCASStore:
         lease_epoch: int,
         sealed_file_id: str,
         sealed_sha256: str,
+        lease_token: str | None = None,
         now_ts: float | None = None,
     ) -> CommitReceipt:
-        """Single-statement atomic CAS commit. Stale zombie epochs receive HTTP 409 conflict."""
+        """Verify Drive seal + lease token + expiry, then run single-statement atomic CAS commit."""
         ts = time.time() if now_ts is None else now_ts
+        self._verify_drive_seal_before_commit(
+            execution_id=execution_id,
+            attempt_id=attempt_id,
+            lease_epoch=lease_epoch,
+            sealed_file_id=sealed_file_id,
+            sealed_sha256=sealed_sha256,
+        )
+
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE;")
             try:
+                cur_row = conn.execute(
+                    "SELECT status, lease_epoch, current_attempt_id, current_lease_token, lease_expires_at, winning_attempt_id, submission_id, request_digest, intent_id FROM executions WHERE execution_id = ?",
+                    (execution_id,),
+                ).fetchone()
+                if cur_row is None:
+                    conn.execute("ROLLBACK;")
+                    raise StaleLeaseConflictError(f"CAS rejected: unknown execution '{execution_id}'")
+
+                if lease_token is not None and cur_row["current_lease_token"] != lease_token:
+                    conn.execute("ROLLBACK;")
+                    raise StaleLeaseConflictError("CAS rejected: invalid worker lease_token")
+
+                if cur_row["lease_expires_at"] is not None and ts > float(cur_row["lease_expires_at"]):
+                    conn.execute(
+                        "UPDATE attempts SET sealed_file_id = ?, commit_outcome = 'EXPIRED_409' WHERE attempt_id = ?",
+                        (sealed_file_id, attempt_id),
+                    )
+                    conn.execute("COMMIT;")
+                    raise StaleLeaseConflictError(
+                        f"CAS rejected: lease expired at {cur_row['lease_expires_at']} (now={ts})"
+                    )
+
                 cur = conn.execute(
                     """
                     UPDATE executions
@@ -293,6 +375,7 @@ class ExecutionCASStore:
                        AND lease_epoch = ?
                        AND current_attempt_id = ?
                        AND status = 'RUNNING'
+                       AND (lease_expires_at IS NULL OR lease_expires_at >= ?)
                     """,
                     (
                         attempt_id,
@@ -302,25 +385,18 @@ class ExecutionCASStore:
                         execution_id,
                         lease_epoch,
                         attempt_id,
+                        ts,
                     ),
                 )
                 if cur.rowcount == 0:
-                    existing = conn.execute(
-                        "SELECT status, lease_epoch, winning_attempt_id FROM executions WHERE execution_id = ?",
-                        (execution_id,),
-                    ).fetchone()
                     conn.execute(
                         "UPDATE attempts SET sealed_file_id = ?, commit_outcome = 'REJECTED_409' WHERE attempt_id = ?",
                         (sealed_file_id, attempt_id),
                     )
                     conn.execute("COMMIT;")
-                    detail = (
-                        f"unknown execution '{execution_id}'"
-                        if existing is None
-                        else f"status={existing['status']}, current_epoch={existing['lease_epoch']}, winner={existing['winning_attempt_id']}"
-                    )
                     raise StaleLeaseConflictError(
-                        f"CAS rejected for attempt '{attempt_id}' (epoch={lease_epoch}): {detail}"
+                        f"CAS rejected for attempt '{attempt_id}' (epoch={lease_epoch}): "
+                        f"status={cur_row['status']}, current_epoch={cur_row['lease_epoch']}, winner={cur_row['winning_attempt_id']}"
                     )
 
                 conn.execute(
@@ -328,58 +404,61 @@ class ExecutionCASStore:
                     (sealed_file_id, attempt_id),
                 )
                 conn.execute("COMMIT;")
-                return CommitReceipt(
-                    execution_id=execution_id,
-                    status="COMMITTED",
-                    winning_attempt_id=attempt_id,
-                    winning_sealed_file_id=sealed_file_id,
-                    lease_epoch=lease_epoch,
-                )
             except Exception:
                 if conn.in_transaction:
                     conn.execute("ROLLBACK;")
                 raise
 
+        if self.drive_verifier is not None and self.commits_snapshot_folder_id is not None:
+            receipt_doc = {
+                "schema": "mrnax.commit_receipt.v1",
+                "execution_id": execution_id,
+                "submission_id": cur_row["submission_id"],
+                "request_digest": cur_row["request_digest"],
+                "intent_id": cur_row["intent_id"],
+                "winning_attempt_id": attempt_id,
+                "lease_epoch": lease_epoch,
+                "winning_sealed_file_id": sealed_file_id,
+                "winning_sealed_sha256": sealed_sha256,
+                "committed_at": ts,
+            }
+            self.drive_verifier.upload_verified_bytes(
+                self.commits_snapshot_folder_id,
+                f"COMMIT_RECEIPT_{execution_id}.json",
+                (json.dumps(receipt_doc, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+                mime_type="application/json",
+            )
+
+        return CommitReceipt(
+            execution_id=execution_id,
+            status="COMMITTED",
+            winning_attempt_id=attempt_id,
+            winning_sealed_file_id=sealed_file_id,
+            lease_epoch=lease_epoch,
+        )
+
     def reconcile_from_drive_seals(self, drive: DriveRestV3Client, runs_root_id: str) -> int:
-        """Disaster recovery: rebuild COMMITTED execution records directly from Drive SEALED.json manifests."""
+        """Disaster recovery: restore COMMITTED rows ONLY from authoritative Control Plane COMMIT_RECEIPT snapshots
+        when `commits_snapshot_folder_id` is configured; never promote uncommitted worker seals over RUNNING tasks."""
         reconciled = 0
-        exec_folders = [
-            f for f in drive.transport.list_children(parent_id=runs_root_id)
-            if f.get("mimeType") == DRIVE_FOLDER_MIME
-        ]
-        for ef in exec_folders:
-            exec_id = str(ef["name"])
-            attempts_dirs = [
-                c for c in drive.transport.list_children(parent_id=str(ef["id"]), name_exact="attempts")
-                if c.get("mimeType") == DRIVE_FOLDER_MIME
+        if self.commits_snapshot_folder_id is not None:
+            receipt_files = [
+                f
+                for f in drive.transport.list_children(parent_id=self.commits_snapshot_folder_id)
+                if str(f.get("name", "")).startswith("COMMIT_RECEIPT_")
             ]
-            if not attempts_dirs:
-                continue
-            att_folders = [
-                a for a in drive.transport.list_children(parent_id=str(attempts_dirs[0]["id"]))
-                if a.get("mimeType") == DRIVE_FOLDER_MIME
-            ]
-            best_seal: tuple[int, str, str, str] | None = None  # (epoch, attempt_id, seal_fid, sha256)
-            for af in att_folders:
-                seal_files = drive.transport.list_children(parent_id=str(af["id"]), name_exact="SEALED.json")
-                for sf in seal_files:
-                    raw = drive.transport.download_bytes(str(sf["id"]))
-                    doc = json.loads(raw.decode("utf-8"))
-                    epoch = int(doc["lease_epoch"])
-                    att_id = str(doc["attempt_id"])
-                    import hashlib
-
-                    sha = hashlib.sha256(raw).hexdigest()
-                    if best_seal is None or epoch > best_seal[0]:
-                        best_seal = (epoch, att_id, str(sf["id"]), sha)
-
-            if best_seal is not None:
-                epoch, att_id, seal_fid, sha = best_seal
-                ts = time.time()
+            for rf in receipt_files:
+                doc = json.loads(drive.transport.download_bytes(str(rf["id"])).decode("utf-8"))
+                exec_id = str(doc["execution_id"])
+                epoch = int(doc["lease_epoch"])
+                att_id = str(doc["winning_attempt_id"])
+                seal_fid = str(doc["winning_sealed_file_id"])
+                sha = str(doc["winning_sealed_sha256"])
+                ts = float(doc.get("committed_at", time.time()))
                 with self._connect() as conn:
                     conn.execute("BEGIN IMMEDIATE;")
                     existing = conn.execute(
-                        "SELECT status FROM executions WHERE execution_id = ?", (exec_id,)
+                        "SELECT status, lease_epoch FROM executions WHERE execution_id = ?", (exec_id,)
                     ).fetchone()
                     if existing is None:
                         conn.execute(
@@ -388,12 +467,24 @@ class ExecutionCASStore:
                                 execution_id, submission_id, request_digest, intent_id,
                                 status, lease_epoch, current_attempt_id, winning_attempt_id,
                                 winning_sealed_file_id, winning_sealed_sha256, created_at, updated_at
-                            ) VALUES (?, ?, 'reconciled_from_drive', 'reconciled', 'COMMITTED', ?, ?, ?, ?, ?, ?, ?)
+                            ) VALUES (?, ?, ?, ?, 'COMMITTED', ?, ?, ?, ?, ?, ?, ?)
                             """,
-                            (exec_id, f"reconciled_{exec_id}", epoch, att_id, att_id, seal_fid, sha, ts, ts),
+                            (
+                                exec_id,
+                                str(doc.get("submission_id", f"reconciled_{exec_id}")),
+                                str(doc.get("request_digest", "reconciled")),
+                                str(doc.get("intent_id", "reconciled")),
+                                epoch,
+                                att_id,
+                                att_id,
+                                seal_fid,
+                                sha,
+                                ts,
+                                ts,
+                            ),
                         )
                         reconciled += 1
-                    elif existing["status"] != "COMMITTED":
+                    elif existing["status"] != "COMMITTED" and epoch >= int(existing["lease_epoch"]):
                         conn.execute(
                             """
                             UPDATE executions
@@ -409,4 +500,53 @@ class ExecutionCASStore:
                         )
                         reconciled += 1
                     conn.execute("COMMIT;")
+            return reconciled
+
+        # Legacy cold-DB bootstrap when no separate commits folder configured (ONLY inserts missing rows, never overrides RUNNING)
+        exec_folders = [
+            f for f in drive.transport.list_children(parent_id=runs_root_id)
+            if f.get("mimeType") == DRIVE_FOLDER_MIME
+        ]
+        for ef in exec_folders:
+            exec_id = str(ef["name"])
+            with self._connect() as conn:
+                if conn.execute("SELECT 1 FROM executions WHERE execution_id = ?", (exec_id,)).fetchone():
+                    continue
+            attempts_dirs = [
+                c for c in drive.transport.list_children(parent_id=str(ef["id"]), name_exact="attempts")
+                if c.get("mimeType") == DRIVE_FOLDER_MIME
+            ]
+            if not attempts_dirs:
+                continue
+            att_folders = [
+                a for a in drive.transport.list_children(parent_id=str(attempts_dirs[0]["id"]))
+                if a.get("mimeType") == DRIVE_FOLDER_MIME
+            ]
+            best_seal: tuple[int, str, str, str] | None = None
+            for af in att_folders:
+                for sf in drive.transport.list_children(parent_id=str(af["id"]), name_exact="SEALED.json"):
+                    raw = drive.transport.download_bytes(str(sf["id"]))
+                    doc = json.loads(raw.decode("utf-8"))
+                    epoch = int(doc["lease_epoch"])
+                    att_id = str(doc["attempt_id"])
+                    sha = hashlib.sha256(raw).hexdigest()
+                    if best_seal is None or epoch > best_seal[0]:
+                        best_seal = (epoch, att_id, str(sf["id"]), sha)
+            if best_seal is not None:
+                epoch, att_id, seal_fid, sha = best_seal
+                ts = time.time()
+                with self._connect() as conn:
+                    conn.execute("BEGIN IMMEDIATE;")
+                    conn.execute(
+                        """
+                        INSERT INTO executions (
+                            execution_id, submission_id, request_digest, intent_id,
+                            status, lease_epoch, current_attempt_id, winning_attempt_id,
+                            winning_sealed_file_id, winning_sealed_sha256, created_at, updated_at
+                        ) VALUES (?, ?, 'reconciled_from_drive', 'reconciled', 'COMMITTED', ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (exec_id, f"reconciled_{exec_id}", epoch, att_id, att_id, seal_fid, sha, ts, ts),
+                    )
+                    conn.execute("COMMIT;")
+                    reconciled += 1
         return reconciled

@@ -1,0 +1,15 @@
+# AGENTS.md — mRNAx v2 Engineering & Multi-Agent Operating Charter
+
+## 1. Mission & The Two Principal Contradictions (80% Focus)
+`mRNAx v2` is an industrial-grade, Clean-Room commercial-ready Agentic RNA Sequence Design Platform built from scratch. Never waste compute, time, or context on trivial cosmetic minutiae. Anchor every decision on the **Two Principal Contradictions**:
+1. **Scientific Kernel**: Rigorous hypothesis mining & deduplicated pre-registered falsification (`verified_rule | conditional_rule | disproven_blacklist | insufficient_evidence`), multi-paradigm sequence/structure co-optimization (`research_max` -> `commercial_clean` smooth replacement), and drug-grade scoped hard gates (`target_scopes` shared identically across inner-loop generation, hard filtering, and export).
+2. **Deterministic, High-Precision Agent / Harness**: Multi-provider BYO-LLM + CLI/SDK/REST/MCP unified atomic tools (`mrnax_core`), strict amino-acid & lock inheritance, untrusted external text sandboxing, deterministic `action_transparency` (never LLM-invented), and statistically honest dual-speed wet-lab feedback ($N=2$ switches project reference only with zero weight tuning + verbatim `disambiguation_chimera`; $N \ge 6$ unlocks isolated calibration proposals still requiring held-out verification).
+
+## 2. Hard Non-Negotiables
+- **Clean-Room Four-Tier Licensing**: Strictly enforce `commercial_clean`, `commercial_clearance_pending`, `needs_vendor_license`, `research_only`, and `quarantine_reference`. Block non-commercial/copyleft/unapproved assets and BioNTech family `51220548` segmented poly(A) genus (`>=20A + non-A linker + >=20A`) in `commercial_clean`.
+- **Zero Data/Model Loss & Zero Mac Bloat**: Never use `drive.mount` FUSE for checkpoints. Persist checkpoints and artifacts via Google Drive REST API v3 with verified `md5Checksum` + per-attempt `SEALED.json` *before* Control Plane `CommitAttempt` CAS (`SQLite WAL synchronous=FULL`). Stream heavy datasets (`GSE114002`, model weights) on Colab/VPS NVMe; always terminate ephemeral Colab sessions (`colab sessions` -> 0 idle VMs).
+- **Zero Secret Leakage**: API keys reside exclusively in `~/.mrnax/secrets.env` (`chmod 0600`) outside Git. Redact key patterns on every log/transcript sink.
+
+## 3. High-Agency Problem Solving & Multi-Agent Orchestration
+- **Route Around Obstacles Immediately**: If one path stalls (e.g., false-positive safety filters on clinical vaccine strings in subagent prompts, CLI silence timeouts, or missing vendor licenses), reframe immediately: keep prompts focused on non-clinical reporter constructs (`eGFP`) and file pointers rather than inlining raw biological sequence blobs in LLM chat, stream progress heartbeats on `stderr`, or record explicit `UNCOMPARABLE_MISSING_APPROVED_COMPONENT` gates.
+- **Cross-Model Delegation**: Leverage `codex exec` (`gpt-6.2-sol` / `gpt-6.2-astra`) for adversarial code & contract audits, `uv` Python scripts for deterministic NCBI/UniProt/Drive data processing, and Colab/VPS workers for heavy compute.

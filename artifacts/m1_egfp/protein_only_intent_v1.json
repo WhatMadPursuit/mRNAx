@@ -1,6 +1,22 @@
 {
   "blocking_questions": [],
-  "cell_expression_control": null,
+  "cell_expression_control": {
+    "detarget_tissues": [
+      "liver_hepatocyte"
+    ],
+    "min_stop_offset_nt": 15,
+    "mirna_copy_range": [
+      2,
+      4
+    ],
+    "protected_tissues": [
+      "skeletal_muscle"
+    ],
+    "spacer_nt_range": [
+      8,
+      16
+    ]
+  },
   "co_translational_slowdown_codons": [],
   "compliance_track": "research_max",
   "constraints": [
@@ -25,9 +41,9 @@
       "source_locator": "mrnax:safety:homopolymer_v1",
       "source_type": "system_safety_gate",
       "target_scopes": [
+        "three_prime_utr",
         "five_prime_utr",
         "stop_cassette",
-        "three_prime_utr",
         "cds"
       ]
     },
@@ -50,9 +66,9 @@
       "source_locator": "mrnax:ivt:t7_terminator_v1",
       "source_type": "system_safety_gate",
       "target_scopes": [
+        "three_prime_utr",
         "five_prime_utr",
         "stop_cassette",
-        "three_prime_utr",
         "cds"
       ]
     },
@@ -67,9 +83,9 @@
       "source_locator": "mrnax:safety:dsrna_loopback_v1",
       "source_type": "system_safety_gate",
       "target_scopes": [
-        "inter_chain",
         "full_transcript",
-        "three_prime_terminal"
+        "three_prime_terminal",
+        "inter_chain"
       ]
     },
     {
@@ -93,7 +109,7 @@
     "turn_01"
   ],
   "entry_mode": "protein_only",
-  "intent_id": "int_b1b7db74",
+  "intent_id": "int_c8c7d3f1",
   "intent_version": 1,
   "locked_scopes": {
     "protein_sequence": {
@@ -115,7 +131,7 @@
       "metric_id": "kozak_unpaired_prob",
       "priority_rank": 1,
       "requirement_id": "obj_5p_initiation_openness",
-      "source_utterance": "\u4ece\u96f6\u8bbe\u8ba1\u975e\u4e34\u5e8a\u54fa\u4e73\u52a8\u7269\u62a5\u544a\u86cb\u767d eGFP \u7ebf\u6027 mRNA\uff1b\u86cb\u767d\u6c28\u57fa\u9178\u5e8f\u5217 100% \u4e0d\u53d8\uff1bm1Psi \u5316\u5b66\u4fee\u9970\uff1b\u907f\u5f00 BsaI \u4f4d\u70b9\uff1bresearch_max \u6863",
+      "source_utterance": "\u4ece\u96f6\u8bbe\u8ba1\u975e\u4e34\u5e8a\u54fa\u4e73\u52a8\u7269\u62a5\u544a\u86cb\u767d eGFP \u7ebf\u6027 mRNA\uff1a\u86cb\u767d\u6c28\u57fa\u9178\u5e8f\u5217 100% \u4e0d\u53d8\uff0cm1Psi \u5316\u5b66\u4fee\u9970\uff0c\u5f00\u542f\u809d\u810f\u53bb\u9776\u5411\uff0c\u907f\u5f00 BsaI \u4f4d\u70b9\uff0cresearch_max \u6863",
       "target_band": null
     },
     {
@@ -124,7 +140,7 @@
       "metric_id": "cds_mean_window_mfe",
       "priority_rank": 2,
       "requirement_id": "obj_cds_local_stability",
-      "source_utterance": "\u4ece\u96f6\u8bbe\u8ba1\u975e\u4e34\u5e8a\u54fa\u4e73\u52a8\u7269\u62a5\u544a\u86cb\u767d eGFP \u7ebf\u6027 mRNA\uff1b\u86cb\u767d\u6c28\u57fa\u9178\u5e8f\u5217 100% \u4e0d\u53d8\uff1bm1Psi \u5316\u5b66\u4fee\u9970\uff1b\u907f\u5f00 BsaI \u4f4d\u70b9\uff1bresearch_max \u6863",
+      "source_utterance": "\u4ece\u96f6\u8bbe\u8ba1\u975e\u4e34\u5e8a\u54fa\u4e73\u52a8\u7269\u62a5\u544a\u86cb\u767d eGFP \u7ebf\u6027 mRNA\uff1a\u86cb\u767d\u6c28\u57fa\u9178\u5e8f\u5217 100% \u4e0d\u53d8\uff0cm1Psi \u5316\u5b66\u4fee\u9970\uff0c\u5f00\u542f\u809d\u810f\u53bb\u9776\u5411\uff0c\u907f\u5f00 BsaI \u4f4d\u70b9\uff0cresearch_max \u6863",
       "target_band": null
     }
   ],

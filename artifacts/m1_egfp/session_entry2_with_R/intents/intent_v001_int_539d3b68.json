@@ -1,0 +1,175 @@
+{
+  "blocking_questions": [],
+  "cell_expression_control": null,
+  "co_translational_slowdown_codons": [],
+  "compliance_track": "research_max",
+  "constraints": [
+    {
+      "constraint_kind": "uaug_free",
+      "params": {},
+      "requirement_id": "gate_uaug_5utr",
+      "severity": "hard_gate",
+      "source_locator": "mrnax:safety:uaug_v1",
+      "source_type": "system_safety_gate",
+      "target_scopes": [
+        "five_prime_utr"
+      ]
+    },
+    {
+      "constraint_kind": "homopolymer_max",
+      "params": {
+        "max_run": 7
+      },
+      "requirement_id": "gate_homopolymer_max",
+      "severity": "hard_gate",
+      "source_locator": "mrnax:safety:homopolymer_v1",
+      "source_type": "system_safety_gate",
+      "target_scopes": [
+        "three_prime_utr",
+        "five_prime_utr",
+        "stop_cassette",
+        "cds"
+      ]
+    },
+    {
+      "constraint_kind": "m1psi_slippery_free",
+      "params": {},
+      "requirement_id": "gate_m1psi_frameshift",
+      "severity": "hard_gate",
+      "source_locator": "doi:10.1038/s41586-023-06800-3 (Mulroney et al. 2024)",
+      "source_type": "system_safety_gate",
+      "target_scopes": [
+        "cds"
+      ]
+    },
+    {
+      "constraint_kind": "t7_class2_terminator_free",
+      "params": {},
+      "requirement_id": "gate_t7_terminator",
+      "severity": "hard_gate",
+      "source_locator": "mrnax:ivt:t7_terminator_v1",
+      "source_type": "system_safety_gate",
+      "target_scopes": [
+        "three_prime_utr",
+        "five_prime_utr",
+        "stop_cassette",
+        "cds"
+      ]
+    },
+    {
+      "constraint_kind": "dsrna_and_3p_loopback",
+      "params": {
+        "loopback_3p_bp": 10,
+        "max_perfect_stem_bp": 25
+      },
+      "requirement_id": "gate_dsrna_and_loopback",
+      "severity": "hard_gate",
+      "source_locator": "mrnax:safety:dsrna_loopback_v1",
+      "source_type": "system_safety_gate",
+      "target_scopes": [
+        "full_transcript",
+        "three_prime_terminal",
+        "inter_chain"
+      ]
+    },
+    {
+      "constraint_kind": "type_iis_restriction_free",
+      "params": {
+        "enzymes": [
+          "BspQI"
+        ],
+        "forbidden_motifs": []
+      },
+      "requirement_id": "gate_type_iis_restriction",
+      "severity": "hard_gate",
+      "source_locator": "mrnax:ivt:linearization_enzymes_v1",
+      "source_type": "user_explicit",
+      "target_scopes": [
+        "full_transcript"
+      ]
+    }
+  ],
+  "created_from_turn_ids": [
+    "turn_r1"
+  ],
+  "entry_mode": "protein_with_reference_r",
+  "intent_id": "int_539d3b68",
+  "intent_version": 1,
+  "locked_scopes": {
+    "protein_sequence": {
+      "locked_at_turn_id": "turn_r1",
+      "locked_value": "MVSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPTLVTTLTYGVQCFSRYPDHMKQHDFFKSAMPEGYVQERTIFFKDDGNYKTRAEVKFEGDTLVNRIELKGIDFKEDGNILGHKLEYNYNSHNVYIMADKQKNGIKVNFKIRHNIEDGSVQLADHYQQNTPIGDGPVLLPDNHYLSTQSALSKDPNEKRDHMVLLEFVTAAGITLGMDELYK",
+      "reason": "100% amino-acid identity lock",
+      "scope": "protein_sequence"
+    }
+  },
+  "mutable_scopes": [
+    "five_prime_utr",
+    "cds",
+    "three_prime_utr"
+  ],
+  "objectives": [
+    {
+      "direction": "maximize",
+      "evidence_status": "thermodynamic_proxy",
+      "metric_id": "kozak_unpaired_prob",
+      "priority_rank": 1,
+      "requirement_id": "obj_5p_initiation_openness",
+      "source_utterance": "\u86cb\u767d\u4fdd\u6301\u4e0d\u53d8\u3002\u6211\u66f4\u770b\u91cd\u540e\u671f\u4fe1\u53f7\u3002\u7ed9\u6211\u4e00\u4e2a\u5bb9\u6613\u548c\u65e7\u6570\u636e\u6bd4\u8f83\u7684\u65b9\u6848\uff0c\u518d\u7ed9\u4e00\u4e2a\u503c\u5f97\u63a2\u7d22\u7684\u65b9\u6848\u3002",
+      "target_band": null
+    },
+    {
+      "direction": "minimize",
+      "evidence_status": "thermodynamic_proxy",
+      "metric_id": "cds_mean_window_mfe",
+      "priority_rank": 2,
+      "requirement_id": "obj_cds_local_stability",
+      "source_utterance": "\u86cb\u767d\u4fdd\u6301\u4e0d\u53d8\u3002\u6211\u66f4\u770b\u91cd\u540e\u671f\u4fe1\u53f7\u3002\u7ed9\u6211\u4e00\u4e2a\u5bb9\u6613\u548c\u65e7\u6570\u636e\u6bd4\u8f83\u7684\u65b9\u6848\uff0c\u518d\u7ed9\u4e00\u4e2a\u503c\u5f97\u63a2\u7d22\u7684\u65b9\u6848\u3002",
+      "target_band": null
+    },
+    {
+      "direction": "maximize",
+      "evidence_status": "unverified_target_for_wetlab",
+      "metric_id": "late_timepoint_protein_auc",
+      "priority_rank": 1,
+      "requirement_id": "obj_late_protein_persistence",
+      "source_utterance": "\u86cb\u767d\u4fdd\u6301\u4e0d\u53d8\u3002\u6211\u66f4\u770b\u91cd\u540e\u671f\u4fe1\u53f7\u3002\u7ed9\u6211\u4e00\u4e2a\u5bb9\u6613\u548c\u65e7\u6570\u636e\u6bd4\u8f83\u7684\u65b9\u6848\uff0c\u518d\u7ed9\u4e00\u4e2a\u503c\u5f97\u63a2\u7d22\u7684\u65b9\u6848\u3002",
+      "target_band": null
+    }
+  ],
+  "parent_intent_id": null,
+  "portfolio_tracks": [
+    "minimal_change_vs_r",
+    "exploratory_pareto"
+  ],
+  "project_id": "proj_m1_egfp_entry2",
+  "protein_targets": [
+    {
+      "accession_or_source": "GenBank:U55762.1",
+      "confirmation_status": "confirmed",
+      "entry_version": "AAB02572.1",
+      "has_signal_peptide": false,
+      "is_secreted_or_membrane": false,
+      "protein_sequence": "MVSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPTLVTTLTYGVQCFSRYPDHMKQHDFFKSAMPEGYVQERTIFFKDDGNYKTRAEVKFEGDTLVNRIELKGIDFKEDGNILGHKLEYNYNSHNVYIMADKQKNGIKVNFKIRHNIEDGSVQLADHYQQNTPIGDGPVLLPDNHYLSTQSALSKDPNEKRDHMVLLEFVTAAGITLGMDELYK",
+      "transl_table": 1
+    }
+  ],
+  "reference_bundle_id": "bnd_egfp_ref_R",
+  "runtime_policy": {
+    "allow_cached_candidates": false,
+    "budget_tier": "fast",
+    "enabled_evaluators": [
+      "viennarna_thermo"
+    ],
+    "enabled_generators": [
+      "stage0_random",
+      "dnachisel_cds",
+      "pareto_nsga2"
+    ],
+    "max_evaluations": 40,
+    "max_wall_seconds": 60.0,
+    "random_seed": 42
+  },
+  "status": "ready",
+  "uridine_chemistry": "m1psi"
+}

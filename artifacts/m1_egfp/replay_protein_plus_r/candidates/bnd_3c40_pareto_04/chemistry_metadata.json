@@ -1,0 +1,73 @@
+{
+  "bundle_id": "bnd_3c40_pareto_04",
+  "co_expression_mode": "single_monocistronic",
+  "coordinate_conventions": {
+    "fasta_cds_header": "0-based half-open start..end on full RNA transcript",
+    "insdc_genbank_feature_table": "1-based closed start..end",
+    "json_ir_segments_and_annotations": "0-based half-open [start, end)"
+  },
+  "derivation_action": "de_novo_design",
+  "files": {
+    "cds_only.fasta": {
+      "bytes": 762,
+      "sha256": "1047229452acee1086f7c78ca6842252ef4ceb63f923cfa1b69c91eb1fef266c"
+    },
+    "construct.gb": {
+      "bytes": 3965,
+      "sha256": "67929c327576513ba9b260dff7856afa63378789dad6874e94551aa6b3adc88b"
+    },
+    "full_rna.fasta": {
+      "bytes": 1032,
+      "sha256": "f64a9aad66498744e4c551cb6896bd7abd313975243a76c46aefa9517dd3aac3"
+    }
+  },
+  "fto_alerts": [],
+  "molecules": [
+    {
+      "chemistry_track": {
+        "cap_chemistry": "cap1_cleancap_ag",
+        "custom_modification_notes": null,
+        "source": "user_declared",
+        "uridine_chemistry": "m1psi"
+      },
+      "effective_translation_target": {
+        "accession_or_source": "GenBank:U55762.1",
+        "confirmation_status": "confirmed",
+        "entry_version": "AAB02572.1",
+        "has_signal_peptide": false,
+        "is_secreted_or_membrane": false,
+        "protein_sequence": "MVSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPTLVTTLTYGVQCFSRYPDHMKQHDFFKSAMPEGYVQERTIFFKDDGNYKTRAEVKFEGDTLVNRIELKGIDFKEDGNILGHKLEYNYNSHNVYIMADKQKNGIKVNFKIRHNIEDGSVQLADHYQQNTPIGDGPVLLPDNHYLSTQSALSKDPNEKRDHMVLLEFVTAAGITLGMDELYK",
+        "transl_table": 1
+      },
+      "modality": "linear_mrna",
+      "molecule_id": "mol_primary",
+      "topology": "linear"
+    }
+  ],
+  "parent_bundle_id": "bnd_egfp_ref_R",
+  "pre_synthesis_advisories": [
+    {
+      "advisory_id": "adv_cap_cleancap_ag",
+      "category": "cap_5prime_dinucleotide",
+      "message": "CleanCap AG typically initiates with 5'-AG (current transcript starts with 5'-AC); confirm T7 promoter +1/+2 initiation dinucleotide before IVT template synthesis.",
+      "transcript_coordinates": [
+        0,
+        2
+      ]
+    },
+    {
+      "advisory_id": "adv_utr3_pas_retained",
+      "category": "utr3_canonical_pas",
+      "message": "Endogenous AAUAAA present in 3'UTR (normal in human globin/housekeeping UTRs; non-blocking).",
+      "transcript_coordinates": [
+        859,
+        865
+      ]
+    }
+  ],
+  "schema": "mrnax.export_package.v1",
+  "target_stoichiometry": {
+    "mol_primary": 1.0
+  },
+  "version_digest": "b4306bacdde9b3f20f7ca4b29bfba7f92df9b10ecc3fcf8dcf7c09086e26573a"
+}

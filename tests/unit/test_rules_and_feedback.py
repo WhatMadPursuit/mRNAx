@@ -20,7 +20,7 @@ from mrnax.rules.tribunal import RuleRegistry, count_independent_dataset_votes
 from mrnax.schemas.construct_bundle import ProteinTargetSpec
 from mrnax.schemas.design_intent import DesignIntent, ObjectiveSpec, RuntimePolicySpec
 
-REPO_ROOT = Path("/Users/alex/.gemini/antigravity/scratch/mrnax-v2")
+REPO_ROOT = Path(__file__).resolve().parents[2]
 SEED_DIR = REPO_ROOT / "registry_seed"
 RC_CARD_PATH = REPO_ROOT / "docs" / "replacement_cards" / "RC-001-viennarna-v2.8.0.yaml"
 

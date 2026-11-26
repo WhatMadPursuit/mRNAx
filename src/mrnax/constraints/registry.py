@@ -15,9 +15,9 @@ from mrnax.constraints.sequence_gates import (
     check_uaug,
     collect_soft_advisories,
 )
-from mrnax.schemas.common import ComplianceProfile
+from mrnax.schemas.common import ComplianceProfile, UridineChemistry
 from mrnax.schemas.construct_bundle import ConstructBundle
-from mrnax.schemas.design_intent import ConstraintSpec
+from mrnax.schemas.design_intent import ConstraintSpec, LockedRegionSpec
 from mrnax.schemas.evaluation_report import AdvisoryNote, FailedCandidateDiagnostic, FTOAlert
 
 
@@ -119,9 +119,67 @@ class ScopedConstraintEngine:
         *,
         compliance_track: ComplianceProfile,
         candidate_ref: str | None = None,
+        expected_chemistry: UridineChemistry | None = None,
+        locked_scopes: dict[str, LockedRegionSpec] | None = None,
     ) -> ConstraintEvaluationOutcome:
         ref_id = candidate_ref or bundle.bundle_id
         violations: list[FailedCandidateDiagnostic] = []
+
+        # Enforce Clean-Room segment license provenance, expected chemistry, and explicit locked_scopes
+        for mol in bundle.molecules:
+            if expected_chemistry is not None and mol.chemistry_track.uridine_chemistry != expected_chemistry:
+                violations.append(
+                    FailedCandidateDiagnostic(
+                        candidate_ref=ref_id,
+                        violated_requirement_id="intent:chemistry_lock",
+                        violated_scope="full_transcript",
+                        transcript_coordinates=(0, len(mol.sequence)),
+                        reason=(
+                            f"Candidate uridine_chemistry '{mol.chemistry_track.uridine_chemistry}' "
+                            f"contradicts required intent chemistry '{expected_chemistry}'"
+                        ),
+                    )
+                )
+            for seg in mol.segments:
+                if compliance_track == "commercial_clean" and seg.license_track != "commercial_clean":
+                    violations.append(
+                        FailedCandidateDiagnostic(
+                            candidate_ref=ref_id,
+                            violated_requirement_id="clean_room:segment_license_track",
+                            violated_scope=seg.segment_type,
+                            transcript_coordinates=(seg.start, seg.end),
+                            reason=(
+                                f"Segment '{seg.segment_type}' has license_track='{seg.license_track}', "
+                                "which is forbidden in commercial_clean"
+                            ),
+                        )
+                    )
+            for scope_name, lock_spec in (locked_scopes or {}).items():
+                if scope_name == "protein_sequence":
+                    if mol.effective_translation_target.protein_sequence != lock_spec.locked_value:
+                        violations.append(
+                            FailedCandidateDiagnostic(
+                                candidate_ref=ref_id,
+                                violated_requirement_id="intent:lock:protein_sequence",
+                                violated_scope="cds",
+                                transcript_coordinates=(0, len(mol.sequence)),
+                                reason="Translated protein violates locked protein_sequence",
+                            )
+                        )
+                else:
+                    seg = mol.get_segment(scope_name)  # type: ignore[arg-type]
+                    actual_sub = "" if seg is None else mol.sequence[seg.start : seg.end]
+                    if actual_sub != lock_spec.locked_value:
+                        coords = (0, len(mol.sequence)) if seg is None else (seg.start, seg.end)
+                        violations.append(
+                            FailedCandidateDiagnostic(
+                                candidate_ref=ref_id,
+                                violated_requirement_id=f"intent:lock:{scope_name}",
+                                violated_scope=scope_name,  # type: ignore[arg-type]
+                                transcript_coordinates=coords,
+                                reason=f"Segment '{scope_name}' violates explicit user lock",
+                            )
+                        )
 
         for spec in constraints:
             kind = spec.constraint_kind

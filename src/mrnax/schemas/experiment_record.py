@@ -26,6 +26,13 @@ class ConstructObservation(FrozenSchemaModel):
     source_row_or_figure: str = Field(min_length=1)
     biological_replicates: list[BiologicalReplicate] = Field(min_length=1)
 
+    @model_validator(mode="after")
+    def _require_unique_bio_rep_ids(self) -> Self:
+        rep_ids = [b.bio_rep_id for b in self.biological_replicates]
+        if len(rep_ids) != len(set(rep_ids)):
+            raise ValueError("biological_replicates must have unique bio_rep_id identifiers")
+        return self
+
     @property
     def n_biological_replicates(self) -> int:
         return len(self.biological_replicates)
@@ -53,6 +60,7 @@ class FeedbackDecisionRecord(FrozenSchemaModel):
     new_reference_bundle_id: str | None = None
     retained_early_control_bundle_id: str | None = None
     weight_update_allowed: bool = False
+    held_out_validation_passed: bool = False
     isolated_calibration_proposal_id: str | None = None
     sequence_attribution_status: Literal[
         "single_region_resolved",
@@ -99,12 +107,13 @@ class ExperimentRecord(FrozenSchemaModel):
                 raise ValueError(
                     "draft_extraction records with unresolved ambiguity cannot switch reference or update weights"
                 )
-        if (
-            self.feedback_decision is not None
-            and self.feedback_decision.weight_update_allowed
-            and self.n_independent_constructs < 6
-        ):
-            raise ValueError(
-                f"weight_update_allowed must be False when independent constructs N={self.n_independent_constructs} < 6"
-            )
+        if self.feedback_decision is not None and self.feedback_decision.weight_update_allowed:
+            if self.n_independent_constructs < 6:
+                raise ValueError(
+                    f"weight_update_allowed must be False when independent constructs N={self.n_independent_constructs} < 6"
+                )
+            if not self.feedback_decision.held_out_validation_passed:
+                raise ValueError(
+                    "weight_update_allowed requires held_out_validation_passed=True on independent un-fitted candidates"
+                )
         return self

@@ -143,7 +143,7 @@ def test_fixed_pool_scorer_three_mode_replay_identity_ft14() -> None:
         scorer_fn=lambda b: float(b.molecules[0].get_segment_sequence("cds")[2::3].count("C")),
     )
     assert replay.baseline_ordered_ids == replay.display_only_ordered_ids
-    assert replay.honesty_banner == "本次未改善核心生成器"
+    assert replay.honesty_banner == "本次未改善生成器"
     assert len(replay.rank_participating_ordered_ids) == len(bundles)
 
 

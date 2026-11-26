@@ -1,10 +1,10 @@
 {
   "dialogue_turn_count": 2,
-  "dialogue_reply_1_excerpt": "已生成 6 个合格候选（10 个初始 → BsaI 硬门淘汰 4 个）。以下是结果汇总。\n\n## 序列来源（已验证快照）\n- **UniProt P42212**（Aequorea victoria，entry v196，CC-BY-4.0）\n- **GenBank U55762.1 / Protein AAB02572.1** — 哺乳动物报告用 eGFP（F64L、S65T、V2 Kozak 插入），**239 aa**\n- 本次设计使用 U55762.1 的 239 a",
-  "dialogue_reply_2_excerpt": "增量修改已完成（intent v2，父版本 int_b1b7db74，`inherited_locks: protein_sequence`）。\n\n## 继承与变更\n| 项目 | 状态 |\n|---|---|\n| eGFP U55762.1 蛋白序列（239 aa） | **锁定继承**，100% 不变 |\n| m1Psi 化学修饰 | 继承 |\n| research_max 档 | 继承 |\n| 线性化内切酶 | **BsaI → BspQI** |\n| detarget_",
+  "dialogue_reply_1_excerpt": "设计已完成。以下是结果汇总。\n\n## 输入溯源（已验证快照）\n- **蛋白来源**：U55762.1 / AAB02572.1（eGFP，F64L + S65T + V2 Kozak 插入），239 aa，源自 *Aequorea victoria* P42212（UniProt entry 196，CC-BY-4.0）\n- 设计时直接使用该快照的蛋白序列作为硬约束，**氨基酸序列 100% 不变**（仅做同义密码子优化）\n\n## 运行结果\n- Intent：`int_c8c",
+  "dialogue_reply_2_excerpt": "## 精修完成：BsaI → BspQI\n\n**Intent 版本链**：`int_c8c7d3f1` (v1) → `int_c6843a27` (v2)，`parent_intent_id` 已正确挂接。\n**继承锁定项**：`inherited_locks: [\"protein_sequence\"]` —— 蛋白序列锁定继承；m1Psi 化学、detarget_liver=true、research_max 档均按原约束沿用（未在本次调用中改动）。\n\n### 关键变化：",
   "intent_diff_v1_to_v2": {
-    "v1_id": "int_b1b7db74",
-    "v2_id": "int_59afa722",
+    "v1_id": "int_c8c7d3f1",
+    "v2_id": "int_c6843a27",
     "parent_intent_id_matches": true,
     "protein_lock_preserved": true,
     "chemistry_preserved": true,
@@ -14,7 +14,23 @@
     "v2_enzymes": [
       "BspQI"
     ],
-    "v1_cell_control": null,
+    "v1_cell_control": {
+      "detarget_tissues": [
+        "liver_hepatocyte"
+      ],
+      "protected_tissues": [
+        "skeletal_muscle"
+      ],
+      "mirna_copy_range": [
+        2,
+        4
+      ],
+      "spacer_nt_range": [
+        8,
+        16
+      ],
+      "min_stop_offset_nt": 15
+    },
     "v2_cell_control": {
       "detarget_tissues": [
         "liver_hepatocyte"
@@ -42,8 +58,8 @@
       "stage0_best_cds_mfe": -29.1111,
       "pareto_best_kozak": 0.593925,
       "pareto_best_cds_mfe": -29.1111,
-      "stage0_wall_sec": 1.3761,
-      "pareto_wall_sec": 8.453
+      "stage0_wall_sec": 1.0604,
+      "pareto_wall_sec": 7.085
     },
     {
       "seed": 101,
@@ -51,8 +67,8 @@
       "stage0_best_cds_mfe": -28.8667,
       "pareto_best_kozak": 0.616471,
       "pareto_best_cds_mfe": -29.0556,
-      "stage0_wall_sec": 1.4578,
-      "pareto_wall_sec": 9.0255
+      "stage0_wall_sec": 1.0802,
+      "pareto_wall_sec": 6.9962
     },
     {
       "seed": 2026,
@@ -60,8 +76,8 @@
       "stage0_best_cds_mfe": -28.7111,
       "pareto_best_kozak": 0.628945,
       "pareto_best_cds_mfe": -28.7111,
-      "stage0_wall_sec": 1.3775,
-      "pareto_wall_sec": 8.4044
+      "stage0_wall_sec": 1.1205,
+      "pareto_wall_sec": 7.1661
     }
   ],
   "two_tier_comparison": {

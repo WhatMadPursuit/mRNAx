@@ -1,20 +1,20 @@
 {
   "artifacts": [
     {
-      "bytes": 23827,
+      "bytes": 32732,
       "drive_file_id": null,
       "local_relpath": "evaluation_report.json",
       "logical_name": "evaluation_report",
-      "md5": "3f7cfbaf484aa41147bc7e3319abc22f",
-      "sha256": "0df99073212a7a9a9c58d9bc77c1fa4dba61402c34c86bc047fa8489a3ce9898"
+      "md5": "c89401ab909cfaace15b7584780b230c",
+      "sha256": "67de22ce7922572ea7932cfabebab358dc481b5c91bcf955f987431f768fe4e5"
     }
   ],
-  "attempt_id": "att_f8d650_001",
+  "attempt_id": "att_140f9a_001",
   "compliance_track": "research_max",
-  "execution_id": "exec_9b3989f8d650",
-  "git_commit_sha": "6c67212",
+  "execution_id": "exec_f753a0140f9a",
+  "git_commit_sha": "c396037",
   "honesty_banner": null,
-  "input_intent_digest": "833662de1504bf9ceca51da772831020045affd4fac0429c662cd25627ecbaea",
+  "input_intent_digest": "01c2c437259fc2c8242ecf972ad37256d781205f944108b06a96efb59fdafda2",
   "invoked_components": [
     {
       "attempt_count": 1,
@@ -25,7 +25,7 @@
       "name": "mRNAx Stage0 Synonymous Sampler",
       "role": "generator",
       "version": "0.1.0",
-      "wall_seconds": 0.00036,
+      "wall_seconds": 0.00041,
       "weights_license": "n/a"
     },
     {
@@ -37,7 +37,7 @@
       "name": "DNA Chisel",
       "role": "generator",
       "version": "3.2.16",
-      "wall_seconds": 0.01943,
+      "wall_seconds": 0.01877,
       "weights_license": "n/a"
     },
     {
@@ -49,7 +49,7 @@
       "name": "mRNAx Sliding-Window CDS-UTR Pareto Director",
       "role": "generator",
       "version": "0.1.0",
-      "wall_seconds": 2.10127,
+      "wall_seconds": 1.82191,
       "weights_license": "n/a"
     },
     {
@@ -61,7 +61,7 @@
       "name": "ViennaRNA",
       "role": "evaluator",
       "version": "2.8.0",
-      "wall_seconds": 5.78449,
+      "wall_seconds": 5.04582,
       "weights_license": "n/a"
     }
   ],
@@ -70,7 +70,7 @@
   "platform_info": "macOS-27.2.1-arm64-arm-64bit",
   "prng_state_digest": "a52169fac48aa2d80acadd41f776ce38656ab70adc3b32c80c1fb1f0ee56b71f",
   "python_version": "3.12.15",
-  "replay_cli_command": "uv run mrnax replay --intent-file intent_int_59afa722.json",
+  "replay_cli_command": "uv run mrnax replay --intent-file intent_int_c6843a27.json",
   "rule_snapshot_version": "rules_research_v1@1.0.0",
-  "submission_id": "sub_int_59afa722_v2"
+  "submission_id": "sub_int_c6843a27_v2"
 }

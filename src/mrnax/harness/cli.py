@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -64,11 +65,15 @@ def _cmd_replay(args: argparse.Namespace) -> int:
         encoding="utf-8",
     )
 
+    cand_root = out_dir / "candidates"
+    if cand_root.exists():
+        shutil.rmtree(cand_root)
+
     constraint_engine = ScopedConstraintEngine.from_seed_dir(seed_dir)
     exported_ids: list[str] = []
     for b in bundles:
         if b.bundle_id in report.recommended_bundle_ids:
-            pkg_dir = out_dir / "candidates" / b.bundle_id
+            pkg_dir = cand_root / b.bundle_id
             export_construct_package(
                 b,
                 pkg_dir,

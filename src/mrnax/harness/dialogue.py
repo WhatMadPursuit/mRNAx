@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 import httpx
@@ -10,6 +11,12 @@ import httpx
 from mrnax.harness.auth_secrets import PROVIDER_ENV_MAP, SecretVault
 from mrnax.harness.sandbox import validate_byo_llm_base_url
 from mrnax.harness.tools import AtomicToolbox
+
+_REDACT_KEY_RE = re.compile(r"\b(sk-[A-Za-z0-9._-]{16,300}|AIza[0-9A-Za-z_-]{31,45})\b")
+
+
+def redact_secrets_in_text(text: str) -> str:
+    return _REDACT_KEY_RE.sub("[REDACTED_API_KEY]", text)
 
 DEFAULT_PROVIDER_MODELS: dict[str, str] = {
     "deepseek": "deepseek-chat",
@@ -59,7 +66,7 @@ class LiveDialogueAgent:
                 f"No API key configured for provider '{self.provider}'; run `uv run mrnax auth set-key --provider {self.provider}`"
             )
 
-        self.messages.append({"role": "user", "content": user_text})
+        self.messages.append({"role": "user", "content": redact_secrets_in_text(user_text)})
         tools_spec = self.toolbox.openai_tool_schemas()
 
         with httpx.Client(timeout=90.0) as client:
@@ -114,17 +121,14 @@ class LiveDialogueAgent:
 
         p = Path(out_path)
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(
-            json.dumps(
-                {
-                    "provider": self.provider,
-                    "model": self.model,
-                    "messages": self.messages,
-                    "tool_call_trace": self.tool_call_trace,
-                },
-                indent=2,
-                ensure_ascii=False,
-            )
-            + "\n",
-            encoding="utf-8",
+        raw_json = json.dumps(
+            {
+                "provider": self.provider,
+                "model": self.model,
+                "messages": self.messages,
+                "tool_call_trace": self.tool_call_trace,
+            },
+            indent=2,
+            ensure_ascii=False,
         )
+        p.write_text(redact_secrets_in_text(raw_json) + "\n", encoding="utf-8")
