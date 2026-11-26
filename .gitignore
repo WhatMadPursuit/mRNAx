@@ -1,0 +1,36 @@
+# Byte-compiled / caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.superpowers/
+.venv/
+dist/
+build/
+*.egg-info/
+
+# Secrets & Credentials (STRICTLY FORBIDDEN IN GIT)
+.env
+.env.*
+*.pem
+*.key
+*credentials*.json
+*secret*.json
+*token*.json
+*oauth*.json
+
+# Local runtime databases & large biomedical data (Zero Repo/Mac Bloat)
+*.sqlite
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.db
+*.fastq
+*.fastq.gz
+*.bam
+*.tar
+*.tar.gz
+*.parquet
+artifacts/live_cloud_tmp/

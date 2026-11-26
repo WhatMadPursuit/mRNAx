@@ -1,0 +1,5 @@
+UniProt Database License & API Terms Notice
+Recorded UTC: 2026-11-26T18:16:30Z
+Terms URL: https://www.uniprot.org/help/license
+API Queries URL: https://www.uniprot.org/help/api_queries
+License: Creative Commons Attribution (CC BY 4.0) License.

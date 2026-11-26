@@ -1,0 +1,51 @@
+"""Schema 4: Reproducibility, Provenance & CAS Execution Record (`RunManifest`)."""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import Field
+
+from mrnax.schemas.common import ComplianceProfile, LicenseTrack
+from mrnax.schemas.construct_bundle import FrozenSchemaModel
+
+
+class ComponentInvocationRecord(FrozenSchemaModel):
+    name: str
+    version: str
+    role: Literal["generator", "evaluator", "ranker", "controller", "exporter"]
+    code_license: str
+    weights_license: str
+    data_license: str
+    license_track: LicenseTrack
+    wall_seconds: float = Field(ge=0.0)
+    attempt_count: int = Field(ge=0)
+    failure_count: int = Field(ge=0)
+
+
+class ArtifactChecksumRecord(FrozenSchemaModel):
+    logical_name: str
+    local_relpath: str
+    drive_file_id: str | None = None
+    sha256: str = Field(min_length=64, max_length=64)
+    md5: str = Field(min_length=32, max_length=32)
+    bytes: int = Field(ge=0)
+
+
+class RunManifest(FrozenSchemaModel):
+    submission_id: str = Field(min_length=1)
+    execution_id: str = Field(min_length=1)
+    attempt_id: str = Field(min_length=1)
+    lease_epoch: int = Field(ge=1)
+    git_commit_sha: str
+    python_version: str
+    platform_info: str
+    compliance_track: ComplianceProfile
+    invoked_components: list[ComponentInvocationRecord]
+    rule_snapshot_version: str
+    isolated_sandbox_override: bool = False
+    prng_state_digest: str
+    input_intent_digest: str
+    artifacts: list[ArtifactChecksumRecord]
+    replay_cli_command: str
+    honesty_banner: str | None = None
