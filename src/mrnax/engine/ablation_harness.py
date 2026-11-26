@@ -226,3 +226,83 @@ def run_three_way_upstream_attribution(
         upstream_seed_cost_seconds=round(upstream_elapsed, 4),
         mrnax_remaining_budget_seconds=round(remaining, 4),
     )
+
+
+@dataclass(frozen=True)
+class PairedSeedSurrogateSwitchRow:
+    seed: int
+    unguided_best_utr5_mrl: float
+    unguided_best_cds_stability: float
+    unguided_best_halflife: float
+    guided_best_utr5_mrl: float
+    guided_best_cds_stability: float
+    guided_best_halflife: float
+    unguided_wall_sec: float
+    guided_wall_sec: float
+
+
+def run_paired_seed_surrogate_switch_ablation(
+    intent: DesignIntent,
+    seeds: list[int],
+    *,
+    seed_dir: Path,
+) -> list[PairedSeedSurrogateSwitchRow]:
+    """Equal-budget paired-seed inner-loop switch ablation (surrogate OFF vs `surrogate_v1_clean` ON)."""
+    from mrnax.engine.pareto_director import run_design_pipeline
+    from mrnax.engine.surrogates import CommercialCleanSurrogateV1
+
+    surrogate = CommercialCleanSurrogateV1.from_seed_dir(seed_dir)
+    rows: list[PairedSeedSurrogateSwitchRow] = []
+
+    def _measure_pool(bundles: list[ConstructBundle]) -> tuple[float, float, float]:
+        if not bundles:
+            return 0.0, 0.0, 0.0
+        mrls = [float(surrogate.score_5utr_mrl([b.molecules[0].get_segment_sequence("five_prime_utr")])[0]) for b in bundles]
+        stabs = [float(surrogate.score_cds_stability([b.molecules[0].get_segment_sequence("cds")])[0]) for b in bundles]
+        hls = [
+            surrogate.score_consensus_halflife(
+                b.molecules[0].get_segment_sequence("five_prime_utr"),
+                b.molecules[0].get_segment_sequence("cds"),
+                b.molecules[0].get_segment_sequence("three_prime_utr"),
+            )
+            for b in bundles
+        ]
+        return round(max(mrls), 5), round(max(stabs), 5), round(max(hls), 5)
+
+    for sd in seeds:
+        pol_off = intent.runtime_policy.model_copy_validated(
+            random_seed=sd,
+            enabled_evaluators=[],
+        )
+        t0 = time.perf_counter()
+        bundles_off, _, _ = run_design_pipeline(
+            intent.model_copy_validated(runtime_policy=pol_off), seed_dir=seed_dir
+        )
+        dt_off = time.perf_counter() - t0
+
+        pol_on = intent.runtime_policy.model_copy_validated(
+            random_seed=sd,
+            enabled_evaluators=["surrogate_v1_clean"],
+        )
+        t1 = time.perf_counter()
+        bundles_on, _, _ = run_design_pipeline(
+            intent.model_copy_validated(runtime_policy=pol_on), seed_dir=seed_dir
+        )
+        dt_on = time.perf_counter() - t1
+
+        u_mrl, u_stab, u_hl = _measure_pool(bundles_off)
+        g_mrl, g_stab, g_hl = _measure_pool(bundles_on)
+        rows.append(
+            PairedSeedSurrogateSwitchRow(
+                seed=sd,
+                unguided_best_utr5_mrl=u_mrl,
+                unguided_best_cds_stability=u_stab,
+                unguided_best_halflife=u_hl,
+                guided_best_utr5_mrl=g_mrl,
+                guided_best_cds_stability=g_stab,
+                guided_best_halflife=g_hl,
+                unguided_wall_sec=round(dt_off, 4),
+                guided_wall_sec=round(dt_on, 4),
+            )
+        )
+    return rows

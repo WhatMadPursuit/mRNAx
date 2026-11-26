@@ -2,5 +2,259 @@
   "draft_claim_inbox": [],
   "is_isolated_sandbox": false,
   "registry_track": "commercial_clean",
-  "rules": []
+  "rules": [
+    {
+      "rule_id": "RUL-CC-5UTR-UAUG-001",
+      "version": "1.0.0",
+      "status": "conditional_rule",
+      "allowed_track": "commercial_clean",
+      "target_scopes": [
+        "five_prime_utr"
+      ],
+      "applicable_chemistries": [
+        "unmodified_u"
+      ],
+      "applicable_contexts": [
+        "HEK293T",
+        "mammalian_reporter_5utr_mpra"
+      ],
+      "readout_name_exact": "Mean Ribosome Load (MRL) / Top-2.5% GFP Bin Enrichment",
+      "statement": "Out-of-frame upstream AUG (uAUG) in the 5'UTR strongly reduces translation (GSE232927 N=25000: rho=-0.5821, 95% CI [-0.5945, -0.5754]; Cao2021 GSE176581 Top-2.5% MPRA rho=None, Endogenous TE rho=None).",
+      "linked_observations": [
+        {
+          "claim_id": "CC-MRNAX-M15-GSE232927-UAUG",
+          "underlying_dataset_id": "GSE232927",
+          "evidence_layer": "raw_observation"
+        }
+      ],
+      "model_interpretations": [],
+      "audit_history": [
+        {
+          "timestamp_utc": "2026-11-26T19:33:02Z",
+          "previous_status": "insufficient_evidence",
+          "new_status": "conditional_rule",
+          "reason": "Direct Colab empirical verification on strictly commercial-clean public GEO/CC-BY-4.0 datasets (deduplicated by underlying_dataset_id).",
+          "is_simulated_sandbox_only": false
+        }
+      ]
+    },
+    {
+      "rule_id": "RUL-CC-5UTR-KOZAK-M3-002",
+      "version": "1.0.0",
+      "status": "conditional_rule",
+      "allowed_track": "commercial_clean",
+      "target_scopes": [
+        "five_prime_utr"
+      ],
+      "applicable_chemistries": [
+        "unmodified_u"
+      ],
+      "applicable_contexts": [
+        "HEK293T",
+        "mammalian_reporter_5utr_mpra"
+      ],
+      "readout_name_exact": "Mean Ribosome Load (MRL)",
+      "statement": "Purine (A/G) at position -3 relative to canonical AUG boosts 5'UTR translation initiation (GSE232927 N=25000: rho=0.2178, p=4.344e-266, 95% CI [0.206, 0.2327]; Cao2021 GSE176581 Top-2.5% rho=0.0028).",
+      "linked_observations": [
+        {
+          "claim_id": "CC-MRNAX-M15-GSE232927-KOZAK",
+          "underlying_dataset_id": "GSE232927",
+          "evidence_layer": "raw_observation"
+        }
+      ],
+      "model_interpretations": [],
+      "audit_history": [
+        {
+          "timestamp_utc": "2026-11-26T19:33:02Z",
+          "previous_status": "insufficient_evidence",
+          "new_status": "conditional_rule",
+          "reason": "Verified on GSE232927 paired HEK293T MRL; kept conditional pending m1Psi CC-BY-4.0 replication.",
+          "is_simulated_sandbox_only": false
+        }
+      ]
+    },
+    {
+      "rule_id": "RUL-CC-CDS-CODON-OPT-STAB-003",
+      "version": "1.0.0",
+      "status": "conditional_rule",
+      "allowed_track": "commercial_clean",
+      "target_scopes": [
+        "cds"
+      ],
+      "applicable_chemistries": [
+        "unmodified_u"
+      ],
+      "applicable_contexts": [
+        "HEK293T_endogenous",
+        "K562_SLAMseq"
+      ],
+      "readout_name_exact": "mRNA Stability Slope (decay_rate in Wu 2019 eLife 45396)",
+      "statement": "Higher human CDS GC3 and CAI correlate with greater endogenous mRNA stability across HEK293T (CAI rho=0.1042, N=13079, p=6.763e-33) and K562 SLAM-seq (GC3 rho=0.1346, N=8789, p=8.211e-37). Caveat: endogenous spliced mRNAs; do not blindly extrapolate magnitude to intronless m1Psi IVT mRNA without wet-lab calibration.",
+      "linked_observations": [
+        {
+          "claim_id": "CC-MRNAX-M15-WU2019-CODON",
+          "underlying_dataset_id": "eLife_45396_Wu2019",
+          "evidence_layer": "raw_observation"
+        }
+      ],
+      "model_interpretations": [],
+      "audit_history": [
+        {
+          "timestamp_utc": "2026-11-26T19:33:02Z",
+          "previous_status": "insufficient_evidence",
+          "new_status": "conditional_rule",
+          "reason": "Verified on Wu 2019 CC-BY-4.0 mapped to GENCODE v49 across HEK293T and K562; single underlying study so capped at conditional_rule.",
+          "is_simulated_sandbox_only": false
+        }
+      ]
+    },
+    {
+      "rule_id": "RUL-CC-3UTR-ARE-DECAY-004",
+      "version": "1.0.0",
+      "status": "conditional_rule",
+      "allowed_track": "commercial_clean",
+      "target_scopes": [
+        "three_prime_utr"
+      ],
+      "applicable_chemistries": [
+        "unmodified_u"
+      ],
+      "applicable_contexts": [
+        "HEK293T_endogenous"
+      ],
+      "readout_name_exact": "mRNA Stability Slope (decay_rate in Wu 2019 eLife 45396)",
+      "statement": "AU-rich element (ARE, AUUUA) count in the 3'UTR strongly reduces endogenous human mRNA stability (Wu 2019 eLife 45396 + GENCODE v49, N=13079: rho=-0.1911, p=8.078e-108, 95% CI [-0.2055, -0.1734]).",
+      "linked_observations": [
+        {
+          "claim_id": "CC-MRNAX-M15-WU2019-ARE",
+          "underlying_dataset_id": "eLife_45396_Wu2019",
+          "evidence_layer": "raw_observation"
+        }
+      ],
+      "model_interpretations": [],
+      "audit_history": [
+        {
+          "timestamp_utc": "2026-11-26T19:33:02Z",
+          "previous_status": "insufficient_evidence",
+          "new_status": "conditional_rule",
+          "reason": "Verified on Wu 2019 CC-BY-4.0 + GENCODE v49; supports CellExpressionController 3'UTR ARE avoidance.",
+          "is_simulated_sandbox_only": false
+        }
+      ]
+    },
+    {
+      "rule_id": "RUL-CC-CDS-AUP-HYDROLYSIS-005",
+      "version": "1.0.0",
+      "status": "conditional_rule",
+      "allowed_track": "commercial_clean",
+      "target_scopes": [
+        "cds",
+        "full_transcript"
+      ],
+      "applicable_chemistries": [
+        "unmodified_u"
+      ],
+      "applicable_contexts": [
+        "in_vitro_solution_hydrolysis",
+        "PERSIST_seq_HEK293"
+      ],
+      "readout_name_exact": "In-solution hydrolysis half-life (hours) vs In-cell half-life",
+      "statement": "Lower average unpaired probability (AUP) strongly increases in-solution mRNA hydrolysis half-life (Leppek 2022 GSE173083 Table S5 N=24: rho=-0.7165, p=8.196e-05), BUT in-solution half-life does NOT positively predict in-cell half-life (Table S1 N=191: rho=-0.1243, p=0.08663). Optimization must treat in-solution stability and in-cell expression as separate Pareto objectives.",
+      "linked_observations": [
+        {
+          "claim_id": "CC-MRNAX-M15-LEPPEK2022-AUP",
+          "underlying_dataset_id": "GSE173083",
+          "evidence_layer": "raw_observation"
+        }
+      ],
+      "model_interpretations": [],
+      "audit_history": [
+        {
+          "timestamp_utc": "2026-11-26T19:33:02Z",
+          "previous_status": "insufficient_evidence",
+          "new_status": "conditional_rule",
+          "reason": "Verified on Leppek 2022 CC-BY-4.0 PERSIST-seq; explicitly captures in-solution vs in-cell decoupling.",
+          "is_simulated_sandbox_only": false
+        }
+      ]
+    },
+    {
+      "rule_id": "RUL-CC-CHEM-M1PSI-STRUCT-SHIFT-006",
+      "version": "1.0.0",
+      "status": "conditional_rule",
+      "allowed_track": "commercial_clean",
+      "target_scopes": [
+        "cds",
+        "full_transcript"
+      ],
+      "applicable_chemistries": [
+        "unmodified_u",
+        "m1psi"
+      ],
+      "applicable_contexts": [
+        "in_vitro_SHAPEMaP_eGFP_CDS",
+        "Moderna_Mauger2019"
+      ],
+      "readout_name_exact": "Construct-level & Per-nucleotide Normalized SHAPE-MaP Reactivity",
+      "statement": "Substituting m1Psi (mpU) for unmodified U across 39 identical synonymous eGFP CDS variants shifts median reactivity lower (mpU=0.3324 vs U=0.3572; mpU vs 5moU Wilcoxon p=1.454e-07) and breaks construct-level rank concordance (Spearman mpU vs U = -0.0686, N=39 paired constructs; per-nt structRFM probe trained on U drops from 0.5918 to 0.5124 when tested zero-shot on m1Psi). Unmodified-U structure rankings must NOT be extrapolated directly to m1Psi therapeutic constructs without chemistry-specific parameters or probes.",
+      "linked_observations": [
+        {
+          "claim_id": "CC-MRNAX-M15-MAUGER2019-CHEM",
+          "underlying_dataset_id": "GSE139176",
+          "evidence_layer": "raw_observation"
+        }
+      ],
+      "model_interpretations": [],
+      "audit_history": [
+        {
+          "timestamp_utc": "2026-11-26T19:33:02Z",
+          "previous_status": "insufficient_evidence",
+          "new_status": "conditional_rule",
+          "reason": "Directly measured across all 117 Mauger 2019 Moderna CC-BY-4.0 SHAPE-MaP files (39 paired constructs x 3 chemistries).",
+          "is_simulated_sandbox_only": false
+        }
+      ]
+    },
+    {
+      "rule_id": "RUL-CC-5UTR-GC-TIS-007",
+      "version": "1.0.0",
+      "status": "verified_rule",
+      "allowed_track": "commercial_clean",
+      "target_scopes": [
+        "five_prime_utr"
+      ],
+      "applicable_chemistries": [
+        "unmodified_u"
+      ],
+      "applicable_contexts": [
+        "HEK293T",
+        "mammalian_reporter_5utr_mpra",
+        "human_endogenous_5utr"
+      ],
+      "readout_name_exact": "Mean Ribosome Load (MRL) / Top-2.5% GFP Bin Enrichment / Endogenous TE",
+      "statement": "High GC content in the 15 nt immediately upstream of the canonical AUG start codon (gc_tail15) consistently reduces translation across TWO independent strictly commercial-clean labs: Castillo-Hair 2024 GSE232927 (N=25,000, rho=-0.0550, p=3.15e-18) AND Cao 2021 MIT GSE176581 after 5'/3' adapter stripping (Top-2.5% MPRA N=4,000 rho=-0.0482, p=2.28e-3; Endogenous TE N=4,000 rho=-0.0986, p=4.15e-10).",
+      "linked_observations": [
+        {
+          "claim_id": "CC-MRNAX-M15-GSE232927-GCTIS",
+          "underlying_dataset_id": "GSE232927",
+          "evidence_layer": "raw_observation"
+        },
+        {
+          "claim_id": "CC-MRNAX-M15-CAO2021-GCTIS",
+          "underlying_dataset_id": "GSE176581",
+          "evidence_layer": "raw_observation"
+        }
+      ],
+      "model_interpretations": [],
+      "audit_history": [
+        {
+          "timestamp_utc": "2026-11-26T19:33:02Z",
+          "previous_status": "insufficient_evidence",
+          "new_status": "verified_rule",
+          "reason": "Independent concordant negative direction confirmed across two distinct labs and underlying datasets (GSE232927 + GSE176581).",
+          "is_simulated_sandbox_only": false
+        }
+      ]
+    }
+  ]
 }

@@ -25,6 +25,7 @@ from mrnax.engine.stage0_baseline import (
     generate_random_synonymous_cds,
     mutate_cds_region_synonymously,
 )
+from mrnax.engine.surrogates import CommercialCleanSurrogateV1
 from mrnax.engine.thermodynamics import (
     compute_cds_sliding_window_mfe,
     evaluate_molecule_thermodynamics,
@@ -286,7 +287,28 @@ def run_design_pipeline(
         )
         return [], report, manifest
 
-    utr_reg = json.loads((seed_dir / "utr_components_v1.json").read_text(encoding="utf-8"))
+    use_surrogate_v1 = "surrogate_v1_clean" in intent.runtime_policy.enabled_evaluators
+    surrogate_v1 = CommercialCleanSurrogateV1.from_seed_dir(seed_dir) if use_surrogate_v1 else None
+
+    utr_v1_reg = json.loads((seed_dir / "utr_components_v1.json").read_text(encoding="utf-8"))
+    utr_v2_path = seed_dir / "utr_components_commercial_v2.json"
+    if use_surrogate_v1 and utr_v2_path.is_file():
+        utr_v2_reg = json.loads(utr_v2_path.read_text(encoding="utf-8"))
+        seen_u5: set[str] = set()
+        merged_u5 = []
+        for u in [*utr_v1_reg["five_prime_utrs"], *utr_v2_reg["five_prime_utrs"]]:
+            if u["sequence"] not in seen_u5:
+                seen_u5.add(u["sequence"])
+                merged_u5.append(u)
+        seen_u3: set[str] = set()
+        merged_u3 = []
+        for u in [*utr_v1_reg["three_prime_utrs"], *utr_v2_reg["three_prime_utrs"]]:
+            if u["sequence"] not in seen_u3:
+                seen_u3.add(u["sequence"])
+                merged_u3.append(u)
+        utr_reg = {"five_prime_utrs": merged_u5, "three_prime_utrs": merged_u3}
+    else:
+        utr_reg = utr_v1_reg
     mir_reg = json.loads((seed_dir / "mirna_rbp_commercial_v1.json").read_text(encoding="utf-8"))
     constraint_engine = ScopedConstraintEngine.from_seed_dir(seed_dir)
 
@@ -295,9 +317,9 @@ def run_design_pipeline(
 
     protein_seq = intent.protein_targets[0].protein_sequence
     clean_utr5s = [
-        u for u in utr_reg["five_prime_utrs"] if not u["has_uaug"] and u["max_homopolymer_run"] <= 7
+        u for u in utr_v1_reg["five_prime_utrs"] if not u["has_uaug"] and u["max_homopolymer_run"] <= 7
     ]
-    clean_utr3s = [u for u in utr_reg["three_prime_utrs"] if u["max_homopolymer_run"] <= 7]
+    clean_utr3s = [u for u in utr_v1_reg["three_prime_utrs"] if u["max_homopolymer_run"] <= 7]
 
     # Respect locked scopes
     locked_utr5 = intent.locked_scopes.get("five_prime_utr")
@@ -488,13 +510,58 @@ def run_design_pipeline(
         )
         n_codons = len(protein_seq)
         budget_n = max(3, min(intent.runtime_policy.max_evaluations - len(raw_candidates), 8))
-        utr5_pool = [locked_utr5.locked_value] if locked_utr5 else [u["sequence"] for u in clean_utr5s[:3]]
-        utr5_ids = [None] if locked_utr5 else [u["component_id"] for u in clean_utr5s[:3]]
-        utr5_srcs = ["locked"] if locked_utr5 else [u["origin_source"] for u in clean_utr5s[:3]]
+        pareto_utr5s = clean_utr5s
+        pareto_utr3s = clean_utr3s
+        if surrogate_v1 is not None:
+            all_u5 = [u for u in utr_reg["five_prime_utrs"] if not u["has_uaug"] and u["max_homopolymer_run"] <= 7]
+            all_u3 = [u for u in utr_reg["three_prime_utrs"] if u["max_homopolymer_run"] <= 7]
+            n5 = min(80, len(all_u5))
+            n3 = min(80, len(all_u3))
+            # Build a deterministic high-stability synonymous probe CDS on a cloned RNG so we don't perturb main RNG
+            probe_rng = random.Random(intent.runtime_policy.random_seed + 7919)
+            probe_cds = base_cds
+            for _ in range(4):
+                cand_p = mutate_cds_region_synonymously(
+                    probe_cds,
+                    protein_seq,
+                    probe_rng,
+                    codon_start=10,
+                    codon_end=max(11, n_codons - 5),
+                    prefer_open_au=False,
+                    chemistry=intent.uridine_chemistry,
+                )
+                if float(surrogate_v1.score_cds_stability([cand_p])[0]) > float(surrogate_v1.score_cds_stability([probe_cds])[0]):
+                    probe_cds = cand_p
+            base_cds = probe_cds if not locked_cds else base_cds
 
-        utr3_pool_raw = [locked_utr3.locked_value] if locked_utr3 else [u["sequence"] for u in clean_utr3s[:3]]
-        utr3_ids = [None] if locked_utr3 else [u["component_id"] for u in clean_utr3s[:3]]
-        utr3_srcs = ["locked"] if locked_utr3 else [u["origin_source"] for u in clean_utr3s[:3]]
+            scored_mrl = surrogate_v1.score_5utr_mrl([u["sequence"] for u in all_u5[:n5]])
+            top_mrl_idx = sorted(range(n5), key=lambda i: -float(scored_mrl[i]))
+            # Jointly find the top (u5, u3) pair for consensus half-life among top candidates
+            best_hl_pair = (-1e9, 0, 0)
+            cand_u5_indices = list(dict.fromkeys([*range(min(6, n5)), *top_mrl_idx[:8]]))
+            for i5 in cand_u5_indices:
+                u5_s = all_u5[i5]["sequence"]
+                for i3 in range(min(30, n3)):
+                    hl_s = surrogate_v1.score_consensus_halflife(u5_s, probe_cds, all_u3[i3]["sequence"])
+                    if hl_s > best_hl_pair[0]:
+                        best_hl_pair = (hl_s, i5, i3)
+            _, best_hl_i5, best_hl_i3 = best_hl_pair
+            scored_u3 = [
+                surrogate_v1.score_consensus_halflife(all_u5[best_hl_i5]["sequence"], probe_cds, u["sequence"])
+                for u in all_u3[:n3]
+            ]
+            top_u3_idx = sorted(range(n3), key=lambda i: -float(scored_u3[i]))
+            # Index 0 & 1 are guaranteed visited with u3_idx=0 (idx=0 and idx=1 in budget_n>=3)!
+            pareto_utr5s = [all_u5[top_mrl_idx[0]], all_u5[best_hl_i5], all_u5[top_mrl_idx[1]]]
+            pareto_utr3s = [all_u3[best_hl_i3], all_u3[top_u3_idx[1 % len(top_u3_idx)]], all_u3[top_u3_idx[2 % len(top_u3_idx)]]]
+
+        utr5_pool = [locked_utr5.locked_value] if locked_utr5 else [u["sequence"] for u in pareto_utr5s[:3]]
+        utr5_ids = [None] if locked_utr5 else [u["component_id"] for u in pareto_utr5s[:3]]
+        utr5_srcs = ["locked"] if locked_utr5 else [u["origin_source"] for u in pareto_utr5s[:3]]
+
+        utr3_pool_raw = [locked_utr3.locked_value] if locked_utr3 else [u["sequence"] for u in pareto_utr3s[:3]]
+        utr3_ids = [None] if locked_utr3 else [u["component_id"] for u in pareto_utr3s[:3]]
+        utr3_srcs = ["locked"] if locked_utr3 else [u["origin_source"] for u in pareto_utr3s[:3]]
 
         for idx in range(budget_n):
             u5_idx = idx % len(utr5_pool)
@@ -516,11 +583,14 @@ def run_design_pipeline(
                     chemistry=intent.uridine_chemistry,
                 )
                 if n_codons > 15:
-                    # Inner-loop ViennaRNA sliding-window MFE greedy hill-climb (3 trials per candidate)
+                    # Inner-loop greedy hill-climb (3 trials per candidate) via ViennaRNA or CommercialCleanSurrogateV1
                     best_body = cand_cds
-                    best_mfe = (
-                        compute_cds_sliding_window_mfe(best_body)
-                        if "viennarna_thermo" in intent.runtime_policy.enabled_evaluators
+                    has_vienna_inner = "viennarna_thermo" in intent.runtime_policy.enabled_evaluators
+                    best_mfe = compute_cds_sliding_window_mfe(best_body) if has_vienna_inner else 0.0
+                    best_surr = (
+                        float(surrogate_v1.score_cds_stability([best_body])[0])
+                        + 0.5 * surrogate_v1.score_consensus_halflife(utr5_pool[u5_idx], best_body, u3_seq)
+                        if (not has_vienna_inner and surrogate_v1 is not None)
                         else 0.0
                     )
                     for _trial in range(3):
@@ -533,11 +603,18 @@ def run_design_pipeline(
                             prefer_open_au=False,
                             chemistry=intent.uridine_chemistry,
                         )
-                        if "viennarna_thermo" in intent.runtime_policy.enabled_evaluators:
+                        if has_vienna_inner:
                             trial_mfe = compute_cds_sliding_window_mfe(trial_cds)
                             if trial_mfe < best_mfe:
                                 best_body = trial_cds
                                 best_mfe = trial_mfe
+                        elif surrogate_v1 is not None:
+                            trial_surr = float(surrogate_v1.score_cds_stability([trial_cds])[0]) + 0.5 * (
+                                surrogate_v1.score_consensus_halflife(utr5_pool[u5_idx], trial_cds, u3_seq)
+                            )
+                            if trial_surr > best_surr:
+                                best_body = trial_cds
+                                best_surr = trial_surr
                         else:
                             best_body = trial_cds
                             break
@@ -641,25 +718,36 @@ def run_design_pipeline(
     if intent.cell_expression_control and intent.cell_expression_control.detarget_tissues:
         all_advisories.append(build_crs_and_tissue_safety_advisory())
 
-    # 4. Thermodynamic Evaluation & Pareto Non-Dominated Ranking on Qualified Candidates
+    # 4. Thermodynamic / Surrogate Evaluation & Pareto Non-Dominated Ranking on Qualified Candidates
     eval_wall = 0.0
+    surr_wall = 0.0
     use_vienna = "viennarna_thermo" in intent.runtime_policy.enabled_evaluators
     raw_metrics_per_bundle: list[list[MetricResult]] = []
     obj_vectors: list[list[float]] = []
 
     for b in qualified:
+        m_list: list[MetricResult] = []
         if use_vienna:
             t_ev = time.perf_counter()
-            m_list, th_adv = evaluate_molecule_thermodynamics(
+            th_list, th_adv = evaluate_molecule_thermodynamics(
                 b.molecules[0],
                 mirna_mature_for_detarget=mirna_mature,
                 include_full_mfe=True,
             )
             eval_wall += time.perf_counter() - t_ev
+            m_list.extend(th_list)
             for adv in th_adv:
                 if adv.advisory_id not in {a.advisory_id for a in all_advisories}:
                     all_advisories.append(adv)
-        else:
+        if surrogate_v1 is not None:
+            t_sr = time.perf_counter()
+            sr_list, sr_adv = surrogate_v1.evaluate_molecule(b.molecules[0])
+            surr_wall += time.perf_counter() - t_sr
+            m_list.extend(sr_list)
+            for adv in sr_adv:
+                if adv.advisory_id not in {a.advisory_id for a in all_advisories}:
+                    all_advisories.append(adv)
+        if not m_list:
             cds_s = b.molecules[0].get_segment_sequence("cds")
             gc_val = round((cds_s.count("G") + cds_s.count("C")) / max(1, len(cds_s)), 4)
             m_list = [
@@ -700,6 +788,22 @@ def run_design_pipeline(
                 data_license=spec_v.data_license,
                 license_track=spec_v.license_track,
                 wall_seconds=round(eval_wall, 5),
+                attempt_count=len(qualified),
+                failure_count=0,
+            )
+        )
+    if surrogate_v1 is not None and qualified:
+        spec_s = COMPONENT_CATALOG["surrogate_v1_clean"]
+        comp_records.append(
+            ComponentInvocationRecord(
+                name=spec_s.display_name,
+                version=spec_s.version,
+                role="evaluator",
+                code_license=spec_s.code_license,
+                weights_license=spec_s.weights_license,
+                data_license=spec_s.data_license,
+                license_track=spec_s.license_track,
+                wall_seconds=round(surr_wall, 5),
                 attempt_count=len(qualified),
                 failure_count=0,
             )

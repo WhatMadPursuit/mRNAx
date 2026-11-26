@@ -1,0 +1,38 @@
+{
+  "package_name": "mRNAx_Wave4_Commercial_Clean_Registries_and_Saluki_Benchmark_v2",
+  "created_at_utc": "2026-11-26T19:56:41Z",
+  "commercial_tier": "commercial_clean",
+  "commercial_use_allowed": true,
+  "clean_room_attestation": {
+    "zero_gpl_code_or_weights": true,
+    "zero_noncommercial_models_or_datasets": true,
+    "zero_gse114002_contamination": true,
+    "note": "GSE114002 (gse114002_chem_mrl_pending.parquet) is physically isolated in 02b_commercial_clearance_pending/curated_pending_v1/ (15D-RwhZwXZrsRs4pOevR7RxUJt0MbZQI) and never used to train or rank any commercial_clean registry or model."
+  },
+  "sources": [
+    {
+      "asset": "GENCODE v49 pc_transcripts.fa.gz",
+      "license": "Public domain / unrestricted"
+    },
+    {
+      "asset": "Agarwal & Kelley 2022 Saluki (saluki_paper + Zenodo 6326409)",
+      "license": "Apache-2.0 (code/repo) + CC-BY-4.0 (Zenodo 6326409)"
+    },
+    {
+      "asset": "Cao et al. 2021 MIT GSE176581",
+      "license": "CC-BY-4.0"
+    },
+    {
+      "asset": "Wu et al. 2019 Stowers eLife 45396",
+      "license": "CC-BY-4.0"
+    },
+    {
+      "asset": "miRBase Release 23.1 mature.fa",
+      "license": "Public Domain"
+    },
+    {
+      "asset": "RIKEN FANTOM5 Human sRNA/miRNA Atlas (De Rie et al. 2017)",
+      "license": "CC-BY-4.0"
+    }
+  ]
+}

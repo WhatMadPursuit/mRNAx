@@ -61,6 +61,26 @@ COMPONENT_CATALOG: dict[str, ComponentLicenseSpec] = {
         data_license="Turner 2004 nearest-neighbor parameters",
         license_track="needs_vendor_license",
     ),
+    "surrogate_v1_clean": ComponentLicenseSpec(
+        component_id="surrogate_v1_clean",
+        display_name="mRNAx Commercial-Clean Axis-Routed Surrogate v1",
+        version="1.5.0",
+        role="evaluator",
+        code_license="Proprietary (mRNAx Clean-Room)",
+        weights_license="Proprietary Clean-Room LightGBM (zero ViennaRNA labels)",
+        data_license="GSE232927 + eLife 45396 Wu2019 + Agarwal&Kelley2022 Saluki (CC-BY-4.0 / Apache-2.0)",
+        license_track="commercial_clean",
+    ),
+    "structrfm_mit_probe": ComponentLicenseSpec(
+        component_id="structrfm_mit_probe",
+        display_name="structRFM Base Foundation Encoder + Chemistry-Specific SHAPE-MaP Probes",
+        version="0.0.9",
+        role="evaluator",
+        code_license="MIT License (heqin-zhu/structRFM via Apache-2.0 HuggingFace transformers; zero BPfold)",
+        weights_license="MIT License (Zenodo 16754363 MD5 e572a7781a8099ff45692fcd46f83043)",
+        data_license="RNAcentral (MIT deposit) + Mauger2019 Moderna SHAPE-MaP (CC-BY-4.0)",
+        license_track="commercial_clean",
+    ),
 }
 
 

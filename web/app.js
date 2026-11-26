@@ -147,9 +147,26 @@ function renderCandidates() {
     const tr = document.createElement("tr");
     if (c.bundle_id === state.selectedBundleId) tr.classList.add("selected-row");
     const m = c.metrics || {};
-    const kozak = m.kozak_unpaired_prob != null ? Number(m.kozak_unpaired_prob).toFixed(4) : "—";
-    const mfe = m.cds_mean_window_mfe != null ? `${Number(m.cds_mean_window_mfe).toFixed(2)}` : "—";
-    const mir = m.mirna_3p_dg_total != null ? `${Number(m.mirna_3p_dg_total).toFixed(2)}` : "—";
+    const kozak =
+      m.kozak_unpaired_prob != null
+        ? Number(m.kozak_unpaired_prob).toFixed(4)
+        : m.utr5_mrl_pred != null
+        ? `MRL ${Number(m.utr5_mrl_pred).toFixed(2)}`
+        : "—";
+    const mfe =
+      m.cds_mean_window_mfe != null
+        ? `${Number(m.cds_mean_window_mfe).toFixed(2)}`
+        : m.cds_stability_pred != null
+        ? `Stab ${Number(m.cds_stability_pred).toFixed(3)}`
+        : "—";
+    const mir =
+      m.mirna_rnaplfold_dg_total != null
+        ? `${Number(m.mirna_rnaplfold_dg_total).toFixed(2)}`
+        : m.mirna_3p_dg_total != null
+        ? `${Number(m.mirna_3p_dg_total).toFixed(2)}`
+        : m.consensus_halflife_pred != null
+        ? `HL ${Number(m.consensus_halflife_pred).toFixed(2)}`
+        : "—";
     const star = recSet.has(c.bundle_id) ? "★ " : "";
     tr.innerHTML = `
       <td class="mono">${esc(star + c.bundle_id)}</td>
@@ -278,7 +295,7 @@ function applyTurnResult(res, userText) {
     `<div>指令：<em>${esc(userText)}</em> → 状态 <code>${esc(outcome)}</code></div>${diffHtml}${llmReplyHtml}`
   );
 
-  ["quick-refine-bspqi", "quick-refine-lock-cds", "quick-refine-commercial"].forEach((id) => {
+  ["quick-refine-bspqi", "quick-refine-lock-cds", "quick-refine-m15-surrogate", "quick-refine-commercial"].forEach((id) => {
     document.getElementById(id).disabled = false;
   });
 
@@ -617,6 +634,16 @@ function wireEvents() {
       mode: "refine",
       user_utterance: `锁定当前候选 ${state.selectedBundleId} 的 CDS 核苷酸序列，仅允许重配 UTR`,
       lock_cds_from_bundle_id: state.selectedBundleId,
+    });
+  });
+
+  document.getElementById("quick-refine-m15-surrogate").addEventListener("click", () => {
+    document.getElementById("sel-profile").value = "commercial_clean";
+    runRefineTurn({
+      mode: "refine",
+      user_utterance: "启用 M1.5 商用洁净分轴代理裁判团 (surrogate_v1_clean: 5'UTR MRL + CDS 稳定度 + Saluki 共识半衰期，零 ViennaRNA)",
+      compliance_track: "commercial_clean",
+      use_commercial_surrogate: true,
     });
   });
 

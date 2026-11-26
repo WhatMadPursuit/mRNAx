@@ -1,0 +1,142 @@
+{
+  "schema": "mrnax.m15_ood_scorecard.v1",
+  "drive_curated_benchmarks_folder_id": "1ORULrQfMmE64o478k5WrDJI2xOqv-Q4Z",
+  "clean_room_compliance": "100% commercial_clean (zero GPL, zero NC, zero ViennaRNA training labels)",
+  "parquet_provenance": {
+    "gse232927_5utr_mrl_paired.parquet": {
+      "bytes": 10202786,
+      "sha256": "d2da1725c9a2f26c49859f66183dd30dd423428f8f27c1cfd7fb51812215adce"
+    },
+    "cao2021_5utr_mpra.parquet": {
+      "bytes": 2197240,
+      "sha256": "274487f1a50f214092d38d9aa5facb8ef177a2b268af2519df82399107a5e704"
+    },
+    "wu2019_human_codon_stability.parquet": {
+      "bytes": 24433596,
+      "sha256": "4821f7d6f13e5309bb36c7f49e32434ba546868f84aca2e9e1e5d0c84137a899"
+    },
+    "leppek2022_persist_233.parquet": {
+      "bytes": 138331,
+      "sha256": "4e4055955f71045dbee82848e4a9299cae48695499d24ce5dd365ca321165fe5"
+    },
+    "leppek2022_cds24_kinetics.parquet": {
+      "bytes": 34951,
+      "sha256": "a23fffcd5fa45c2a46687b0d4211e4d7e3495ded612571220083de4a0b3c29d6"
+    },
+    "mauger2019_moderna_shapemap_summary.parquet": {
+      "bytes": 57658,
+      "sha256": "06ae8b694a49d4c20a15a8c907b21267431419d8f065bbce4e8a37bdbb0bfe9e"
+    },
+    "saluki_human_consensus_halflife_v1.parquet": {
+      "bytes": 23842634,
+      "sha256": "886522dc1e61ad70a85147091063414ce7c2a16a6a27e9ee0d1b1324c256bf18"
+    }
+  },
+  "five_lab_plus_saluki_ood_metrics": {
+    "Lab1_GSE232927_HEK293T_5UTR_MRL_6k": {
+      "n": 6000,
+      "n_unique_groups": 707,
+      "ood_spearman": 0.6832,
+      "ood_pearson": 0.7782,
+      "top10_precision": 0.2583,
+      "replicate_r1_vs_r2_spearman_ceiling": 0.7417,
+      "fraction_of_replicate_ceiling": 0.9211
+    },
+    "Lab2_Cao2021_MIT_GSE176581_Endogenous_TE": {
+      "n": 4000,
+      "adapter_stripped_median_utr_nt": 100,
+      "gc_tail15_vs_endogenous_te_spearman": -0.0986,
+      "gc_tail15_vs_endogenous_te_pvalue": 4.1466e-10,
+      "supports_verified_rule": "RUL-CC-5UTR-GC-TIS-007"
+    },
+    "Lab3_Wu2019_K562_SLAMseq_4k_OOD": {
+      "n": 4000,
+      "n_unique_groups": 2181,
+      "ood_spearman": 0.3911,
+      "ood_pearson": 0.3449,
+      "top10_precision": 0.2625
+    },
+    "Lab4_Leppek2022_PERSISTseq_GSE173083": {
+      "n_persist_paired": 191,
+      "insolution_vs_incell_halflife_spearman": -0.1243,
+      "insolution_vs_incell_pvalue": 0.08663,
+      "n_cds24": 24,
+      "aup_vs_insolution_halflife_spearman": -0.7165,
+      "aup_vs_insolution_pvalue": 8.196e-05,
+      "supports_conditional_rule": "RUL-CC-CDS-AUP-HYDROLYSIS-005"
+    },
+    "Lab5_Mauger2019_Moderna_SHAPEMaP_GSE139176": {
+      "n_paired_constructs": 39,
+      "median_reactivity_U": 0.3605,
+      "median_reactivity_m1Psi_mpU": 0.3363,
+      "construct_mean_reactivity_spearman_U_vs_m1Psi": -0.0686,
+      "construct_median_reactivity_spearman_U_vs_m1Psi": 0.3308,
+      "supports_conditional_rule": "RUL-CC-CHEM-M1PSI-STRUCT-SHIFT-006",
+      "l4_gpu_structrfm_mit_per_nt_shapemap": {
+        "U": {
+          "n_constructs": 39,
+          "n_valid_nucleotides": 68531,
+          "vienna_rnaplfold_zeroshot_global_spearman": 0.4517,
+          "vienna_rnaplfold_per_construct_median_spearman": 0.4492,
+          "structrfm_mit_ood_global_spearman": 0.5858,
+          "structrfm_mit_ood_per_construct_median_spearman": 0.5997,
+          "delta_structrfm_minus_vienna_global": 0.1341
+        },
+        "moU": {
+          "n_constructs": 39,
+          "n_valid_nucleotides": 68225,
+          "vienna_rnaplfold_zeroshot_global_spearman": 0.4098,
+          "vienna_rnaplfold_per_construct_median_spearman": 0.4129,
+          "structrfm_mit_ood_global_spearman": 0.5964,
+          "structrfm_mit_ood_per_construct_median_spearman": 0.5967,
+          "delta_structrfm_minus_vienna_global": 0.1866
+        },
+        "mpU": {
+          "n_constructs": 39,
+          "n_valid_nucleotides": 68291,
+          "vienna_rnaplfold_zeroshot_global_spearman": 0.4142,
+          "vienna_rnaplfold_per_construct_median_spearman": 0.4128,
+          "structrfm_mit_ood_global_spearman": 0.5918,
+          "structrfm_mit_ood_per_construct_median_spearman": 0.5947,
+          "delta_structrfm_minus_vienna_global": 0.1776
+        },
+        "cross_chemistry_transfer_spearman": {
+          "train_U_to_test_moU": 0.5866,
+          "train_U_to_test_mpU": 0.5124,
+          "train_moU_to_test_U": 0.5796,
+          "train_moU_to_test_mpU": 0.4633,
+          "train_mpU_to_test_U": 0.5145,
+          "train_mpU_to_test_moU": 0.4662
+        }
+      }
+    },
+    "Wave4_Saluki_Human_Consensus_HalfLife_4k_OOD": {
+      "n": 4000,
+      "n_unique_groups": 2267,
+      "ood_spearman": 0.5391,
+      "ood_pearson": 0.5437,
+      "top10_precision": 0.3325
+    }
+  },
+  "l4_gpu_structrfm_telemetry": {
+    "gpu_name": "NVIDIA L4",
+    "gpu_total_gb": 22.03,
+    "torch_version": "2.14.1+cu130",
+    "cuda_version": "13.0",
+    "checkpoint_dir": "checkpoints/structRFM_checkpoint",
+    "checkpoint_md5": "e572a7781a8099ff45692fcd46f83043",
+    "all_checkpoints_in_tar": [
+      "checkpoints/splice_site_prediction/structRFM_for_SPL",
+      "checkpoints/structRFM_checkpoint"
+    ],
+    "hidden_size": 768,
+    "layers": 12,
+    "heads": 12,
+    "max_length": 514,
+    "throughput_100nt_seq_per_sec": 1439.7,
+    "latency_100nt_ms_per_seq": 0.69,
+    "peak_vram_mb_bs64_100nt": 1094.1,
+    "gpu_determinism_max_abs_diff": 0.0,
+    "gpu_determinism_pass_le_1e3": true
+  }
+}

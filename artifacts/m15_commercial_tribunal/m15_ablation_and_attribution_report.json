@@ -1,0 +1,82 @@
+{
+  "schema": "mrnax.m15_ablation_attribution.v1",
+  "validated_commercial_rules_count": 7,
+  "validated_replacement_card": "RC-002-STRUCTRFM-0.0.9-MIT",
+  "pure_rerank_three_arm_replay": {
+    "scorer_name": "surrogate_v1_composite",
+    "baseline_ordered_ids": [
+      "bnd_ebad_stage0_ref",
+      "bnd_ebad_dnachisel",
+      "bnd_ebad_pareto_01",
+      "bnd_ebad_pareto_02",
+      "bnd_ebad_pareto_03",
+      "bnd_ebad_pareto_04",
+      "bnd_ebad_pareto_05",
+      "bnd_ebad_pareto_06",
+      "bnd_ebad_pareto_07",
+      "bnd_ebad_pareto_08"
+    ],
+    "display_only_ordered_ids": [
+      "bnd_ebad_stage0_ref",
+      "bnd_ebad_dnachisel",
+      "bnd_ebad_pareto_01",
+      "bnd_ebad_pareto_02",
+      "bnd_ebad_pareto_03",
+      "bnd_ebad_pareto_04",
+      "bnd_ebad_pareto_05",
+      "bnd_ebad_pareto_06",
+      "bnd_ebad_pareto_07",
+      "bnd_ebad_pareto_08"
+    ],
+    "baseline_equals_display_only_100pct": true,
+    "rank_participating_ordered_ids": [
+      "bnd_ebad_pareto_06",
+      "bnd_ebad_pareto_04",
+      "bnd_ebad_pareto_05",
+      "bnd_ebad_pareto_07",
+      "bnd_ebad_pareto_08",
+      "bnd_ebad_pareto_03",
+      "bnd_ebad_pareto_02",
+      "bnd_ebad_stage0_ref",
+      "bnd_ebad_pareto_01",
+      "bnd_ebad_dnachisel"
+    ],
+    "order_changed_in_group3": true,
+    "generator_improvement_statement": "本次未改善生成器"
+  },
+  "equal_budget_paired_seed_switch_ablation": [
+    {
+      "seed": 42,
+      "unguided_best_utr5_mrl": 6.3515,
+      "unguided_best_cds_stability": 0.03157,
+      "unguided_best_halflife": 8.46709,
+      "guided_best_utr5_mrl": 6.53277,
+      "guided_best_cds_stability": 0.02813,
+      "guided_best_halflife": 8.50545,
+      "unguided_wall_sec": 0.0379,
+      "guided_wall_sec": 3.2453
+    },
+    {
+      "seed": 101,
+      "unguided_best_utr5_mrl": 6.3515,
+      "unguided_best_cds_stability": 0.02627,
+      "unguided_best_halflife": 7.05436,
+      "guided_best_utr5_mrl": 6.53277,
+      "guided_best_cds_stability": 0.03548,
+      "guided_best_halflife": 8.93009,
+      "unguided_wall_sec": 0.0407,
+      "guided_wall_sec": 3.304
+    },
+    {
+      "seed": 2026,
+      "unguided_best_utr5_mrl": 6.3515,
+      "unguided_best_cds_stability": 0.0376,
+      "unguided_best_halflife": 6.87604,
+      "guided_best_utr5_mrl": 6.53277,
+      "guided_best_cds_stability": 0.03399,
+      "guided_best_halflife": 7.98128,
+      "unguided_wall_sec": 0.0392,
+      "guided_wall_sec": 3.2704
+    }
+  ]
+}

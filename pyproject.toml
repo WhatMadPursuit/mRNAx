@@ -22,11 +22,20 @@ dependencies = [
     "uvicorn>=0.30.0",
     "python-dotenv>=1.0.1",
     "pypdf>=5.0.0",
+    "joblib>=1.4.0",
+    "scikit-learn==1.6.1",
+    "lightgbm>=4.5.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.3.0",
+    "pandas>=2.2.0",
+    "pyarrow>=17.0.0",
+]
+gpu = [
+    "torch>=2.4.0",
+    "transformers>=4.44.0",
 ]
 
 [project.scripts]

@@ -1,0 +1,9 @@
+[Unit]
+Description=mRNAx v2 Lightweight Periodic Stage & Health Check
+After=mrnax-gateway.service
+
+[Service]
+Type=oneshot
+User=mrnax-svc
+Group=mrnax-svc
+ExecStart=/usr/bin/curl -fsS -X POST http://127.0.0.1:18080/v1/webhooks/stage-check -o /dev/null

@@ -213,7 +213,14 @@ def _serialize_candidate_card(bundle: ConstructBundle, eval_map: dict[str, Any])
         "length_nt": len(mol.sequence),
         "full_gc_pct": full_gc,
         "uridine_chemistry": mol.chemistry_track.uridine_chemistry,
-        "metrics": ev.metrics if ev is not None else {},
+        "metrics": (
+            {m.metric_id: m.value for m in ev.metrics if m.value is not None}
+            if ev is not None
+            else {}
+        ),
+        "metric_details": (
+            [m.model_dump(mode="json") for m in ev.metrics] if ev is not None else []
+        ),
         "pareto_rank": ev.pareto_rank if ev is not None else 1,
         "passed_all_hard_gates": ev.passed_all_hard_gates if ev is not None else True,
         "segments": segs,
@@ -255,6 +262,7 @@ class ProjectTurnRequest(BaseModel):
     prioritize_late_signal: bool = False
     conflicting_single_pick: bool = False
     use_preset_reference_r: bool = False
+    use_commercial_surrogate: bool = False
     custom_reference_rna_sequence: str | None = None
     random_seed: int = Field(default=42, ge=0, le=2_147_483_647)
 
@@ -339,6 +347,36 @@ def create_control_plane_app(
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.post("/v1/webhooks/stage-check")
+    def trigger_lightweight_stage_check(request: Request) -> dict[str, Any]:
+        """Ultra-lightweight (<40ms, zero heavy CPU/RAM) periodic stage & SQLite WAL integrity check."""
+        _enforce_rate_limit(request, max_per_min=30)
+        with store._connect() as conn:
+            quick_ok = conn.execute("PRAGMA quick_check;").fetchone()[0]
+            exec_cnt = conn.execute("SELECT COUNT(*) FROM executions;").fetchone()[0]
+        comm_rules_doc = json.loads((resolved_seed / "rules_commercial_v1.json").read_text(encoding="utf-8"))
+        proj_cnt = sum(1 for p in resolved_projects.iterdir() if p.is_dir()) if resolved_projects.is_dir() else 0
+        receipt = {
+            "checked_at_epoch": round(time.time(), 3),
+            "hostname": socket.gethostname(),
+            "sqlite_quick_check": str(quick_ok),
+            "sqlite_executions_count": int(exec_cnt),
+            "active_projects_count": int(proj_cnt),
+            "commercial_rules_loaded": len(comm_rules_doc.get("rules", [])),
+            "surrogate_v1_present": (resolved_seed / "surrogate_v1" / "utr5_mrl_pure_seq_lgbm.joblib").is_file(),
+            "status": "PASS" if str(quick_ok).lower() == "ok" else "DEGRADED",
+        }
+        out_path = store.db_path.parent / "latest_stage_check.json"
+        out_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        return receipt
+
+    @app.get("/v1/webhooks/stage-check/latest")
+    def get_latest_stage_check() -> dict[str, Any]:
+        out_path = store.db_path.parent / "latest_stage_check.json"
+        if not out_path.is_file():
+            return {"status": "NOT_RUN_YET"}
+        return json.loads(out_path.read_text(encoding="utf-8"))
 
     @app.get("/v1/system/status")
     def system_status(
@@ -501,6 +539,40 @@ def create_control_plane_app(
             )
 
         diff = _compute_intent_diff(prev_intent, intent)
+        if req.use_commercial_surrogate:
+            from mrnax.schemas.design_intent import ObjectiveSpec
+
+            intent = intent.model_copy_validated(
+                objectives=[
+                    ObjectiveSpec(
+                        requirement_id="obj_utr5_mrl_cc",
+                        metric_id="utr5_mrl_pred",
+                        direction="maximize",
+                        priority_rank=1,
+                        evidence_status="validated_predictor",
+                        source_utterance=req.user_utterance,
+                    ),
+                    ObjectiveSpec(
+                        requirement_id="obj_cds_stab_cc",
+                        metric_id="cds_stability_pred",
+                        direction="maximize",
+                        priority_rank=2,
+                        evidence_status="validated_predictor",
+                        source_utterance=req.user_utterance,
+                    ),
+                    ObjectiveSpec(
+                        requirement_id="obj_tx_hl_cc",
+                        metric_id="consensus_halflife_pred",
+                        direction="maximize",
+                        priority_rank=2,
+                        evidence_status="validated_predictor",
+                        source_utterance=req.user_utterance,
+                    ),
+                ],
+                runtime_policy=intent.runtime_policy.model_copy_validated(
+                    enabled_evaluators=["surrogate_v1_clean"]
+                ),
+            )
         if intent.status != "ready":
             return {
                 "status": "NEEDS_CLARIFICATION",
@@ -655,6 +727,46 @@ def create_control_plane_app(
             return asdict(store.get_execution(execution_id))
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/v1/webhooks/stage-check")
+    def trigger_lightweight_stage_check(request: Request) -> dict[str, Any]:
+        """Ultra-lightweight (<50ms) periodic timer / webhook health & CAS integrity check for low-spec VPS."""
+        _enforce_rate_limit(request, max_per_min=30)
+        import shutil as _shutil
+
+        with store._connect() as conn:
+            sqlite_check = str(conn.execute("PRAGMA quick_check;").fetchone()[0])
+            exec_total = int(conn.execute("SELECT COUNT(*) FROM executions;").fetchone()[0])
+
+        disk_usage = _shutil.disk_usage(str(store.db_path.parent))
+        rules_cc_path = resolved_seed / "rules_commercial_v1.json"
+        rules_cc_count = (
+            len(json.loads(rules_cc_path.read_text(encoding="utf-8")).get("rules", []))
+            if rules_cc_path.is_file()
+            else 0
+        )
+        receipt = {
+            "checked_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "hostname": socket.gethostname(),
+            "sqlite_quick_check": sqlite_check,
+            "executions_count": exec_total,
+            "projects_count": sum(1 for p in resolved_projects.iterdir() if p.is_dir()),
+            "commercial_clean_rules_loaded": rules_cc_count,
+            "free_disk_gb": round(disk_usage.free / (1024**3), 2),
+            "status": "PASS" if sqlite_check == "ok" and rules_cc_count >= 7 else "WARN",
+        }
+        (store.db_path.parent / "latest_stage_check.json").write_text(
+            json.dumps(receipt, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        return receipt
+
+    @app.get("/v1/webhooks/stage-check/latest")
+    def get_latest_stage_check() -> dict[str, Any]:
+        fp = store.db_path.parent / "latest_stage_check.json"
+        if not fp.is_file():
+            return {"status": "NO_CHECK_RECORDED_YET"}
+        return json.loads(fp.read_text(encoding="utf-8"))
 
     return app
 

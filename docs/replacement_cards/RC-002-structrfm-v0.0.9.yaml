@@ -1,0 +1,56 @@
+card_id: "RC-002-STRUCTRFM-0.0.9-MIT"
+component_id: "structrfm_rna_foundation"
+component_name_and_version: "structRFM base pretrained BERT (PyPI v0.0.9 / Zenodo 16754363 checkpoints/structRFM_checkpoint, MIT)"
+role_in_pipeline: >
+  Commercial-clean MIT-licensed RNA structure-guided foundation encoder (12-layer BERT, dim=768, max_length=514,
+  loaded natively via HuggingFace AutoTokenizer/BertForMaskedLM with ZERO BPfold/GPL dependencies). Provides both
+  sequence-level representations (5'UTR/CDS translation & stability probes) and per-nucleotide hidden states
+  for chemistry-specific SHAPE reactivity prediction (U, 5moU, m1Psi) without ViennaRNA redistribution conflict.
+current_license_track: "commercial_clean"
+code_rights_basis: >
+  Official repository https://github.com/heqin-zhu/structRFM and PyPI structRFM==0.0.9 are licensed under MIT License
+  (Copyright 2025 Heqin Zhu). Inference in mRNAx loads model.safetensors directly through Apache-2.0 HuggingFace transformers
+  without importing BPfold.
+weights_rights_basis: >
+  Zenodo record 16754363 (doi:10.5281/zenodo.16754363) checkpoints.tar.gz (2,244,264,123 bytes, verified MD5
+  e572a7781a8099ff45692fcd46f83043) is explicitly licensed under MIT License.
+training_and_parameter_data_rights_basis: >
+  Pretrained by upstream authors on RNAcentral sequences and secondary structure connects (Zenodo 16754363 MIT deposit);
+  downstream mRNAx probes trained exclusively on strictly commercial-clean CC-BY-4.0 / public-GEO datasets (GSE232927,
+  GSE176581, eLife 45396, GSE173083, GSE139176). Zero ViennaRNA labels used in commercial_clean probes.
+runtime_dependency_rights_basis: >
+  Standard PyTorch (2.14.1+cu130, BSD-3-Clause) + HuggingFace transformers (Apache-2.0) + scikit-learn (BSD-3-Clause)
+  + joblib (BSD-3-Clause); zero GPL/AGPL or non-commercial dependencies.
+derived_assets_clean_room_rule: >
+  All downstream probes and fine-tuned checkpoints built on structRFM remain commercial_clean provided training labels
+  originate solely from CC0/CC-BY-4.0/public-GEO or proprietary wet-lab assays and exclude ViennaRNA-distilled labels
+  and non-commercial datasets/models (RiboNN, CodonBERT, GEMORNA, UTR-LM GPL).
+commercial_replacement_paths:
+  - "Primary Commercial-Clean Backbone: Keep structRFM base (MIT) with chemistry-specific LoRA/Ridge heads for M1.5-M4."
+  - "Long-Context Upgrade (M4): Evaluate MIT Orthrus v1.0.0 (once official HF/Zenodo weight provenance clears) or fine-tuned Saluki (Apache-2.0 / CC-BY-4.0) for >512 nt full-transcript context."
+frozen_benchmark_dataset_and_protocol: >
+  Frozen 5-Lab Commercial-Clean OOD Suite v1 (Drive 1ORULrQfMmE64o478k5WrDJI2xOqv-Q4Z): strict GroupKFold OOD evaluation
+  across GSE232927 (5'UTR MRL), Cao2021 GSE176581 (100-nt 5'UTR MPRA & endogenous TE), Wu2019 eLife 45396 (CDS stability),
+  Leppek2022 GSE173083 (PERSIST-seq translation & hydrolysis), and Mauger2019 GSE139176 (Moderna per-nt U/5moU/m1Psi SHAPE-MaP).
+acceptance_metrics:
+  - metric_id: "moderna_shapemap_per_nt_spearman_m1psi"
+    definition_and_scale: "Out-of-fold per-nucleotide Spearman rho on held-out Mauger 2019 Moderna m1Psi (mpU) SHAPE-MaP constructs ([-1, 1])"
+    direction: "higher_is_better"
+    frozen_baseline_reference: "ViennaRNA RNAplfold zero-shot global rho=0.4142 (per-construct median=0.4128); structRFM MIT probe measured rho=0.5918 (per-construct median=0.5947)"
+    max_acceptable_degradation: "Must beat or match ViennaRNA RNAplfold within delta >= -0.020 on m1Psi and >= 0.000 after fine-tuning"
+  - metric_id: "five_utr_mrl_ood_spearman_hybrid"
+    definition_and_scale: "5-fold prefix-grouped OOD Spearman rho on GSE232927 top-6k paired 5'UTRs ([-1, 1])"
+    direction: "higher_is_better"
+    frozen_baseline_reference: "Pure-seq LightGBM rho=0.7045; structRFM frozen Ridge rho=0.4183; Commercial-Clean Hybrid rho=0.6092"
+    max_acceptable_degradation: "Hybrid commercial_clean scorer must stay within delta >= -0.010 of Track 1 (+ViennaRNA) rho=0.7017"
+  - metric_id: "gpu_determinism_and_throughput"
+    definition_and_scale: "Max absolute embedding drift across repeated GPU runs and throughput at batch_size=64 on L4 GPU"
+    direction: "lower_is_better"
+    frozen_baseline_reference: "Measured on NVIDIA L4: max_abs_diff=0.0, latency=0.69 ms/seq (1439.7 seq/s), peak VRAM=1094.1 MB"
+    max_acceptable_degradation: "max_abs_diff <= 0.0010 and latency <= 15.0 ms/seq on L4/T4 GPU"
+max_compute_cost_budget: "Peak VRAM <= 4,096 MB (measured 1094.1 MB on L4); inference <= 15 ms/seq batched on Colab L4/T4; zero commercial royalty."
+overall_switch_rule: >
+  Keep structRFM base (MIT) enabled in commercial_clean M1.5 scorer tier whenever all three acceptance_metrics stay
+  within their explicit bounds above, zero GPL/non-commercial dependencies are introduced, and chemistry-specific
+  probes are verified per track (U vs m1Psi).
+rollback_version: "CommercialCleanSurrogateV1 pure-sequence LightGBM (zero GPU required)"
