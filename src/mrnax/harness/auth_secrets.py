@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import re
+import unicodedata
 from pathlib import Path
 from typing import TypedDict
 
@@ -18,15 +19,18 @@ PROVIDER_ENV_MAP: dict[str, tuple[str, str]] = {
     "openai": ("OPENAI_API_KEY", "https://api.openai.com/v1"),
     "deepseek": ("DEEPSEEK_API_KEY", "https://api.deepseek.com/v1"),
     "kimi": ("KIMI_API_KEY", "https://api.moonshot.cn/v1"),
+    "qwen": ("QWEN_API_KEY", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+    "zai": ("ZAI_API_KEY", "https://open.bigmodel.cn/api/paas/v4"),
     "gemini": ("GEMINI_API_KEY", "https://generativelanguage.googleapis.com/v1beta/openai"),
     "anthropic": ("ANTHROPIC_API_KEY", "https://api.anthropic.com/v1"),
 }
 
 _GEMINI_KEY_RE = re.compile(r"\bAIza[0-9A-Za-z_-]{31,45}\b")
-_SK_KEY_RE = re.compile(r"\bsk-[A-Za-z0-9_-]{16,250}\b")
-_CONTINUATION_RE = re.compile(r"^[A-Za-z0-9_-]{4,160}$")
+_SK_KEY_RE = re.compile(r"\bsk-[A-Za-z0-9._-]{16,300}\b")
+_ZAI_KEY_RE = re.compile(r"\b[0-9a-f]{32}\.[A-Za-z0-9_-]{12,32}\b")
+_CONTINUATION_RE = re.compile(r"^[A-Za-z0-9._-]{4,180}$")
 _PROVIDER_TAG_RE = re.compile(
-    r"(openai|chatgpt|gpt|deepseek|kimi|moonshot|anthropic|claude|gemini|google)",
+    r"(openai|chatgpt|gpt|deepseek|kimi|moonshot|qwen|zai|zhipu|anthropic|claude|gemini|google)",
     re.IGNORECASE,
 )
 
@@ -54,6 +58,10 @@ def _classify_provider_tag(tag: str) -> str | None:
         return "deepseek"
     if low in {"kimi", "moonshot"}:
         return "kimi"
+    if low == "qwen":
+        return "qwen"
+    if low in {"zai", "zhipu"}:
+        return "zai"
     if low in {"anthropic", "claude"}:
         return "anthropic"
     if low in {"gemini", "google"}:
@@ -61,16 +69,26 @@ def _classify_provider_tag(tag: str) -> str | None:
     return None
 
 
+def _normalize_pdf_glyphs(text: str) -> str:
+    """Repair PDF font glyph substitutions such as Latin small alpha U+0251 -> ASCII 'a'."""
+    repaired = text.replace("\u0251", "a").replace("\u0261", "g")
+    return unicodedata.normalize("NFKC", repaired)
+
+
 def parse_provider_keys_from_text(full_text: str) -> dict[str, str]:
-    """Extract provider keys from potentially line-wrapped PDF text."""
+    """Extract provider keys from potentially line-wrapped and glyph-substituted PDF text."""
+    normalized = _normalize_pdf_glyphs(full_text)
     discovered: dict[str, str] = {}
 
-    gemini_match = _GEMINI_KEY_RE.search(full_text)
+    gemini_match = _GEMINI_KEY_RE.search(normalized)
     if gemini_match:
         discovered["gemini"] = gemini_match.group(0)
 
-    raw_lines = [ln.strip() for ln in full_text.splitlines() if ln.strip()]
-    # Stitch PDF line-wrapped tokens where a line contains or ends with sk-... and next lines are pure token chars
+    zai_match = _ZAI_KEY_RE.search(normalized)
+    if zai_match:
+        discovered["zai"] = zai_match.group(0)
+
+    raw_lines = [ln.strip() for ln in normalized.splitlines() if ln.strip()]
     stitched_lines: list[str] = []
     idx = 0
     while idx < len(raw_lines):
@@ -102,7 +120,7 @@ def parse_provider_keys_from_text(full_text: str) -> dict[str, str]:
                 discovered.setdefault("anthropic", token)
             elif token.startswith(("sk-proj-", "sk-svcacct-")):
                 discovered["openai"] = token
-            elif active_provider in {"deepseek", "kimi", "openai", "anthropic"}:
+            elif active_provider in {"deepseek", "kimi", "qwen", "openai", "anthropic"}:
                 discovered.setdefault(active_provider, token)
 
     return discovered

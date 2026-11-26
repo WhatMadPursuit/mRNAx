@@ -1,0 +1,165 @@
+{
+  "registry_id": "mirna_rbp_commercial_v1",
+  "version": "1.0.0",
+  "retrieved_at_utc": "2026-11-26T18:26:12Z",
+  "license_track": "commercial_clean",
+  "sources": [
+    {
+      "asset_id": "B1-01",
+      "name": "miRBase Release 23.1 mature.fa",
+      "drive_file_id": "1W2SuH_HXfapzXq8OqTJsPJP-k65pkSEL",
+      "sha256": "52d69eeb3c23c5ed0f66c8c9f24e1ad2cd94cc34e72e4fc376c0dd438d2779ff",
+      "license": "Public Domain"
+    },
+    {
+      "asset_id": "B1-03..B1-06",
+      "name": "RIKEN FANTOM5 Human sRNA/miRNA Expression Atlas (De Rie et al. 2017)",
+      "drive_file_id": "1INzL-UP-GrC5We4cFRGVbZm8wPGEaVo8",
+      "license": "CC-BY-4.0 (Attribution: RIKEN FANTOM5 Consortium / De Rie et al., Nat Biotechnol 2017)"
+    }
+  ],
+  "mirna_entries": [
+    {
+      "mirna_id": "hsa-let-7a-5p",
+      "mirbase_accession": "MIMAT0000062",
+      "mature_sequence": "UGAGGUAGUAGGUUGUAUAGUUU",
+      "length_nt": 23,
+      "full_complementary_site_22nt": "AAACUAUACAACCUACUACCUCA",
+      "seed_7mer_m8_site": "CUACCUC",
+      "seed_8mer_site": "CUACCUCA",
+      "fantom5_mean_cpm_by_tissue": {
+        "myeloid_monocyte_macrophage": 33983.41,
+        "t_cell": 32651.28,
+        "endothelial": 42193.93,
+        "liver_hepatocyte": 20803.83,
+        "skeletal_muscle": 56633.55
+      }
+    },
+    {
+      "mirna_id": "hsa-miR-122-5p",
+      "mirbase_accession": "MIMAT0000421",
+      "mature_sequence": "UGGAGUGUGACAAUGGUGUUUG",
+      "length_nt": 22,
+      "full_complementary_site_22nt": "CAAACACCAUUGUCACACUCCA",
+      "seed_7mer_m8_site": "ACACUCC",
+      "seed_8mer_site": "ACACUCCA",
+      "fantom5_mean_cpm_by_tissue": {
+        "myeloid_monocyte_macrophage": 4.51,
+        "t_cell": 0.25,
+        "endothelial": 0.55,
+        "liver_hepatocyte": 117673.43,
+        "skeletal_muscle": 2.27
+      }
+    },
+    {
+      "mirna_id": "hsa-miR-126-3p",
+      "mirbase_accession": "MIMAT0000445",
+      "mature_sequence": "UCGUACCGUGAGUAAUAAUGCG",
+      "length_nt": 22,
+      "full_complementary_site_22nt": "CGCAUUAUUACUCACGGUACGA",
+      "seed_7mer_m8_site": "CGGUACG",
+      "seed_8mer_site": "CGGUACGA",
+      "fantom5_mean_cpm_by_tissue": {
+        "myeloid_monocyte_macrophage": 57.19,
+        "t_cell": 191.89,
+        "endothelial": 18707.62,
+        "liver_hepatocyte": 1934.07,
+        "skeletal_muscle": 14.27
+      }
+    },
+    {
+      "mirna_id": "hsa-miR-133a-3p",
+      "mirbase_accession": "MIMAT0000427",
+      "mature_sequence": "UUUGGUCCCCUUCAACCAGCUG",
+      "length_nt": 22,
+      "full_complementary_site_22nt": "CAGCUGGUUGAAGGGGACCAAA",
+      "seed_7mer_m8_site": "GGACCAA",
+      "seed_8mer_site": "GGACCAAA",
+      "fantom5_mean_cpm_by_tissue": {
+        "myeloid_monocyte_macrophage": 11.52,
+        "t_cell": 0.7,
+        "endothelial": 1.46,
+        "liver_hepatocyte": 3.9,
+        "skeletal_muscle": 3852.99
+      }
+    },
+    {
+      "mirna_id": "hsa-miR-142-3p",
+      "mirbase_accession": "MIMAT0000434",
+      "mature_sequence": "UGUAGUGUUUCCUACUUUAUGGA",
+      "length_nt": 23,
+      "full_complementary_site_22nt": "UCCAUAAAGUAGGAAACACUACA",
+      "seed_7mer_m8_site": "ACACUAC",
+      "seed_8mer_site": "ACACUACA",
+      "fantom5_mean_cpm_by_tissue": {
+        "myeloid_monocyte_macrophage": 3851.62,
+        "t_cell": 5584.98,
+        "endothelial": 0.52,
+        "liver_hepatocyte": 27.25,
+        "skeletal_muscle": 9.25
+      }
+    },
+    {
+      "mirna_id": "hsa-miR-142-5p",
+      "mirbase_accession": "MIMAT0000433",
+      "mature_sequence": "CCCAUAAAGUAGAAAGCACUACU",
+      "length_nt": 23,
+      "full_complementary_site_22nt": "AGUAGUGCUUUCUACUUUAUGGG",
+      "seed_7mer_m8_site": "UUUAUGG",
+      "seed_8mer_site": "UUUAUGGA",
+      "fantom5_mean_cpm_by_tissue": {
+        "myeloid_monocyte_macrophage": 27518.44,
+        "t_cell": 51830.89,
+        "endothelial": 3.67,
+        "liver_hepatocyte": 834.23,
+        "skeletal_muscle": 37.52
+      }
+    },
+    {
+      "mirna_id": "hsa-miR-16-5p",
+      "mirbase_accession": "MIMAT0000069",
+      "mature_sequence": "UAGCAGCACGUAAAUAUUGGCG",
+      "length_nt": 22,
+      "full_complementary_site_22nt": "CGCCAAUAUUUACGUGCUGCUA",
+      "seed_7mer_m8_site": "UGCUGCU",
+      "seed_8mer_site": "UGCUGCUA",
+      "fantom5_mean_cpm_by_tissue": {
+        "myeloid_monocyte_macrophage": 19229.88,
+        "t_cell": 12080.47,
+        "endothelial": 5613.67,
+        "liver_hepatocyte": 2335.5,
+        "skeletal_muscle": 5947.5
+      }
+    },
+    {
+      "mirna_id": "hsa-miR-21-5p",
+      "mirbase_accession": "MIMAT0000076",
+      "mature_sequence": "UAGCUUAUCAGACUGAUGUUGACU",
+      "length_nt": 24,
+      "full_complementary_site_22nt": "AGUCAACAUCAGUCUGAUAAGCUA",
+      "seed_7mer_m8_site": "AUAAGCU",
+      "seed_8mer_site": "AUAAGCUA",
+      "fantom5_mean_cpm_by_tissue": {
+        "myeloid_monocyte_macrophage": 224982.97,
+        "t_cell": 31047.68,
+        "endothelial": 72160.1,
+        "liver_hepatocyte": 22294.2,
+        "skeletal_muscle": 84696.05
+      }
+    }
+  ],
+  "destabilizing_rbp_motifs": [
+    {
+      "motif_id": "ARE_core_pentamer",
+      "pattern_rna": "AUUUA",
+      "rbp_family": "ZFP36/TTP & ELAVL1 AU-rich element binding",
+      "default_action": "avoid_in_three_prime_utr"
+    },
+    {
+      "motif_id": "ARE_nonamer",
+      "pattern_rna": "UUAUUUAUU",
+      "rbp_family": "Strong ZFP36/TTP mRNA decay motif",
+      "default_action": "hard_avoid_in_three_prime_utr"
+    }
+  ]
+}

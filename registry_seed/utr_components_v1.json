@@ -1,0 +1,148 @@
+{
+  "registry_id": "utr_components_v1",
+  "version": "1.0.0",
+  "retrieved_at_utc": "2026-11-26T18:26:06Z",
+  "license_track": "commercial_clean",
+  "five_prime_utrs": [
+    {
+      "component_id": "utr5_hbb_NM_000518_5",
+      "gene_symbol": "HBB",
+      "refseq_accession": "NM_000518.5",
+      "segment_type": "five_prime_utr",
+      "sequence": "ACAUUUGCUUCUGACACAACUGUGUUCACUAGCAACCUCAAACAGACACC",
+      "length_nt": 50,
+      "has_uaug": false,
+      "max_homopolymer_run": 3,
+      "origin_source": "NCBI_RefSeq:NM_000518.5",
+      "license_track": "commercial_clean",
+      "fto_notes": "Endogenous unmodified human RefSeq transcript UTR (US Public Domain)"
+    },
+    {
+      "component_id": "utr5_hba1_NM_000558_5",
+      "gene_symbol": "HBA1",
+      "refseq_accession": "NM_000558.5",
+      "segment_type": "five_prime_utr",
+      "sequence": "ACUCUUCUGGUCCCCACAGACUCAGAGAGAACCCACC",
+      "length_nt": 37,
+      "has_uaug": false,
+      "max_homopolymer_run": 4,
+      "origin_source": "NCBI_RefSeq:NM_000558.5",
+      "license_track": "commercial_clean",
+      "fto_notes": "Endogenous unmodified human RefSeq transcript UTR (US Public Domain)"
+    },
+    {
+      "component_id": "utr5_actb_NM_001101_5",
+      "gene_symbol": "ACTB",
+      "refseq_accession": "NM_001101.5",
+      "segment_type": "five_prime_utr",
+      "sequence": "ACCGCCGAGACCGCGUCCGCCCCGCGAGCACAGAGCCUCGCCUUUGCCGAUCCGCCGCCCGUCCACACCCGCCGCCAGCUCACC",
+      "length_nt": 84,
+      "has_uaug": false,
+      "max_homopolymer_run": 4,
+      "origin_source": "NCBI_RefSeq:NM_001101.5",
+      "license_track": "commercial_clean",
+      "fto_notes": "Endogenous unmodified human RefSeq transcript UTR (US Public Domain)"
+    },
+    {
+      "component_id": "utr5_gapdh_NM_002046_7",
+      "gene_symbol": "GAPDH",
+      "refseq_accession": "NM_002046.7",
+      "segment_type": "five_prime_utr",
+      "sequence": "GCUCUCUGCUCCUCCUGUUCGACAGUCAGCCGCAUCUUCUUUUGCGUCGCCAGCCGAGCCACAUCGCUCAGACACC",
+      "length_nt": 76,
+      "has_uaug": false,
+      "max_homopolymer_run": 4,
+      "origin_source": "NCBI_RefSeq:NM_002046.7",
+      "license_track": "commercial_clean",
+      "fto_notes": "Endogenous unmodified human RefSeq transcript UTR (US Public Domain)"
+    },
+    {
+      "component_id": "utr5_eef1a1_NM_001402_6",
+      "gene_symbol": "EEF1A1",
+      "refseq_accession": "NM_001402.6",
+      "segment_type": "five_prime_utr",
+      "sequence": "CUUUUUCGCAACGGGUUUGCCGCCAGAACACAGGUGUCGUGAAAACUACCCCUAAAAGCCAAA",
+      "length_nt": 63,
+      "has_uaug": false,
+      "max_homopolymer_run": 5,
+      "origin_source": "NCBI_RefSeq:NM_001402.6",
+      "license_track": "commercial_clean",
+      "fto_notes": "Endogenous unmodified human RefSeq transcript UTR (US Public Domain)"
+    },
+    {
+      "component_id": "utr5_rps27a_NM_002954_6",
+      "gene_symbol": "RPS27A",
+      "refseq_accession": "NM_002954.6",
+      "segment_type": "five_prime_utr",
+      "sequence": "CUUUUCGAUCCGCCAUCUGCGGUGGAGCCGCCACCAAA",
+      "length_nt": 38,
+      "has_uaug": false,
+      "max_homopolymer_run": 4,
+      "origin_source": "NCBI_RefSeq:NM_002954.6",
+      "license_track": "commercial_clean",
+      "fto_notes": "Endogenous unmodified human RefSeq transcript UTR (US Public Domain)"
+    }
+  ],
+  "three_prime_utrs": [
+    {
+      "component_id": "utr3_hbb_NM_000518_5",
+      "gene_symbol": "HBB",
+      "refseq_accession": "NM_000518.5",
+      "segment_type": "three_prime_utr",
+      "sequence": "GCUCGCUUUCUUGCUGUCCAAUUUCUAUUAAAGGUUCCUUUGUUCCCUAAGUCCAACUACUAAACUGGGGGAUAUUAUGAAGGGCCUUGAGCAUCUGGAUUCUGCCUAAUAAAAAACAUUUAUUUUCAUUGC",
+      "length_nt": 132,
+      "max_homopolymer_run": 6,
+      "origin_source": "NCBI_RefSeq:NM_000518.5",
+      "license_track": "commercial_clean",
+      "fto_notes": "Endogenous unmodified human RefSeq transcript UTR (US Public Domain)"
+    },
+    {
+      "component_id": "utr3_hba1_NM_000558_5",
+      "gene_symbol": "HBA1",
+      "refseq_accession": "NM_000558.5",
+      "segment_type": "three_prime_utr",
+      "sequence": "GCUGGAGCCUCGGUGGCCAUGCUUCUUGCCCCUUGGGCCUCCCCCCAGCCCCUCCUCCCCUUCCUGCACCCGUACCCCCGUGGUCUUUGAAUAAAGUCUGAGUGGGCGGC",
+      "length_nt": 110,
+      "max_homopolymer_run": 6,
+      "origin_source": "NCBI_RefSeq:NM_000558.5",
+      "license_track": "commercial_clean",
+      "fto_notes": "Endogenous unmodified human RefSeq transcript UTR (US Public Domain)"
+    },
+    {
+      "component_id": "utr3_actb_NM_001101_5",
+      "gene_symbol": "ACTB",
+      "refseq_accession": "NM_001101.5",
+      "segment_type": "three_prime_utr",
+      "sequence": "GCGGACUAUGACUUAGUUGCGUUACACCCUUUCUUGACAAAACCUAACUUGCGCAGAAAACAAGAUGAGAUUGGCAUGGCUUUAUUUGUUUUUUUUGUUUUGUUUUGGUUUUUUUUUUUUUUUUGGCUUGACUCAGGAUUUAAAAACUGGAACGGUGAAGGUGACAGCAGUCGGUUGGAGCGAGCAUCCCCCAAAGUUCACAAUGUGGCCGAGGACUUUGAUUGCACAUUGUUGUUUUUUUAAUAGUCAUUCCAAAUAUGAGAUGCGUUGUUACAGGAAGUCCCUUGCCAUCCUAAAAGCCACCCCACUUCUCUCUAAGGAGAAUGGCCCAGUCCUCUCCCAAGUCCACACAGGGGAGGUGAUAGCAUUGCUUUCGUGUAAAUUAUGUAAUGCAAAAUUUUUUUAAUCUUCGCCUUAAUACUUUUUUAUUUUGUUUUAUUUUGAAUGAUGAGCCUUCGUGCCCCCCCUUCCCCCUUUUUUGUCCCCCAACUUGAGAUGUAUGAAGGCUUUUGGUCUCCCUGGGAGUGGGUGGAGGCAGCCAGGGCUUACCUGUACACUGACUUGAGACCAGUUGAAUAAAAGUGCACACCUUAAAAAUG",
+      "length_nt": 599,
+      "max_homopolymer_run": 16,
+      "origin_source": "NCBI_RefSeq:NM_001101.5",
+      "license_track": "commercial_clean",
+      "fto_notes": "Endogenous unmodified human RefSeq transcript UTR (US Public Domain)"
+    },
+    {
+      "component_id": "utr3_gapdh_NM_002046_7",
+      "gene_symbol": "GAPDH",
+      "refseq_accession": "NM_002046.7",
+      "segment_type": "three_prime_utr",
+      "sequence": "GACCCCUGGACCACCAGCCCCAGCAAGAGCACAAGAGGAAGAGAGAGACCCUCACUGCUGGGGAGUCCCUGCCACACUCAGUCCCCCACCACACUGAAUCUCCCCUCCUCACAGUUGCCAUGUAGACCCCUUGAAGAGGGGAGGGGCCUAGGGAGCCGCACCUUGUCAUGUACCAUCAAUAAAGUACCCUGUGCUCAACC",
+      "length_nt": 200,
+      "max_homopolymer_run": 5,
+      "origin_source": "NCBI_RefSeq:NM_002046.7",
+      "license_track": "commercial_clean",
+      "fto_notes": "Endogenous unmodified human RefSeq transcript UTR (US Public Domain)"
+    },
+    {
+      "component_id": "utr3_rps27a_NM_002954_6",
+      "gene_symbol": "RPS27A",
+      "refseq_accession": "NM_002954.6",
+      "segment_type": "three_prime_utr",
+      "sequence": "CUGUAUGAGUUAAUAAAAGACAUGAACUAACAUUUAUUGUUGGGUUUUAUUGCAGUAAAAAGAAUGGUUUUUAAGCACCAAAUUGAUGGUCACACCAUUUCCUUUUAGUAGUGCUACUGCUAUCGCUGUGUGAAUGUUGCCUCUGGGGAUUAUGUGACCCAGUGGUUCUGUAUACCUGCCAGGUGCCAACCACUUGUAAAGGUCUUGAUAUUUUCAAUUCUUAGACUACCUAUACUUUGGCAGAAGUUAUAUUUAAUGUAAGUUGUCUAAAUAU",
+      "length_nt": 274,
+      "max_homopolymer_run": 5,
+      "origin_source": "NCBI_RefSeq:NM_002954.6",
+      "license_track": "commercial_clean",
+      "fto_notes": "Endogenous unmodified human RefSeq transcript UTR (US Public Domain)"
+    }
+  ]
+}

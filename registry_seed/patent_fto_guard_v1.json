@@ -1,0 +1,65 @@
+{
+  "registry_id": "patent_fto_guard_v1",
+  "version": "1.0.0",
+  "verified_from_audit": [
+    "G-P01_pilot_license_fto.md",
+    "G-B1_patent_fto_guard.md",
+    "C-B2_wave2_cross_audit.md"
+  ],
+  "disclaimer": "Engineering sequence collision & genus alert registry based on verified patent claims/examples; not a formal legal opinion.",
+  "genus_grammar_rules": [
+    {
+      "rule_id": "BNT_FAMILY_51220548_SEGMENTED_POLYA_GENUS",
+      "patent_family_id": "51220548",
+      "granted_publications": [
+        "US10717982B2 (Cl.1)",
+        "US12054723B2 (Cl.1)",
+        "EP3167059B1 (Cl.1)"
+      ],
+      "target_scope": "poly_a",
+      "min_total_poly_a_length": 80,
+      "regex_rna": "A{20,}[UCG][ACGU]{0,48}[UCG]?A{20,}",
+      "block_in_commercial_clean": true,
+      "block_in_research_max": false,
+      "summary": "BioNTech/TRON granted genus covering >=80 nt modified poly(A) comprising >=20 consecutive A + non-A linker + >=20 consecutive A."
+    }
+  ],
+  "sequence_collision_rules": [
+    {
+      "rule_id": "BNT_EXAMPLE_A30L70_LINKER_SEQ2",
+      "patent_family_or_pub": "Family 51220548 / US10717982B2 Example 2 SEQ ID NO: 2",
+      "target_scope": "poly_a",
+      "sequence_rna": "GCAUAUGACU",
+      "identity_threshold": 1.0,
+      "block_in_commercial_clean": true,
+      "summary": "Exact 10-nt segmented poly(A) linker example (DNA GCATATGACT) recited in Example 2."
+    },
+    {
+      "rule_id": "MODERNA_US10703789B2_SPEC_5UTR_PREFIX",
+      "patent_family_or_pub": "US10703789B2 / WO2014164253A1 specification",
+      "target_scope": "five_prime_utr",
+      "sequence_rna": "GGGAAAUAAGAGAGAAAAGAAGAGUAAGAAGAAAUAUAAGAGCCACC",
+      "identity_threshold": 0.85,
+      "block_in_commercial_clean": true,
+      "summary": "ModernaTx specification 47-nt 5'UTR sequence."
+    },
+    {
+      "rule_id": "MODERNA_LITERATURE_V1_5UTR_57NT",
+      "patent_family_or_pub": "Literature clinical 5'UTR (pending US10881730B2 full verification per G-B1)",
+      "target_scope": "five_prime_utr",
+      "sequence_rna": "GGGAAAUAAGAGAGAAAAGAAGAGUAAGAAGAAAUAUAAGACCCCGGCGCCGCCACC",
+      "identity_threshold": 0.8,
+      "block_in_commercial_clean": true,
+      "summary": "57-nt engineered 5'UTR containing ACCCCGGCGCC insertion."
+    },
+    {
+      "rule_id": "BNT_US11492628B2_AES_3UTR_CORE",
+      "patent_family_or_pub": "US11492628B2 (Cl.1/6/7/8) / EP3636764B1 (Cl.1/4/5)",
+      "target_scope": "three_prime_utr",
+      "sequence_rna": "CUGGUACUGCAUGCACGCAAUGCUAGCUGCCCCUUUCCCGUCCUGGGUACCCCGAGUCUCCCCCGACCUCGGGUCCCAGGUAUGCUCCCACCUCCACCUGCCCCACUCACCACCUCUGCUAGUUCCAGACACC",
+      "identity_threshold": 0.8,
+      "block_in_commercial_clean": true,
+      "summary": "Granted claim scope covering non-naturally linked AES 3'UTR fragment (>=80% fragment / >=90% variant) and AES-mtRNR1 FI combination."
+    }
+  ]
+}
