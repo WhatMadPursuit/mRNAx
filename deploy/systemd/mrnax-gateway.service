@@ -1,0 +1,23 @@
+[Unit]
+Description=mRNAx v2 7x24 Control Plane & Web Harness Gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mrnax-svc
+Group=mrnax-svc
+WorkingDirectory=/opt/mrnax-v2
+Environment="HOME=/var/lib/mrnax"
+Environment="MRNAX_STATE_ROOT=/var/lib/mrnax"
+Environment="MRNAX_SEED_DIR=/opt/mrnax-v2/registry_seed"
+EnvironmentFile=/etc/mrnax/gateway.env
+ExecStart=/opt/mrnax-v2/.venv/bin/uvicorn mrnax.cloud.gateway:create_production_app --factory --host 127.0.0.1 --port 18080 --workers 1 --timeout-keep-alive 30
+Restart=always
+RestartSec=2
+MemoryMax=500M
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

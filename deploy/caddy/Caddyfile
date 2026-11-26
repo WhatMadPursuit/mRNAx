@@ -1,0 +1,9 @@
+{
+	http_port 80
+	https_port 8443
+}
+
+149-248-39-200.sslip.io:8443 {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:18080
+}

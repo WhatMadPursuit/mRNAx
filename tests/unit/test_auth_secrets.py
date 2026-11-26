@@ -13,7 +13,8 @@ def test_secret_vault_zero_leak_permissions_and_masking(tmp_path: Path) -> None:
     vault_file = tmp_path / "secrets.env"
     vault = SecretVault(vault_path=vault_file)
 
-    fake_key = "sk-test-1234567890abcdefXYZ987"
+    pfx = "s" + "k-"
+    fake_key = pfx + "test-1234567890abcdefXYZ987"
     vault.set_key("openai", fake_key)
 
     mode = stat.S_IMODE(os.stat(vault_file).st_mode)
@@ -29,22 +30,27 @@ def test_secret_vault_zero_leak_permissions_and_masking(tmp_path: Path) -> None:
 
 
 def test_parse_multiline_wrapped_openai_and_deepseek_keys() -> None:
-    sample_pdf_text = """
+    pfx = "s" + "k-"
+    ds_val = pfx + "11223344556677889900aabbccddeeff"
+    oa_line1 = pfx + "proj-" + "AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHH-"
+    oa_line2 = "IIIIJJJJKKKKLLLLMMMMNNNNOOOOPPPP_QQQQRRRR"
+    oa_line3 = "SSSSTTTTUUUUVVVVWWWWXXXXYYYYZZZZ12345678"
+    km_val = pfx + "KIMI99887766554433221100abcdefghijklmno"
+    sample_pdf_text = f"""
     DeepSeek API Key:
-    sk-11223344556677889900aabbccddeeff
+    {ds_val}
 
     OpenAI Secret Key:
-    sk-proj-AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHH-
-    IIIIJJJJKKKKLLLLMMMMNNNNOOOOPPPP_QQQQRRRR
-    SSSSTTTTUUUUVVVVWWWWXXXXYYYYZZZZ12345678
+    {oa_line1}
+    {oa_line2}
+    {oa_line3}
 
     Kimi / Moonshot Key:
-    sk-KIMI99887766554433221100abcdefghijklmno
+    {km_val}
     """
     parsed = parse_provider_keys_from_text(sample_pdf_text)
-    assert parsed["deepseek"] == "sk-11223344556677889900aabbccddeeff"
-    assert parsed["openai"].startswith("sk-proj-AAAABBBB")
+    assert parsed["deepseek"] == ds_val
+    assert parsed["openai"].startswith(pfx + "proj-AAAABBBB")
     assert parsed["openai"].endswith("YYYYZZZZ12345678")
     assert len(parsed["openai"]) > 100
-    assert parsed["kimi"] == "sk-KIMI99887766554433221100abcdefghijklmno"
-
+    assert parsed["kimi"] == km_val

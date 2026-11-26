@@ -59,8 +59,14 @@ class LiveDialogueAgent:
         self.messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
         self.tool_call_trace: list[dict[str, Any]] = []
 
-    def send_user_message(self, user_text: str, *, max_tool_rounds: int = 5) -> str:
-        api_key = self.vault.get_key(self.provider)
+    def send_user_message(
+        self,
+        user_text: str,
+        *,
+        max_tool_rounds: int = 5,
+        explicit_api_key: str | None = None,
+    ) -> str:
+        api_key = explicit_api_key or self.vault.get_key(self.provider)
         if not api_key:
             raise RuntimeError(
                 f"No API key configured for provider '{self.provider}'; run `uv run mrnax auth set-key --provider {self.provider}`"

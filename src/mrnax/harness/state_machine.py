@@ -79,6 +79,9 @@ class ProjectHarnessSession:
         for p in sorted((self.store_dir / "bundles").glob("*.json")):
             b = ConstructBundle.model_validate_json(p.read_text(encoding="utf-8"))
             self._bundles[b.bundle_id] = b
+        for p in sorted((self.store_dir / "reports").glob("rep_*.json")):
+            rep = EvaluationReport.model_validate_json(p.read_text(encoding="utf-8"))
+            self._reports[rep.report_id] = rep
         state_meta = self.store_dir / "project_state.json"
         if state_meta.is_file():
             meta = json.loads(state_meta.read_text(encoding="utf-8"))
