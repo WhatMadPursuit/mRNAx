@@ -1,0 +1,74 @@
+{
+  "dialogue_turn_count": 2,
+  "dialogue_reply_1_excerpt": "已生成 6 个合格候选（10 个初始 → BsaI 硬门淘汰 4 个）。以下是结果汇总。\n\n## 序列来源（已验证快照）\n- **UniProt P42212**（Aequorea victoria，entry v196，CC-BY-4.0）\n- **GenBank U55762.1 / Protein AAB02572.1** — 哺乳动物报告用 eGFP（F64L、S65T、V2 Kozak 插入），**239 aa**\n- 本次设计使用 U55762.1 的 239 a",
+  "dialogue_reply_2_excerpt": "增量修改已完成（intent v2，父版本 int_b1b7db74，`inherited_locks: protein_sequence`）。\n\n## 继承与变更\n| 项目 | 状态 |\n|---|---|\n| eGFP U55762.1 蛋白序列（239 aa） | **锁定继承**，100% 不变 |\n| m1Psi 化学修饰 | 继承 |\n| research_max 档 | 继承 |\n| 线性化内切酶 | **BsaI → BspQI** |\n| detarget_",
+  "intent_diff_v1_to_v2": {
+    "v1_id": "int_b1b7db74",
+    "v2_id": "int_59afa722",
+    "parent_intent_id_matches": true,
+    "protein_lock_preserved": true,
+    "chemistry_preserved": true,
+    "v1_enzymes": [
+      "BsaI"
+    ],
+    "v2_enzymes": [
+      "BspQI"
+    ],
+    "v1_cell_control": null,
+    "v2_cell_control": {
+      "detarget_tissues": [
+        "liver_hepatocyte"
+      ],
+      "protected_tissues": [
+        "skeletal_muscle"
+      ],
+      "mirna_copy_range": [
+        2,
+        4
+      ],
+      "spacer_nt_range": [
+        8,
+        16
+      ],
+      "min_stop_offset_nt": 15
+    }
+  },
+  "entry2_qualified_candidates": 12,
+  "cli_replay_digest_exact_match": true,
+  "paired_seed_ablation_stage0_vs_pareto": [
+    {
+      "seed": 42,
+      "stage0_best_kozak": 0.578931,
+      "stage0_best_cds_mfe": -29.1111,
+      "pareto_best_kozak": 0.593925,
+      "pareto_best_cds_mfe": -29.1111,
+      "stage0_wall_sec": 1.3761,
+      "pareto_wall_sec": 8.453
+    },
+    {
+      "seed": 101,
+      "stage0_best_kozak": 0.60283,
+      "stage0_best_cds_mfe": -28.8667,
+      "pareto_best_kozak": 0.616471,
+      "pareto_best_cds_mfe": -29.0556,
+      "stage0_wall_sec": 1.4578,
+      "pareto_wall_sec": 9.0255
+    },
+    {
+      "seed": 2026,
+      "stage0_best_kozak": 0.5699,
+      "stage0_best_cds_mfe": -28.7111,
+      "pareto_best_kozak": 0.628945,
+      "pareto_best_cds_mfe": -28.7111,
+      "stage0_wall_sec": 1.3775,
+      "pareto_wall_sec": 8.4044
+    }
+  ],
+  "two_tier_comparison": {
+    "research_max_outcome": "COMPLETED_WITH_CANDIDATES",
+    "commercial_clean_with_thermo_outcome": "UNCOMPARABLE_MISSING_APPROVED_COMPONENT",
+    "commercial_clean_uncomparable_reason": "无法比较：commercial_clean 档阻断未获纯商用产品放行的组件 [viennarna_thermo (needs_vendor_license)]（详见组件商用替换评估卡 RC-001-viennarna-v2.8.0.yaml）",
+    "commercial_clean_sequence_only_outcome": "COMPLETED_TIE",
+    "commercial_clean_sequence_only_qualified": 10
+  }
+}

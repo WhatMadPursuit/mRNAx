@@ -1,0 +1,213 @@
+{
+  "schema": "mrnax.rule_tribunal_audit.v1",
+  "executed_at_utc": "2026-11-26T18:50:35Z",
+  "pre_registered_spec": {
+    "hypothesis_id": "HYP-5UTR-OOF-UAUG-MRL-V1",
+    "primary_claim_id": "CC-MRNAX-MP01-001",
+    "primary_citation": "Sample et al., Nat Biotechnol 37:803-809 (2019), DOI:10.1038/s41587-019-0164-5, Fig. 1c",
+    "feature_definition": "Presence of >=1 out-of-frame upstream AUG (uAUG) vs zero AUG anywhere in the variable 5'UTR region upstream of reporter start codon",
+    "readout_name_exact": "Mean Ribosome Load (MRL)",
+    "expected_direction": "decrease (median_MRL_oof_uaug < median_MRL_no_uaug)",
+    "pre_registered_support_criteria": {
+      "min_total_reads_filter": 100,
+      "max_median_delta_mrl": -0.5,
+      "replicate_direction_concordance": "100% of biological replicates must show negative delta"
+    },
+    "evidence_boundary_note": "MRL measures polysome ribosome loading 12h post-transfection in HEK293T, NOT late-timepoint secreted protein AUC or in vivo LNP efficacy. Both GSE114002 and GSE232927 originate from the Seelig Lab (UW) polysome-MPRA platform -> counted as 1 lab lineage."
+  },
+  "deduplication_accounting": {
+    "underlying_sequencing_project": "GSE114002 / PRJNA454863",
+    "independent_dataset_votes": 1,
+    "independent_lab_lineage_votes": 1,
+    "commercial_clearance_status": "commercial_clearance_pending (per C-B2 audit: GEO public access without explicit file-level commercial license)"
+  },
+  "sample_results": [
+    {
+      "sample_id": "GSM3130435",
+      "dataset_id": "GSE114002",
+      "chemistry": "unmodified_u",
+      "reporter": "eGFP",
+      "replicate": 1,
+      "compressed_bytes": 63726742,
+      "sha256": "23bbd468ff6c6905f11e7dfdd7509601730e0f99c8ad2a78f37f3dfe99c31719",
+      "catalog_sha256_matched": true,
+      "n_no_uaug": 143361,
+      "n_oof_uaug": 121783,
+      "n_inframe_only_uaug": 43288,
+      "no_uaug_mrl_q25_med_q75": [
+        7.3334,
+        7.7104,
+        8.0114
+      ],
+      "oof_uaug_mrl_q25_med_q75": [
+        3.9928,
+        4.8897,
+        5.8984
+      ],
+      "inframe_only_uaug_median_mrl": 7.4667,
+      "median_delta_mrl_oof_minus_none": -2.8207,
+      "meets_pre_registered_threshold": true
+    },
+    {
+      "sample_id": "GSM3130436",
+      "dataset_id": "GSE114002",
+      "chemistry": "unmodified_u",
+      "reporter": "eGFP",
+      "replicate": 2,
+      "compressed_bytes": 32042743,
+      "sha256": "0a067d1a053bd39ccdd12515205138fcd2365e703a01292e8dc40cc78188d85f",
+      "catalog_sha256_matched": true,
+      "n_no_uaug": 113442,
+      "n_oof_uaug": 97496,
+      "n_inframe_only_uaug": 34566,
+      "no_uaug_mrl_q25_med_q75": [
+        6.2964,
+        6.6438,
+        6.9271
+      ],
+      "oof_uaug_mrl_q25_med_q75": [
+        3.7725,
+        4.6512,
+        5.476
+      ],
+      "inframe_only_uaug_median_mrl": 6.4917,
+      "median_delta_mrl_oof_minus_none": -1.9926,
+      "meets_pre_registered_threshold": true
+    },
+    {
+      "sample_id": "GSM3130437",
+      "dataset_id": "GSE114002",
+      "chemistry": "pseudouridine",
+      "reporter": "eGFP",
+      "replicate": 1,
+      "compressed_bytes": 61776248,
+      "sha256": "3e02293aeaa6eab549612e0f4204e969d99eacafc31b80e15a19ead42b99d4f6",
+      "catalog_sha256_matched": true,
+      "n_no_uaug": 120403,
+      "n_oof_uaug": 101872,
+      "n_inframe_only_uaug": 35864,
+      "no_uaug_mrl_q25_med_q75": [
+        6.2154,
+        6.6339,
+        7.0425
+      ],
+      "oof_uaug_mrl_q25_med_q75": [
+        4.4199,
+        5.1376,
+        5.8376
+      ],
+      "inframe_only_uaug_median_mrl": 6.4242,
+      "median_delta_mrl_oof_minus_none": -1.4963,
+      "meets_pre_registered_threshold": true
+    },
+    {
+      "sample_id": "GSM3130439",
+      "dataset_id": "GSE114002",
+      "chemistry": "m1psi",
+      "reporter": "eGFP",
+      "replicate": 1,
+      "compressed_bytes": 59232988,
+      "sha256": "4bb54458e6846265cc5c3b1d73894fcb03569a0ab61b3a95a85f4d78aec287da",
+      "catalog_sha256_matched": true,
+      "n_no_uaug": 120396,
+      "n_oof_uaug": 101773,
+      "n_inframe_only_uaug": 35885,
+      "no_uaug_mrl_q25_med_q75": [
+        6.1804,
+        6.632,
+        7.0652
+      ],
+      "oof_uaug_mrl_q25_med_q75": [
+        4.4218,
+        5.061,
+        5.7781
+      ],
+      "inframe_only_uaug_median_mrl": 6.4259,
+      "median_delta_mrl_oof_minus_none": -1.571,
+      "meets_pre_registered_threshold": true
+    },
+    {
+      "sample_id": "GSM3130440",
+      "dataset_id": "GSE114002",
+      "chemistry": "m1psi",
+      "reporter": "eGFP",
+      "replicate": 2,
+      "compressed_bytes": 77167673,
+      "sha256": "6bd42af41ea7bdc2806a37031fecb0c63c576b24c60fb898e8afe31a7d8cfd12",
+      "catalog_sha256_matched": true,
+      "n_no_uaug": 128670,
+      "n_oof_uaug": 105579,
+      "n_inframe_only_uaug": 38172,
+      "no_uaug_mrl_q25_med_q75": [
+        6.0992,
+        6.5384,
+        6.9386
+      ],
+      "oof_uaug_mrl_q25_med_q75": [
+        3.5992,
+        4.6747,
+        5.5695
+      ],
+      "inframe_only_uaug_median_mrl": 6.3483,
+      "median_delta_mrl_oof_minus_none": -1.8637,
+      "meets_pre_registered_threshold": true
+    },
+    {
+      "sample_id": "GSM3130441",
+      "dataset_id": "GSE114002",
+      "chemistry": "unmodified_u",
+      "reporter": "mCherry",
+      "replicate": 1,
+      "compressed_bytes": 24682596,
+      "sha256": "9f3f5749618525d6689279888dc60332a273156da71c621a964a3db2269f5944",
+      "catalog_sha256_matched": true,
+      "n_no_uaug": 99634,
+      "n_oof_uaug": 80847,
+      "n_inframe_only_uaug": 29264,
+      "no_uaug_mrl_q25_med_q75": [
+        4.7455,
+        4.9039,
+        5.068
+      ],
+      "oof_uaug_mrl_q25_med_q75": [
+        3.6027,
+        4.0169,
+        4.4222
+      ],
+      "inframe_only_uaug_median_mrl": 4.7749,
+      "median_delta_mrl_oof_minus_none": -0.887,
+      "meets_pre_registered_threshold": true
+    },
+    {
+      "sample_id": "GSE232927_HEK293T_N25_r1",
+      "dataset_id": "GSE232927",
+      "chemistry": "unmodified_u",
+      "reporter": "eGFP_random_5p_end_N25",
+      "replicate": 1,
+      "compressed_bytes": 44172173,
+      "sha256": "1a81e473a5420a44cb3a0db6f8fd3d2f67077604788ffbc7c5a1000642c034b2",
+      "catalog_sha256_matched": true,
+      "n_no_uaug": 71350,
+      "n_oof_uaug": 27298,
+      "n_inframe_only_uaug": 12015,
+      "no_uaug_mrl_q25_med_q75": [
+        5.8813,
+        6.4386,
+        6.9629
+      ],
+      "oof_uaug_mrl_q25_med_q75": [
+        3.9629,
+        5.0168,
+        5.9459
+      ],
+      "inframe_only_uaug_median_mrl": 6.3975,
+      "median_delta_mrl_oof_minus_none": -1.4218,
+      "meets_pre_registered_threshold": true
+    }
+  ],
+  "final_tribunal_verdict": {
+    "rule_id": "RUL-5UTR-UAUG-MRL-001",
+    "assigned_status": "conditional_rule",
+    "rationale": "All evaluated unmodified U, Psi, and m1Psi eGFP & mCherry MPRA replicates show strong, reproducible negative MRL shift (<= -0.50 MRL units) for out-of-frame uAUGs. Graded as `conditional_rule` (NOT universal `verified_rule` for protein yield) because readout is 12h HEK293T MRL from a single lab lineage (Seelig UW) and observational MPRA rather than in vivo multi-cargo protein AUC."
+  }
+}

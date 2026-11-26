@@ -1,0 +1,73 @@
+LOCUS       mol_primary             1070 bp    mRNA    linear   SYN 01-JAN-1980
+DEFINITION  mRNAx ConstructBundle bnd_8c87_pareto_07 (mol_primary).
+ACCESSION   mol_primary
+VERSION     mol_primary
+KEYWORDS    .
+SOURCE      .
+  ORGANISM  .
+            .
+FEATURES             Location/Qualifiers
+     5'UTR           1..50
+                     /mrnax_layer="segment"
+                     /mrnax_segment_type="five_prime_utr"
+                     /mrnax_origin_source="NCBI_RefSeq:NM_000518.5"
+                     /mrnax_license_track="commercial_clean"
+                     /mrnax_action_taken="selected_from_library"
+                     /mrnax_component_id="utr5_hbb_NM_000518_5"
+     CDS             51..767
+                     /mrnax_layer="segment"
+                     /mrnax_segment_type="cds"
+                     /mrnax_origin_source="mrnax:pareto_cds_utr_coopt"
+                     /mrnax_license_track="commercial_clean"
+                     /mrnax_action_taken="synonymous_mutated"
+                     /transl_table=1
+                     /translation="MVSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTL
+                     KFICTTGKLPVPWPTLVTTLTYGVQCFSRYPDHMKQHDFFKSAMPEGYVQERTIFFKDD
+                     GNYKTRAEVKFEGDTLVNRIELKGIDFKEDGNILGHKLEYNYNSHNVYIMADKQKNGIK
+                     VNFKIRHNIEDGSVQLADHYQQNTPIGDGPVLLPDNHYLSTQSALSKDPNEKRDHMVLL
+                     EFVTAAGITLGMDELYK"
+     misc_feature    768..770
+                     /mrnax_layer="segment"
+                     /mrnax_segment_type="stop_cassette"
+                     /mrnax_origin_source="mrnax:standard"
+                     /mrnax_license_track="commercial_clean"
+                     /mrnax_action_taken="locked_verbatim"
+                     /mrnax_component_id="stop_uga_uaa"
+     3'UTR           771..970
+                     /mrnax_layer="segment"
+                     /mrnax_segment_type="three_prime_utr"
+                     /mrnax_origin_source="NCBI_RefSeq:NM_002046.7"
+                     /mrnax_license_track="commercial_clean"
+                     /mrnax_action_taken="selected_from_library"
+                     /mrnax_component_id="utr3_gapdh_NM_002046_7"
+     polyA_tail      971..1070
+                     /mrnax_layer="segment"
+                     /mrnax_segment_type="poly_a"
+                     /mrnax_origin_source="mrnax:homopolymer_tail"
+                     /mrnax_license_track="commercial_clean"
+                     /mrnax_action_taken="locked_verbatim"
+                     /mrnax_component_id="polya_a100"
+     regulatory      45..54
+                     /regulatory_class="ribosome_binding_site"
+                     /mrnax_layer="annotation"
+                     /mrnax_feature_id="kozak_tis"
+ORIGIN
+        1 acatttgctt ctgacacaac tgtgttcact agcaacctca aacagacacc atggtttcaa
+       61 agggagaaga attatttact ggagttgttc ccatcctggt ggagctggac ggcgacgtga
+      121 atggccacaa attcagcgtg agcggcgagg gcgagggcga cgccacctac ggcaagctga
+      181 ccctgaagtt catctgcacc accggcaagc tgcccgtgcc ctggccgacc ctggtgacca
+      241 ccctgaccta cggcgtgcag tgcttcagcc ggtatcccga ccatatgaag caacatgact
+      301 tcttcaagag cgccatgccc gagggctacg tgcaggagcg gaccatcttc ttcaaggacg
+      361 acggcaacta caagacccgg gccgaggtga agttcgaggg cgacaccctg gtgaaccgaa
+      421 tcgagcttaa gggaatcgac ttcaaggagg acggcaacat cctgggccac aagctggagt
+      481 acaactacaa cagccacaac gtgtacatca tggccgacaa gcagaagaac ggcatcaagg
+      541 tgaacttcaa gattcggcac aacatcgagg acggcagcgt gcagctggcc gaccactacc
+      601 aacagaatac accaatcggc gacggccccg tgctgctgcc cgacaaccac taccttagca
+      661 cgcagagcgc cctgagcaag gaccccaacg agaaacggga ccacatggtg ctgctggagt
+      721 tcgtaaccgc cgccggcatc accctgggca tggacgagct gtacaagtaa gacccctgga
+      781 ccaccagccc cagcaagagc acaagaggaa gagagagacc ctcactgctg gggagtccct
+      841 gccacactca gtcccccacc acactgaatc tcccctcctc acagttgcca tgtagacccc
+      901 ttgaagaggg gaggggccta gggagccgca ccttgtcatg taccatcaat aaagtaccct
+      961 gtgctcaacc aaaaaaaaaa aaaaaaaaaa aaaaaaaaaa aaaaaaaaaa aaaaaaaaaa
+     1021 aaaaaaaaaa aaaaaaaaaa aaaaaaaaaa aaaaaaaaaa aaaaaaaaaa
+//

@@ -1,0 +1,36 @@
+{
+  "draft_claim_inbox": [],
+  "is_isolated_sandbox": false,
+  "registry_track": "research_max",
+  "rules": [
+    {
+      "allowed_track": "commercial_clearance_pending",
+      "applicable_chemistries": [
+        "unmodified_u",
+        "pseudouridine",
+        "m1psi"
+      ],
+      "applicable_contexts": [
+        "HEK293T",
+        "general_mammalian_ivt"
+      ],
+      "audit_history": [],
+      "linked_observations": [
+        {
+          "claim_id": "CC-MRNAX-MP01-001",
+          "evidence_layer": "raw_observation",
+          "underlying_dataset_id": "GSE114002"
+        }
+      ],
+      "model_interpretations": [],
+      "readout_name_exact": "Mean Ribosome Load (MRL)",
+      "rule_id": "RUL-5UTR-UAUG-MRL-001",
+      "statement": "Out-of-frame upstream AUG (uAUG) in the 5'UTR reduces Mean Ribosome Load (MRL) across unmodified U, Psi, and m1Psi IVT reporter mRNAs in HEK293T.",
+      "status": "conditional_rule",
+      "target_scopes": [
+        "five_prime_utr"
+      ],
+      "version": "1.0.0"
+    }
+  ]
+}

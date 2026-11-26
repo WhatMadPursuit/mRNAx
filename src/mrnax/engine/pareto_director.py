@@ -25,7 +25,10 @@ from mrnax.engine.stage0_baseline import (
     generate_random_synonymous_cds,
     mutate_cds_region_synonymously,
 )
-from mrnax.engine.thermodynamics import evaluate_molecule_thermodynamics
+from mrnax.engine.thermodynamics import (
+    compute_cds_sliding_window_mfe,
+    evaluate_molecule_thermodynamics,
+)
 from mrnax.schemas.construct_bundle import (
     ChemistryTrackSpec,
     ConstructBundle,
@@ -511,15 +514,32 @@ def run_design_pipeline(
                     chemistry=intent.uridine_chemistry,
                 )
                 if n_codons > 15:
-                    cand_cds = mutate_cds_region_synonymously(
-                        cand_cds,
-                        protein_seq,
-                        rng,
-                        codon_start=12,
-                        codon_end=max(13, n_codons - 10),
-                        prefer_open_au=False,
-                        chemistry=intent.uridine_chemistry,
+                    # Inner-loop ViennaRNA sliding-window MFE greedy hill-climb (3 trials per candidate)
+                    best_body = cand_cds
+                    best_mfe = (
+                        compute_cds_sliding_window_mfe(best_body)
+                        if "viennarna_thermo" in intent.runtime_policy.enabled_evaluators
+                        else 0.0
                     )
+                    for _trial in range(3):
+                        trial_cds = mutate_cds_region_synonymously(
+                            best_body,
+                            protein_seq,
+                            rng,
+                            codon_start=12,
+                            codon_end=max(13, n_codons - 10),
+                            prefer_open_au=False,
+                            chemistry=intent.uridine_chemistry,
+                        )
+                        if "viennarna_thermo" in intent.runtime_policy.enabled_evaluators:
+                            trial_mfe = compute_cds_sliding_window_mfe(trial_cds)
+                            if trial_mfe < best_mfe:
+                                best_body = trial_cds
+                                best_mfe = trial_mfe
+                        else:
+                            best_body = trial_cds
+                            break
+                    cand_cds = best_body
                 # Step B: Co-adapt 3' CDS tail if de-targeting miRNA site is occluded
                 if mirna_mature is not None and n_codons > 10:
                     cand_cds = mutate_cds_region_synonymously(

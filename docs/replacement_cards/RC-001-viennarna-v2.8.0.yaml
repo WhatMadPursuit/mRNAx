@@ -1,0 +1,54 @@
+card_id: "RC-001-VIENNARNA-2.8.0"
+component_id: "viennarna_thermo"
+component_name_and_version: "ViennaRNA Package v2.8.0 (Python bindings `RNA`)"
+role_in_pipeline: >
+  Inner-loop local sliding-window accessibility (`RNA.pfl_fold_up` around [-35,+55] Kozak TIS),
+  CDS local window minimum free energy (`RNA.fold` 120-nt windows), cross-junction folding check,
+  and `CellExpressionController` 3'UTR miRNA target site opening + duplex interaction (`RNAup`
+  exact statistical mechanics dG_total = dG_duplex - RT*ln(P_unpaired)).
+current_license_track: "needs_vendor_license"
+code_rights_basis: >
+  GitHub https://github.com/ViennaRNA/ViennaRNA/blob/v2.8.0/COPYING allows internal research and
+  conditional commercial use, forbids fee-based redistribution, and explicitly requires contacting
+  the University of Vienna authors before inclusion in a commercial product. Additionally, C-B2
+  cross-audit identified a packaging metadata conflict at `packaging/viennarna.spec.in#L19` ("Non-commercial").
+weights_rights_basis: "n/a (biophysical dynamic programming software; no neural weights)."
+training_and_parameter_data_rights_basis: >
+  Published nearest-neighbor RNA thermodynamic parameter tables (Turner & Mathews 2004 / Mathews lab
+  public thermodynamic tables; Mauger et al. 2019 PNAS published delta-delta-G tables for m1Psi/Psi).
+runtime_dependency_rights_basis: >
+  Compiled C/C++ shared library `_RNA.abi3.so` linked against standard macOS/Linux system libc/libm/OpenMP;
+  isolated from `commercial_clean` execution until Path A or Path B below is completed.
+derived_assets_clean_room_rule: >
+  Do NOT train commercial neural surrogates (`commercial_clean`) directly on unapproved ViennaRNA outputs
+  prior to either (A) written commercial product license from University of Vienna or (B) generating synthetic
+  partition-function labels from a clean-room MIT/Apache-2.0 implementation of the published Turner 2004 recursion.
+commercial_replacement_paths:
+  - "Path A (Vendor License): Obtain written commercial SaaS/product inclusion license from University of Vienna TBI authors."
+  - "Path B (Self-Built Clean-Room Kernel): Implement an Apache-2.0 local sliding-window McCaskill partition function & duplex solver (W<=150 nt, L<=100 nt) directly from published Turner 2004 / Mathews 2004 equations + optional distilled local structure head on Colab NVMe."
+frozen_benchmark_dataset_and_protocol: >
+  Frozen benchmark suite `BM-THERMO-M1`: (1) 500 stratified transcripts across protein families (<30% sequence identity)
+  evaluating Kozak [-15,+18] unpaired probability and 120-nt CDS window MFE; (2) 200 3'UTR miR-122-5p / miR-142-3p
+  cassettes (open vs occluded controls); (3) Held-out `GSE232927` CC-BY-4.0 5'UTR MRL rank correlation under equal 60s wall budget.
+acceptance_metrics:
+  - metric_id: "kozak_unpaired_prob_mae"
+    definition_and_scale: "Mean Absolute Error of [-15,+18] unpaired probability in [0.0, 1.0] against frozen ViennaRNA v2.8.0 exact reference"
+    direction: "lower_is_better"
+    frozen_baseline_reference: "0.0000 (exact ViennaRNA v2.8.0 reference on BM-THERMO-M1)"
+    max_acceptable_degradation: "MAE <= 0.015 and Pearson r >= 0.985 across all 500 stratified constructs"
+  - metric_id: "mirna_rnaup_dg_total_rmse"
+    definition_and_scale: "RMSE of dG_total (kcal/mol at 37C) across 200 open/occluded miRNA 3'UTR cassettes"
+    direction: "lower_is_better"
+    frozen_baseline_reference: "0.00 kcal/mol (ViennaRNA v2.8.0 reference)"
+    max_acceptable_degradation: "RMSE <= 0.60 kcal/mol and 100% classification concordance on designed open vs occluded pairs"
+  - metric_id: "equal_budget_pareto_hypervolume_delta"
+    definition_and_scale: "2D Pareto hypervolume (kozak_unpaired_prob, -cds_mean_window_mfe) on eGFP & 5 held-out proteins under identical 30s CPU budget"
+    direction: "higher_is_better"
+    frozen_baseline_reference: "ViennaRNA v2.8.0 guided NSGA-II hypervolume H_ref on identical seeds"
+    max_acceptable_degradation: "H_candidate - H_ref >= -0.020 absolute hypervolume units"
+max_compute_cost_budget: "Single-construct evaluation latency <= 150 ms on 4-vCPU standard worker (or <= 15 ms batched on T4 GPU); zero extra commercial per-call royalty."
+overall_switch_rule: >
+  Promote replacement kernel into `commercial_clean` default profile only when ALL THREE acceptance_metrics
+  simultaneously meet their explicit bounds above, latency stays within max_compute_cost_budget, and legal
+  sign-off confirms zero GPL/non-commercial lineage.
+rollback_version: "ViennaRNA==2.8.0 (research_max only)"

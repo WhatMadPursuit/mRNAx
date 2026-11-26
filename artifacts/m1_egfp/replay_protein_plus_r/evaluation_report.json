@@ -1,0 +1,957 @@
+{
+  "action_transparency": [
+    {
+      "changed_candidate_ids": [],
+      "eliminated_count": 0,
+      "proof_diff_summary": "Executed hard gate 'uaug_free' on scopes ['five_prime_utr']; eliminated 0/12 candidates.",
+      "requirement_id": "gate_uaug_5utr",
+      "stage_applied": "filtering"
+    },
+    {
+      "changed_candidate_ids": [],
+      "eliminated_count": 0,
+      "proof_diff_summary": "Executed hard gate 'homopolymer_max' on scopes ['cds', 'five_prime_utr', 'stop_cassette', 'three_prime_utr']; eliminated 0/12 candidates.",
+      "requirement_id": "gate_homopolymer_max",
+      "stage_applied": "filtering"
+    },
+    {
+      "changed_candidate_ids": [],
+      "eliminated_count": 0,
+      "proof_diff_summary": "Executed hard gate 'm1psi_slippery_free' on scopes ['cds']; eliminated 0/12 candidates.",
+      "requirement_id": "gate_m1psi_frameshift",
+      "stage_applied": "filtering"
+    },
+    {
+      "changed_candidate_ids": [],
+      "eliminated_count": 0,
+      "proof_diff_summary": "Executed hard gate 't7_class2_terminator_free' on scopes ['cds', 'five_prime_utr', 'stop_cassette', 'three_prime_utr']; eliminated 0/12 candidates.",
+      "requirement_id": "gate_t7_terminator",
+      "stage_applied": "filtering"
+    },
+    {
+      "changed_candidate_ids": [],
+      "eliminated_count": 0,
+      "proof_diff_summary": "Executed hard gate 'dsrna_and_3p_loopback' on scopes ['full_transcript', 'inter_chain', 'three_prime_terminal']; eliminated 0/12 candidates.",
+      "requirement_id": "gate_dsrna_and_loopback",
+      "stage_applied": "filtering"
+    },
+    {
+      "changed_candidate_ids": [],
+      "eliminated_count": 0,
+      "proof_diff_summary": "Executed hard gate 'type_iis_restriction_free' on scopes ['full_transcript']; eliminated 0/12 candidates.",
+      "requirement_id": "gate_type_iis_restriction",
+      "stage_applied": "filtering"
+    },
+    {
+      "changed_candidate_ids": [
+        "bnd_3aa6_dnachisel",
+        "bnd_3aa6_pareto_04",
+        "bnd_3aa6_pareto_08"
+      ],
+      "eliminated_count": 0,
+      "proof_diff_summary": "Objective 'kozak_unpaired_prob' (maximize) participated in Pareto selection across 12 qualified bundles.",
+      "requirement_id": "obj_5p_initiation_openness",
+      "stage_applied": "ranking"
+    },
+    {
+      "changed_candidate_ids": [
+        "bnd_3aa6_dnachisel",
+        "bnd_3aa6_pareto_04",
+        "bnd_3aa6_pareto_08"
+      ],
+      "eliminated_count": 0,
+      "proof_diff_summary": "Objective 'cds_mean_window_mfe' (minimize) participated in Pareto selection across 12 qualified bundles.",
+      "requirement_id": "obj_cds_local_stability",
+      "stage_applied": "ranking"
+    },
+    {
+      "changed_candidate_ids": [],
+      "eliminated_count": 0,
+      "proof_diff_summary": "Objective 'late_timepoint_protein_auc' lacks validated computational predictor; recorded as pending wet-lab validation target.",
+      "requirement_id": "obj_late_protein_persistence",
+      "stage_applied": "recorded_only"
+    }
+  ],
+  "candidate_evaluations": [
+    {
+      "bundle_id": "bnd_3aa6_dnachisel",
+      "metrics": [
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "maximize",
+          "evaluated_scopes": [
+            "five_prime_utr",
+            "cds"
+          ],
+          "metric_id": "kozak_unpaired_prob",
+          "notes": null,
+          "participated_in": "generation_guidance",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "probability",
+          "value": 0.568262
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "minimize",
+          "evaluated_scopes": [
+            "cds"
+          ],
+          "metric_id": "cds_mean_window_mfe",
+          "notes": null,
+          "participated_in": "pareto_selection_or_ranking",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol/100nt",
+          "value": -29.1111
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "maximize",
+          "evaluated_scopes": [
+            "five_prime_utr",
+            "cds",
+            "three_prime_utr"
+          ],
+          "metric_id": "junction_folding_mfe",
+          "notes": null,
+          "participated_in": "pareto_selection_or_ranking",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol",
+          "value": -31.9
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "informational",
+          "evaluated_scopes": [
+            "full_transcript"
+          ],
+          "metric_id": "full_transcript_mfe",
+          "notes": null,
+          "participated_in": "display_only",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol",
+          "value": -311.9
+        }
+      ],
+      "pareto_rank": 1,
+      "passed_all_hard_gates": true,
+      "selection_rationale": [
+        "Pareto rank 1 under research_max profile (de_novo_design)"
+      ],
+      "version_digest": "220a8b3d606b6d4f88e24cdddfaba7f6f138781fc5d018de5e00671b82686a24"
+    },
+    {
+      "bundle_id": "bnd_3aa6_pareto_04",
+      "metrics": [
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "maximize",
+          "evaluated_scopes": [
+            "five_prime_utr",
+            "cds"
+          ],
+          "metric_id": "kozak_unpaired_prob",
+          "notes": null,
+          "participated_in": "generation_guidance",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "probability",
+          "value": 0.577565
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "minimize",
+          "evaluated_scopes": [
+            "cds"
+          ],
+          "metric_id": "cds_mean_window_mfe",
+          "notes": null,
+          "participated_in": "pareto_selection_or_ranking",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol/100nt",
+          "value": -29.0278
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "maximize",
+          "evaluated_scopes": [
+            "five_prime_utr",
+            "cds",
+            "three_prime_utr"
+          ],
+          "metric_id": "junction_folding_mfe",
+          "notes": null,
+          "participated_in": "pareto_selection_or_ranking",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol",
+          "value": -39.1
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "informational",
+          "evaluated_scopes": [
+            "full_transcript"
+          ],
+          "metric_id": "full_transcript_mfe",
+          "notes": null,
+          "participated_in": "display_only",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol",
+          "value": -320.7
+        }
+      ],
+      "pareto_rank": 1,
+      "passed_all_hard_gates": true,
+      "selection_rationale": [
+        "Pareto rank 1 under research_max profile (de_novo_design)"
+      ],
+      "version_digest": "b4306bacdde9b3f20f7ca4b29bfba7f92df9b10ecc3fcf8dcf7c09086e26573a"
+    },
+    {
+      "bundle_id": "bnd_3aa6_pareto_08",
+      "metrics": [
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "maximize",
+          "evaluated_scopes": [
+            "five_prime_utr",
+            "cds"
+          ],
+          "metric_id": "kozak_unpaired_prob",
+          "notes": null,
+          "participated_in": "generation_guidance",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "probability",
+          "value": 0.590041
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "minimize",
+          "evaluated_scopes": [
+            "cds"
+          ],
+          "metric_id": "cds_mean_window_mfe",
+          "notes": null,
+          "participated_in": "pareto_selection_or_ranking",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol/100nt",
+          "value": -28.7556
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "maximize",
+          "evaluated_scopes": [
+            "five_prime_utr",
+            "cds",
+            "three_prime_utr"
+          ],
+          "metric_id": "junction_folding_mfe",
+          "notes": null,
+          "participated_in": "pareto_selection_or_ranking",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol",
+          "value": -24.4
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "informational",
+          "evaluated_scopes": [
+            "full_transcript"
+          ],
+          "metric_id": "full_transcript_mfe",
+          "notes": null,
+          "participated_in": "display_only",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol",
+          "value": -343.7
+        }
+      ],
+      "pareto_rank": 1,
+      "passed_all_hard_gates": true,
+      "selection_rationale": [
+        "Pareto rank 1 under research_max profile (de_novo_design)"
+      ],
+      "version_digest": "de9d58c4898c9d13fd27f5f7202c265ebc88305ce9ad419a1f4ce3f67435bd6a"
+    },
+    {
+      "bundle_id": "bnd_3aa6_pareto_01",
+      "metrics": [
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "maximize",
+          "evaluated_scopes": [
+            "five_prime_utr",
+            "cds"
+          ],
+          "metric_id": "kozak_unpaired_prob",
+          "notes": null,
+          "participated_in": "generation_guidance",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "probability",
+          "value": 0.593925
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "minimize",
+          "evaluated_scopes": [
+            "cds"
+          ],
+          "metric_id": "cds_mean_window_mfe",
+          "notes": null,
+          "participated_in": "pareto_selection_or_ranking",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol/100nt",
+          "value": -28.25
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "maximize",
+          "evaluated_scopes": [
+            "five_prime_utr",
+            "cds",
+            "three_prime_utr"
+          ],
+          "metric_id": "junction_folding_mfe",
+          "notes": null,
+          "participated_in": "pareto_selection_or_ranking",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol",
+          "value": -22.9
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "informational",
+          "evaluated_scopes": [
+            "full_transcript"
+          ],
+          "metric_id": "full_transcript_mfe",
+          "notes": null,
+          "participated_in": "display_only",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol",
+          "value": -298.1
+        }
+      ],
+      "pareto_rank": 1,
+      "passed_all_hard_gates": true,
+      "selection_rationale": [
+        "Pareto rank 1 under research_max profile (de_novo_design)"
+      ],
+      "version_digest": "7e01dc461afdd1ecb6d2da9fdedf690df44587e72490a5e5068f5a0f939c3611"
+    },
+    {
+      "bundle_id": "bnd_3aa6_pareto_02",
+      "metrics": [
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "maximize",
+          "evaluated_scopes": [
+            "five_prime_utr",
+            "cds"
+          ],
+          "metric_id": "kozak_unpaired_prob",
+          "notes": null,
+          "participated_in": "generation_guidance",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "probability",
+          "value": 0.563079
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "minimize",
+          "evaluated_scopes": [
+            "cds"
+          ],
+          "metric_id": "cds_mean_window_mfe",
+          "notes": null,
+          "participated_in": "pareto_selection_or_ranking",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol/100nt",
+          "value": -29.1111
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "maximize",
+          "evaluated_scopes": [
+            "five_prime_utr",
+            "cds",
+            "three_prime_utr"
+          ],
+          "metric_id": "junction_folding_mfe",
+          "notes": null,
+          "participated_in": "pareto_selection_or_ranking",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol",
+          "value": -32.8
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "informational",
+          "evaluated_scopes": [
+            "full_transcript"
+          ],
+          "metric_id": "full_transcript_mfe",
+          "notes": null,
+          "participated_in": "display_only",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol",
+          "value": -310.8
+        }
+      ],
+      "pareto_rank": 2,
+      "passed_all_hard_gates": true,
+      "selection_rationale": [
+        "Pareto rank 2 under research_max profile (de_novo_design)"
+      ],
+      "version_digest": "2f328e15473e22cd1f683cd8f28146612ab72192f45a4cc850672f6ff1673d7c"
+    },
+    {
+      "bundle_id": "bnd_3aa6_pareto_07",
+      "metrics": [
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "maximize",
+          "evaluated_scopes": [
+            "five_prime_utr",
+            "cds"
+          ],
+          "metric_id": "kozak_unpaired_prob",
+          "notes": null,
+          "participated_in": "generation_guidance",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "probability",
+          "value": 0.570355
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "minimize",
+          "evaluated_scopes": [
+            "cds"
+          ],
+          "metric_id": "cds_mean_window_mfe",
+          "notes": null,
+          "participated_in": "pareto_selection_or_ranking",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol/100nt",
+          "value": -28.4611
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "maximize",
+          "evaluated_scopes": [
+            "five_prime_utr",
+            "cds",
+            "three_prime_utr"
+          ],
+          "metric_id": "junction_folding_mfe",
+          "notes": null,
+          "participated_in": "pareto_selection_or_ranking",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol",
+          "value": -22.0
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "informational",
+          "evaluated_scopes": [
+            "full_transcript"
+          ],
+          "metric_id": "full_transcript_mfe",
+          "notes": null,
+          "participated_in": "display_only",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol",
+          "value": -336.2
+        }
+      ],
+      "pareto_rank": 2,
+      "passed_all_hard_gates": true,
+      "selection_rationale": [
+        "Pareto rank 2 under research_max profile (de_novo_design)"
+      ],
+      "version_digest": "bfbac2be3e87d06e01d24f4c594ec3296b2023b7118d9635e6abc5ec67cbe7f4"
+    },
+    {
+      "bundle_id": "bnd_3aa6_stage0_ref",
+      "metrics": [
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "maximize",
+          "evaluated_scopes": [
+            "five_prime_utr",
+            "cds"
+          ],
+          "metric_id": "kozak_unpaired_prob",
+          "notes": null,
+          "participated_in": "generation_guidance",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "probability",
+          "value": 0.578931
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "minimize",
+          "evaluated_scopes": [
+            "cds"
+          ],
+          "metric_id": "cds_mean_window_mfe",
+          "notes": null,
+          "participated_in": "pareto_selection_or_ranking",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol/100nt",
+          "value": -20.5111
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "maximize",
+          "evaluated_scopes": [
+            "five_prime_utr",
+            "cds",
+            "three_prime_utr"
+          ],
+          "metric_id": "junction_folding_mfe",
+          "notes": null,
+          "participated_in": "pareto_selection_or_ranking",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol",
+          "value": -31.6
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "informational",
+          "evaluated_scopes": [
+            "full_transcript"
+          ],
+          "metric_id": "full_transcript_mfe",
+          "notes": null,
+          "participated_in": "display_only",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol",
+          "value": -243.2
+        }
+      ],
+      "pareto_rank": 2,
+      "passed_all_hard_gates": true,
+      "selection_rationale": [
+        "Pareto rank 2 under research_max profile (de_novo_design)"
+      ],
+      "version_digest": "9029824196726b9000c7df603ad02db8c66ed12c7ba4861164d409c966377a2c"
+    },
+    {
+      "bundle_id": "bnd_3aa6_pareto_06",
+      "metrics": [
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "maximize",
+          "evaluated_scopes": [
+            "five_prime_utr",
+            "cds"
+          ],
+          "metric_id": "kozak_unpaired_prob",
+          "notes": null,
+          "participated_in": "generation_guidance",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "probability",
+          "value": 0.460966
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "minimize",
+          "evaluated_scopes": [
+            "cds"
+          ],
+          "metric_id": "cds_mean_window_mfe",
+          "notes": null,
+          "participated_in": "pareto_selection_or_ranking",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol/100nt",
+          "value": -28.6167
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "maximize",
+          "evaluated_scopes": [
+            "five_prime_utr",
+            "cds",
+            "three_prime_utr"
+          ],
+          "metric_id": "junction_folding_mfe",
+          "notes": null,
+          "participated_in": "pareto_selection_or_ranking",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol",
+          "value": -45.5
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "informational",
+          "evaluated_scopes": [
+            "full_transcript"
+          ],
+          "metric_id": "full_transcript_mfe",
+          "notes": null,
+          "participated_in": "display_only",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol",
+          "value": -339.7
+        }
+      ],
+      "pareto_rank": 3,
+      "passed_all_hard_gates": true,
+      "selection_rationale": [
+        "Pareto rank 3 under research_max profile (de_novo_design)"
+      ],
+      "version_digest": "6b178b81df771de1838b13f2a2455fe85a8a23f7b900a72c865f627bc150c2cc"
+    },
+    {
+      "bundle_id": "bnd_3aa6_pareto_03",
+      "metrics": [
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "maximize",
+          "evaluated_scopes": [
+            "five_prime_utr",
+            "cds"
+          ],
+          "metric_id": "kozak_unpaired_prob",
+          "notes": null,
+          "participated_in": "generation_guidance",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "probability",
+          "value": 0.522249
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "minimize",
+          "evaluated_scopes": [
+            "cds"
+          ],
+          "metric_id": "cds_mean_window_mfe",
+          "notes": null,
+          "participated_in": "pareto_selection_or_ranking",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol/100nt",
+          "value": -28.3389
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "maximize",
+          "evaluated_scopes": [
+            "five_prime_utr",
+            "cds",
+            "three_prime_utr"
+          ],
+          "metric_id": "junction_folding_mfe",
+          "notes": null,
+          "participated_in": "pareto_selection_or_ranking",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol",
+          "value": -25.6
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "informational",
+          "evaluated_scopes": [
+            "full_transcript"
+          ],
+          "metric_id": "full_transcript_mfe",
+          "notes": null,
+          "participated_in": "display_only",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol",
+          "value": -328.8
+        }
+      ],
+      "pareto_rank": 3,
+      "passed_all_hard_gates": true,
+      "selection_rationale": [
+        "Pareto rank 3 under research_max profile (de_novo_design)"
+      ],
+      "version_digest": "b8e671a1df34ced432958c124551b107793a41cc27a8894fb31da92928abaf5b"
+    },
+    {
+      "bundle_id": "bnd_3aa6_pareto_05",
+      "metrics": [
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "maximize",
+          "evaluated_scopes": [
+            "five_prime_utr",
+            "cds"
+          ],
+          "metric_id": "kozak_unpaired_prob",
+          "notes": null,
+          "participated_in": "generation_guidance",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "probability",
+          "value": 0.554733
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "minimize",
+          "evaluated_scopes": [
+            "cds"
+          ],
+          "metric_id": "cds_mean_window_mfe",
+          "notes": null,
+          "participated_in": "pareto_selection_or_ranking",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol/100nt",
+          "value": -28.2056
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "maximize",
+          "evaluated_scopes": [
+            "five_prime_utr",
+            "cds",
+            "three_prime_utr"
+          ],
+          "metric_id": "junction_folding_mfe",
+          "notes": null,
+          "participated_in": "pareto_selection_or_ranking",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol",
+          "value": -30.1
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "informational",
+          "evaluated_scopes": [
+            "full_transcript"
+          ],
+          "metric_id": "full_transcript_mfe",
+          "notes": null,
+          "participated_in": "display_only",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol",
+          "value": -305.2
+        }
+      ],
+      "pareto_rank": 3,
+      "passed_all_hard_gates": true,
+      "selection_rationale": [
+        "Pareto rank 3 under research_max profile (de_novo_design)"
+      ],
+      "version_digest": "5f6b3239d3280ae405b5ae2a67a9533593710cf60a45324a5374bc32fb478c83"
+    },
+    {
+      "bundle_id": "bnd_egfp_ref_R",
+      "metrics": [
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "maximize",
+          "evaluated_scopes": [
+            "five_prime_utr",
+            "cds"
+          ],
+          "metric_id": "kozak_unpaired_prob",
+          "notes": null,
+          "participated_in": "generation_guidance",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "probability",
+          "value": 0.555639
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "minimize",
+          "evaluated_scopes": [
+            "cds"
+          ],
+          "metric_id": "cds_mean_window_mfe",
+          "notes": null,
+          "participated_in": "pareto_selection_or_ranking",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol/100nt",
+          "value": -26.8056
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "maximize",
+          "evaluated_scopes": [
+            "five_prime_utr",
+            "cds",
+            "three_prime_utr"
+          ],
+          "metric_id": "junction_folding_mfe",
+          "notes": null,
+          "participated_in": "pareto_selection_or_ranking",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol",
+          "value": -44.4
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "informational",
+          "evaluated_scopes": [
+            "full_transcript"
+          ],
+          "metric_id": "full_transcript_mfe",
+          "notes": null,
+          "participated_in": "display_only",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol",
+          "value": -318.6
+        }
+      ],
+      "pareto_rank": 3,
+      "passed_all_hard_gates": true,
+      "selection_rationale": [
+        "Pareto rank 3 under research_max profile (reference_import)"
+      ],
+      "version_digest": "a35a1cf57777f278a4ac3a47c96413a4d478e01a090b1ef2804b203dc6389198"
+    },
+    {
+      "bundle_id": "bnd_3aa6_minA",
+      "metrics": [
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "maximize",
+          "evaluated_scopes": [
+            "five_prime_utr",
+            "cds"
+          ],
+          "metric_id": "kozak_unpaired_prob",
+          "notes": null,
+          "participated_in": "generation_guidance",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "probability",
+          "value": 0.555639
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "minimize",
+          "evaluated_scopes": [
+            "cds"
+          ],
+          "metric_id": "cds_mean_window_mfe",
+          "notes": null,
+          "participated_in": "pareto_selection_or_ranking",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol/100nt",
+          "value": -26.8056
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "maximize",
+          "evaluated_scopes": [
+            "five_prime_utr",
+            "cds",
+            "three_prime_utr"
+          ],
+          "metric_id": "junction_folding_mfe",
+          "notes": null,
+          "participated_in": "pareto_selection_or_ranking",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol",
+          "value": -44.4
+        },
+        {
+          "chemistry_evaluation_mode": "cross_chemistry_thermodynamic_approximation",
+          "direction": "informational",
+          "evaluated_scopes": [
+            "full_transcript"
+          ],
+          "metric_id": "full_transcript_mfe",
+          "notes": null,
+          "participated_in": "display_only",
+          "tool_name": "ViennaRNA",
+          "tool_version": "2.8.0",
+          "unit": "kcal/mol",
+          "value": -318.6
+        }
+      ],
+      "pareto_rank": 3,
+      "passed_all_hard_gates": true,
+      "selection_rationale": [
+        "Pareto rank 3 under research_max profile (locked_refinement)"
+      ],
+      "version_digest": "15c24aa92990b754f4a2c63c1eb51ffc20745b27f7e6f264bb279b3b694b012e"
+    }
+  ],
+  "compliance_track": "research_max",
+  "execution_id": "exec_05a5688b3aa6",
+  "failed_diagnostics": [],
+  "fto_alerts": [],
+  "intent_id": "int_ac59b81f",
+  "intent_version": 1,
+  "outcome_status": "COMPLETED_WITH_CANDIDATES",
+  "pre_synthesis_advisories": [
+    {
+      "advisory_id": "adv_cap_cleancap_ag",
+      "category": "cap_5prime_dinucleotide",
+      "message": "CleanCap AG typically initiates with 5'-AG (current transcript starts with 5'-AC); confirm T7 promoter +1/+2 initiation dinucleotide before IVT template synthesis.",
+      "transcript_coordinates": [
+        0,
+        2
+      ]
+    },
+    {
+      "advisory_id": "adv_utr3_pas_retained",
+      "category": "utr3_canonical_pas",
+      "message": "Endogenous AAUAAA present in 3'UTR (normal in human globin/housekeeping UTRs; non-blocking).",
+      "transcript_coordinates": [
+        846,
+        852
+      ]
+    },
+    {
+      "advisory_id": "adv_vienna_m1psi_approx",
+      "category": "chemistry_approximation",
+      "message": "Chemistry 'm1psi' evaluated with standard Turner 2004 unmodified-U nearest-neighbor parameters (cross_chemistry_thermodynamic_approximation).",
+      "transcript_coordinates": null
+    }
+  ],
+  "recommended_bundle_ids": [
+    "bnd_3aa6_dnachisel",
+    "bnd_3aa6_pareto_04",
+    "bnd_3aa6_pareto_08"
+  ],
+  "report_id": "rep_688b3aa6",
+  "uncomparable_reason": null
+}

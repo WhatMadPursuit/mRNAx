@@ -1,0 +1,81 @@
+{
+  "bundle_id": "bnd_egfp_ref_R",
+  "co_expression_mode": "single_monocistronic",
+  "derivation_action": "reference_import",
+  "molecules": [
+    {
+      "annotations": [],
+      "chemistry_track": {
+        "cap_chemistry": "cap1_cleancap_ag",
+        "custom_modification_notes": null,
+        "source": "user_declared",
+        "uridine_chemistry": "m1psi"
+      },
+      "effective_translation_target": {
+        "accession_or_source": "GenBank:U55762.1",
+        "confirmation_status": "confirmed",
+        "entry_version": "AAB02572.1",
+        "has_signal_peptide": false,
+        "is_secreted_or_membrane": false,
+        "protein_sequence": "MVSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPTLVTTLTYGVQCFSRYPDHMKQHDFFKSAMPEGYVQERTIFFKDDGNYKTRAEVKFEGDTLVNRIELKGIDFKEDGNILGHKLEYNYNSHNVYIMADKQKNGIKVNFKIRHNIEDGSVQLADHYQQNTPIGDGPVLLPDNHYLSTQSALSKDPNEKRDHMVLLEFVTAAGITLGMDELYK",
+        "transl_table": 1
+      },
+      "modality": "linear_mrna",
+      "molecule_id": "mol_egfp_ref_R",
+      "segments": [
+        {
+          "action_taken": "locked_verbatim",
+          "component_id": "utr5_hba1_NM_000558_5",
+          "end": 37,
+          "license_track": "commercial_clean",
+          "origin_source": "NCBI_RefSeq:NM_000558.5",
+          "segment_type": "five_prime_utr",
+          "start": 0
+        },
+        {
+          "action_taken": "locked_verbatim",
+          "component_id": "cds_u55762_wt_m1psi_clean",
+          "end": 754,
+          "license_track": "commercial_clean",
+          "origin_source": "GenBank:U55762.1",
+          "segment_type": "cds",
+          "start": 37
+        },
+        {
+          "action_taken": "locked_verbatim",
+          "component_id": "stop_uaa",
+          "end": 757,
+          "license_track": "commercial_clean",
+          "origin_source": "GenBank:U55762.1",
+          "segment_type": "stop_cassette",
+          "start": 754
+        },
+        {
+          "action_taken": "locked_verbatim",
+          "component_id": "utr3_hba1_NM_000558_5",
+          "end": 867,
+          "license_track": "commercial_clean",
+          "origin_source": "NCBI_RefSeq:NM_000558.5",
+          "segment_type": "three_prime_utr",
+          "start": 757
+        },
+        {
+          "action_taken": "locked_verbatim",
+          "component_id": "polya_a100",
+          "end": 967,
+          "license_track": "commercial_clean",
+          "origin_source": "mrnax:homopolymer_tail",
+          "segment_type": "poly_a",
+          "start": 867
+        }
+      ],
+      "sequence": "ACUCUUCUGGUCCCCACAGACUCAGAGAGAACCCACCAUGGUGAGCAAGGGCGAGGAGCUGUUCACCGGGGUGGUGCCCAUCCUGGUCGAGCUGGACGGCGACGUAAACGGCCACAAGUUCAGCGUGUCCGGCGAGGGCGAGGGCGAUGCCACCUACGGCAAGCUGACCCUGAAGUUCAUCUGCACCACCGGCAAGCUGCCCGUGCCCUGGCCCACCCUCGUGACCACCCUGACCUACGGCGUGCAGUGCUUCAGCCGCUACCCCGACCACAUGAAGCAGCACGACUUCUUCAAGUCCGCCAUGCCCGAAGGCUACGUCCAGGAGCGCACCAUCUUCUUCAAGGACGACGGCAACUACAAGACCCGCGCCGAGGUGAAGUUCGAGGGCGACACCCUGGUGAACCGCAUCGAGCUGAAGGGCAUCGACUUCAAGGAGGACGGCAACAUCCUGGGGCACAAGCUGGAGUACAACUACAACAGCCACAACGUCUAUAUCAUGGCCGACAAGCAGAAGAACGGCAUCAAGGUGAACUUCAAGAUCCGCCACAACAUCGAGGACGGCAGCGUGCAGCUCGCCGACCACUACCAGCAGAACACCCCCAUCGGCGACGGCCCCGUGCUGCUGCCCGACAACCACUACCUGAGCACCCAGUCCGCCCUGAGCAAAGACCCCAACGAGAAGCGCGAUCACAUGGUCCUGCUGGAGUUCGUGACCGCCGCCGGGAUCACUCUCGGCAUGGACGAGCUGUACAAGUAAGCUGGAGCCUCGGUGGCCAUGCUUCUUGCCCCUUGGGCCUCCCCCCAGCCCCUCCUCCCCUUCCUGCACCCGUACCCCCGUGGUCUUUGAAUAAAGUCUGAGUGGGCGGCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "topology": "linear"
+    }
+  ],
+  "parent_bundle_id": null,
+  "target_stoichiometry": {
+    "mol_egfp_ref_R": 1.0
+  },
+  "version_digest": "a35a1cf57777f278a4ac3a47c96413a4d478e01a090b1ef2804b203dc6389198"
+}

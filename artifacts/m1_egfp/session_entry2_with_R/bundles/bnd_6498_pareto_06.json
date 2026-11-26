@@ -1,0 +1,98 @@
+{
+  "bundle_id": "bnd_6498_pareto_06",
+  "co_expression_mode": "single_monocistronic",
+  "derivation_action": "de_novo_design",
+  "molecules": [
+    {
+      "annotations": [
+        {
+          "feature_id": "kozak_tis",
+          "feature_key": "regulatory",
+          "intervals": [
+            [
+              78,
+              88
+            ]
+          ],
+          "qualifiers": {
+            "regulatory_class": [
+              "ribosome_binding_site"
+            ]
+          },
+          "strand": 1
+        }
+      ],
+      "chemistry_track": {
+        "cap_chemistry": "cap1_cleancap_ag",
+        "custom_modification_notes": null,
+        "source": "user_declared",
+        "uridine_chemistry": "m1psi"
+      },
+      "effective_translation_target": {
+        "accession_or_source": "GenBank:U55762.1",
+        "confirmation_status": "confirmed",
+        "entry_version": "AAB02572.1",
+        "has_signal_peptide": false,
+        "is_secreted_or_membrane": false,
+        "protein_sequence": "MVSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPTLVTTLTYGVQCFSRYPDHMKQHDFFKSAMPEGYVQERTIFFKDDGNYKTRAEVKFEGDTLVNRIELKGIDFKEDGNILGHKLEYNYNSHNVYIMADKQKNGIKVNFKIRHNIEDGSVQLADHYQQNTPIGDGPVLLPDNHYLSTQSALSKDPNEKRDHMVLLEFVTAAGITLGMDELYK",
+        "transl_table": 1
+      },
+      "modality": "linear_mrna",
+      "molecule_id": "mol_primary",
+      "segments": [
+        {
+          "action_taken": "selected_from_library",
+          "component_id": "utr5_actb_NM_001101_5",
+          "end": 84,
+          "license_track": "commercial_clean",
+          "origin_source": "NCBI_RefSeq:NM_001101.5",
+          "segment_type": "five_prime_utr",
+          "start": 0
+        },
+        {
+          "action_taken": "synonymous_mutated",
+          "component_id": null,
+          "end": 801,
+          "license_track": "commercial_clean",
+          "origin_source": "mrnax:pareto_cds_utr_coopt",
+          "segment_type": "cds",
+          "start": 84
+        },
+        {
+          "action_taken": "locked_verbatim",
+          "component_id": "stop_uga_uaa",
+          "end": 804,
+          "license_track": "commercial_clean",
+          "origin_source": "mrnax:standard",
+          "segment_type": "stop_cassette",
+          "start": 801
+        },
+        {
+          "action_taken": "selected_from_library",
+          "component_id": "utr3_hba1_NM_000558_5",
+          "end": 914,
+          "license_track": "commercial_clean",
+          "origin_source": "NCBI_RefSeq:NM_000558.5",
+          "segment_type": "three_prime_utr",
+          "start": 804
+        },
+        {
+          "action_taken": "locked_verbatim",
+          "component_id": "polya_a100",
+          "end": 1014,
+          "license_track": "commercial_clean",
+          "origin_source": "mrnax:homopolymer_tail",
+          "segment_type": "poly_a",
+          "start": 914
+        }
+      ],
+      "sequence": "ACCGCCGAGACCGCGUCCGCCCCGCGAGCACAGAGCCUCGCCUUUGCCGAUCCGCCGCCCGUCCACACCCGCCGCCAGCUCACCAUGGUCAGCAAAGGCGAGGAACUGUUCACAGGCGUGGUGCCCAUCCUGGUGGAGCUGGACGGCGACGUGAACGGCCACAAGUUCAGCGUGAGCGGGGAGGGCGAGGGCGACGCAACCUACGGUAAGCUGACCCUAAAGUUCAUCUGCACCACCGGGAAGCUGCCCGUGCCCUGGCCCACCUUGGUGACCACCCUGACCUAUGGCGUGCAGUGCUUCAGCCGGUACCCCGACCACAUGAAGCAGCACGACUUCUUCAAGAGCGCCAUGCCCGAGGGCUACGUGCAGGAGCGGACCAUCUUCUUCAAGGAUGAUGGCAAUUACAAGACCCGGGCAGAGGUGAAGUUCGAGGGCGACACCCUGGUGAACAGGAUCGAGCUGAAGGGGAUCGACUUCAAGGAAGAUGGCAACAUCUUGGGCCACAAGCUGGAGUACAACUACAACAGCCACAACGUGUACAUCAUGGCCGACAAGCAGAAGAACGGCAUUAAGGUGAACUUCAAGAUCCGGCACAACAUAGAGGACGGCAGCGUGCAGCUGGCCGACCACUACCAGCAGAACACCCCCAUCGGCGACGGCCCCGUUCUGCUGCCCGACAACCACUACCUAAGCACCCAGAGCGCCCUGUCGAAAGACCCCAACGAGAAGCGGGACCACAUGGUGCUGCUGGAGUUCGUGACCGCCGCCGGCAUCACCCUGGGCAUGGACGAGCUGUACAAGUAAGCUGGAGCCUCGGUGGCCAUGCUUCUUGCCCCUUGGGCCUCCCCCCAGCCCCUCCUCCCCUUCCUGCACCCGUACCCCCGUGGUCUUUGAAUAAAGUCUGAGUGGGCGGCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "topology": "linear"
+    }
+  ],
+  "parent_bundle_id": "bnd_egfp_ref_R",
+  "target_stoichiometry": {
+    "mol_primary": 1.0
+  },
+  "version_digest": "6b178b81df771de1838b13f2a2455fe85a8a23f7b900a72c865f627bc150c2cc"
+}
