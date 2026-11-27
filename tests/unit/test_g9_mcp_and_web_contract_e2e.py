@@ -516,6 +516,51 @@ def test_mcp_stdio_subprocess_full_commercial_clean_lifecycle_and_web_contract_p
         oa_schemas = openapi_resp.json()["components"]["schemas"]
         assert oa_schemas["InitialTurnRequest"]["additionalProperties"] is False
         assert oa_schemas["RefineTurnRequest"]["additionalProperties"] is False
+        assert "mode" in oa_schemas["RefineTurnRequest"]["required"]
+        assert "mode" not in oa_schemas["InitialTurnRequest"].get("required", [])
+        assert (
+            client.post(
+                "/v1/projects/proj_m2_ref_no_mode/turn",
+                json={"user_utterance": "Omitted mode refine field", "updated_restriction_enzymes": None},
+            ).status_code
+            == 422
+        )
+
+        # I-4: Out-of-range Decimal seeds must fail BEFORE int() conversion and omit numeric input from HTTP 422 diagnostics
+        from decimal import Decimal
+        import fastapi.encoders as fe
+        from pydantic import ValidationError
+        from mrnax.harness.state_machine import InitialTurnInput, _parse_json_schema_seed
+
+        prof_events: list[tuple[str, Any]] = []
+
+        def _trace_seed(frame: Any, event: str, result: Any) -> None:
+            if frame.f_code is _parse_json_schema_seed.__code__ and event == "return":
+                prof_events.append(("seed_return", result))
+            if frame.f_code is fe.decimal_encoder.__code__ and event == "call":
+                prof_events.append(("decimal_encoder", None))
+
+        sys.setprofile(_trace_seed)
+        try:
+            try:
+                InitialTurnInput.model_validate({"user_utterance": "Bound check", "random_seed": Decimal("2147483648.0")})
+            except ValidationError:
+                pass
+            else:
+                raise AssertionError("Expected ValidationError for 2147483648.0")
+        finally:
+            sys.setprofile(None)
+        assert prof_events == [("seed_return", None)]
+
+        for bad_dec_tok in ("2147483648.0", "2.15E+9", "-1.0"):
+            r_i4 = client.post(
+                "/v1/projects/proj_i4_bound/turn",
+                content=f'{{"user_utterance":"Bound check","protein_sequence":"A","random_seed":{bad_dec_tok}}}'.encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            assert r_i4.status_code == 422
+            assert all("input" not in err_item for err_item in r_i4.json()["detail"])
+        assert not (tmp_path / "proj_i4_bound" / "intents").exists()
 
         bad_init_extra = {"user_utterance": "Extra key", "protein_sequence": "A", "custom_reference_rna_sequence": None}
         assert client.post("/v1/projects/proj_extra_http/turn", json={"mode": "initial", **bad_init_extra}).status_code == 422

@@ -12,7 +12,7 @@ import threading
 import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from functools import wraps
 from pathlib import Path
 from typing import Any
@@ -45,23 +45,49 @@ from mrnax.schemas.experiment_record import ExperimentRecord, FeedbackDecisionRe
 from mrnax.schemas.run_manifest import RunManifest
 
 
-def _parse_json_schema_seed(v: Any) -> int:
-    """Validate JSON Schema `type: integer` with exact decimal precision (zero fractional part; rejecting bool/str)."""
+def parse_json_float_token_bounded(tok: str) -> Decimal:
+    """Parse a JSON float token into an exact Decimal without raising InvalidOperation on extreme exponents."""
+    if len(tok) > 4096:
+        return Decimal("-Infinity") if tok.startswith("-") else Decimal("Infinity")
+    try:
+        return Decimal(tok)
+    except InvalidOperation:
+        return Decimal("-Infinity") if tok.startswith("-") else Decimal("Infinity")
+
+
+def parse_bounded_json_int(v: Any, *, field_name: str, min_val: int, max_val: int) -> int:
+    """Validate JSON Schema `type: integer` within `[min_val, max_val]` BEFORE any integer conversion."""
     if isinstance(v, bool):
-        raise ValueError("random_seed must be an integer, not boolean")
+        raise ValueError(f"{field_name} must be an integer, not boolean")
     if isinstance(v, int):
+        if v < min_val or v > max_val:
+            raise ValueError(f"{field_name} must be between {min_val} and {max_val}")
         return v
     if isinstance(v, Decimal):
-        if v.is_finite() and v == v.to_integral_value():
-            return int(v)
-        raise ValueError("random_seed must have zero fractional part")
+        if not v.is_finite():
+            raise ValueError(f"{field_name} must be a finite integer")
+        min_dec = Decimal(min_val)
+        max_dec = Decimal(max_val)
+        if v < min_dec or v > max_dec:
+            raise ValueError(f"{field_name} must be between {min_val} and {max_val}")
+        if v != v.to_integral_value():
+            raise ValueError(f"{field_name} must have zero fractional part")
+        return int(v)
     if isinstance(v, float):
-        if math.isfinite(v):
-            d = Decimal(str(v))
-            if d == d.to_integral_value():
-                return int(d)
-        raise ValueError("random_seed must have zero fractional part")
-    raise ValueError("random_seed must be a JSON integer")
+        if not math.isfinite(v):
+            raise ValueError(f"{field_name} must be a finite integer")
+        if v < min_val or v > max_val:
+            raise ValueError(f"{field_name} must be between {min_val} and {max_val}")
+        d = Decimal(str(v))
+        if d < Decimal(min_val) or d > Decimal(max_val) or d != d.to_integral_value():
+            raise ValueError(f"{field_name} must have zero fractional part")
+        return int(d)
+    raise ValueError(f"{field_name} must be a JSON integer")
+
+
+def _parse_json_schema_seed(v: Any) -> int:
+    """Validate JSON Schema `type: integer` in `[0, 2147483647]` before any integer expansion."""
+    return parse_bounded_json_int(v, field_name="random_seed", min_val=0, max_val=2_147_483_647)
 
 
 class InitialTurnInput(BaseModel):

@@ -32,9 +32,11 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from fastapi import FastAPI, Header, HTTPException, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
-from pydantic import AfterValidator, BaseModel, Discriminator, Field, Tag
+from pydantic import AfterValidator, BaseModel, Discriminator, Field, Tag, field_validator
 
 from mrnax.cloud.cas_store import (
     ExecutionCASStore,
@@ -53,6 +55,8 @@ from mrnax.harness.state_machine import (
     ProjectHarnessSession,
     RefineTurnInput,
     build_preset_reference_r,
+    parse_bounded_json_int,
+    parse_json_float_token_bounded,
     project_lock,
 )
 from mrnax.harness.tools import AtomicToolbox
@@ -261,15 +265,25 @@ class SubmitExecutionRequest(BaseModel):
 
 class LeaseAcquireRequest(BaseModel):
     worker_id: str
-    ttl_seconds: int = 300
+    ttl_seconds: int = Field(default=300, ge=1, le=86_400)
     lease_token: str | None = None
+
+    @field_validator("ttl_seconds", mode="before")
+    @classmethod
+    def _validate_ttl_before(cls, v: Any) -> int:
+        return parse_bounded_json_int(v, field_name="ttl_seconds", min_val=1, max_val=86_400)
 
 
 class CommitAttemptRequest(BaseModel):
-    lease_epoch: int
+    lease_epoch: int = Field(ge=0, le=2_147_483_647)
     lease_token: str
     sealed_file_id: str
     sealed_sha256: str
+
+    @field_validator("lease_epoch", mode="before")
+    @classmethod
+    def _validate_epoch_before(cls, v: Any) -> int:
+        return parse_bounded_json_int(v, field_name="lease_epoch", min_val=0, max_val=2_147_483_647)
 
 
 class InitialTurnRequest(InitialTurnInput):
@@ -277,7 +291,7 @@ class InitialTurnRequest(InitialTurnInput):
 
 
 class RefineTurnRequest(RefineTurnInput):
-    mode: Literal["refine"] = "refine"
+    mode: Literal["refine"]
 
 
 def _turn_mode_discriminator(v: Any) -> str:
@@ -293,11 +307,57 @@ ProjectTurnRequest = Annotated[
 ]
 
 
+def _format_bounded_decimal(d: Decimal, max_chars: int = 64) -> str:
+    """Format a Decimal in O(1) bounded characters without expanding exponents or calling int(d)."""
+    if not d.is_finite():
+        return str(d)
+    tup = d.as_tuple()
+    sign = "-" if tup.sign else ""
+    digits = "".join(str(x) for x in tup.digits[:max_chars])
+    if len(tup.digits) > max_chars:
+        digits += "..."
+    text = f"{sign}{digits}E{tup.exponent:+d}" if abs(int(tup.exponent)) > 12 else str(d)
+    return text[:max_chars]
+
+
+def _sanitize_validation_errors(obj: Any, depth: int = 0) -> Any:
+    """Sanitize FastAPI/Pydantic validation errors without calling decimal_encoder or int(Decimal)."""
+    if obj is None or isinstance(obj, bool):
+        return obj
+    if isinstance(obj, Decimal):
+        return _format_bounded_decimal(obj)
+    if isinstance(obj, int):
+        if -2_147_483_648 <= obj <= 2_147_483_647:
+            return obj
+        return "<int out of 32-bit range>"
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else str(obj)
+    if isinstance(obj, str):
+        return obj if len(obj) <= 256 else (obj[:253] + "...")
+    if isinstance(obj, (bytes, bytearray)):
+        return f"<{len(obj)} bytes>"
+    if depth > 6:
+        return "<truncated>"
+    if isinstance(obj, dict):
+        out: dict[str, Any] = {}
+        for k, v in list(obj.items())[:32]:
+            ks = str(k)[:64]
+            if ks == "url":
+                continue
+            if ks == "input" and isinstance(v, (Decimal, int, float)) and not isinstance(v, bool):
+                continue
+            out[ks] = _sanitize_validation_errors(v, depth + 1)
+        return out
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize_validation_errors(x, depth + 1) for x in list(obj)[:32]]
+    return str(obj)[:128]
+
+
 class _DecimalJsonRequest(Request):
     async def json(self) -> Any:
         if not hasattr(self, "_json"):
             raw = await self.body()
-            self._json = json.loads(raw, parse_float=Decimal)
+            self._json = json.loads(raw, parse_float=parse_json_float_token_bounded)
         return self._json
 
 
@@ -337,6 +397,15 @@ def create_control_plane_app(
 
     app = FastAPI(title="mRNAx v2 7x24 Control Plane & Web Harness Gateway", version="0.2.0")
     app.router.route_class = _ExactDecimalAPIRoute
+
+    @app.exception_handler(RequestValidationError)
+    async def _bounded_validation_exception_handler(
+        _request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={"detail": _sanitize_validation_errors(exc.errors())},
+        )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[

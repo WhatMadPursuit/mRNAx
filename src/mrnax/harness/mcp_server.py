@@ -8,8 +8,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from mrnax.harness.state_machine import ProjectHarnessSession
+from mrnax.harness.state_machine import ProjectHarnessSession, parse_json_float_token_bounded
 from mrnax.harness.tools import AtomicToolbox
+from pydantic import ValidationError
+
+_JS_MAX_SAFE_DEC = Decimal(9_007_199_254_740_991)
 
 
 def _decimals_to_floats(val: Any) -> Any:
@@ -24,10 +27,26 @@ def _decimals_to_floats(val: Any) -> Any:
 
 def _normalize_jsonrpc_id(req_id: Any) -> Any:
     if isinstance(req_id, Decimal):
-        if req_id.is_finite() and req_id == req_id.to_integral_value():
-            return int(req_id)
-        return float(req_id)
+        if not req_id.is_finite():
+            return None
+        if -_JS_MAX_SAFE_DEC <= req_id <= _JS_MAX_SAFE_DEC:
+            if req_id == req_id.to_integral_value():
+                return int(req_id)
+            return float(req_id)
+        return None
+    if isinstance(req_id, int) and not isinstance(req_id, bool):
+        if -9_007_199_254_740_991 <= req_id <= 9_007_199_254_740_991:
+            return req_id
+        return None
     return req_id
+
+
+def _format_mcp_validation_error(exc: ValidationError) -> str:
+    items = []
+    for err in exc.errors(include_url=False, include_input=False):
+        loc = ".".join(str(p) for p in err.get("loc", ()))
+        items.append(f"{loc}: {err.get('msg', 'validation error')}")
+    return "; ".join(items) if items else "validation error"
 
 
 def handle_mcp_request(toolbox: AtomicToolbox, req: dict[str, Any]) -> dict[str, Any] | None:
@@ -80,6 +99,15 @@ def handle_mcp_request(toolbox: AtomicToolbox, req: dict[str, Any]) -> dict[str,
                     "isError": False,
                 },
             }
+        except ValidationError as exc:
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "content": [{"type": "text", "text": f"Error: {_format_mcp_validation_error(exc)}"}],
+                    "isError": True,
+                },
+            }
         except Exception as exc:
             return {
                 "jsonrpc": "2.0",
@@ -102,7 +130,7 @@ def handle_jsonrpc_line(toolbox: AtomicToolbox, raw_line: str) -> str | None:
     if not line:
         return None
     try:
-        req = json.loads(line, parse_float=Decimal)
+        req = json.loads(line, parse_float=parse_json_float_token_bounded)
     except json.JSONDecodeError as exc:
         err = {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": f"Parse error: {exc}"}}
         return json.dumps(err, ensure_ascii=False)
