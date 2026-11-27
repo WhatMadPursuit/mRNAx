@@ -266,11 +266,15 @@ def test_codex_important_tokenizer_checkpoint_pareto_scale_and_persisted_intent(
     store = ExecutionCASStore(tmp_path / "cp_persist.sqlite3")
     app = create_control_plane_app(store, projects_root=tmp_path / "projs", seed_dir=SEED_DIR)
     client = TestClient(app)
+    egfp_seq = json.loads((SEED_DIR / "egfp_reporter_snapshot.json").read_text(encoding="utf-8"))[
+        "mammalian_reporter_egfp"
+    ]["protein_sequence"]
     res = client.post(
         "/v1/projects/proj_surr_persist/turn",
         json={
             "mode": "initial",
             "user_utterance": "Run commercial_clean surrogate v1",
+            "protein_sequence": egfp_seq,
             "compliance_track": "commercial_clean",
             "use_commercial_surrogate": True,
         },

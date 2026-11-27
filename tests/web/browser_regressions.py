@@ -30,7 +30,11 @@ def build_test_page() -> str:
       }
     });
     """
-    app = app.replace('<script src="./app.js"></script>', "<script>" + script + "</script>")
+    app = re.sub(
+        r'<script src="\./app\.js[^"]*"></script>',
+        lambda _m: "<script>" + script + "</script>",
+        app,
+    )
     return (
         '<!doctype html><meta charset="utf-8"><title>Offline UI regression results</title>'
         '<pre id="result">Running</pre><iframe width="390" height="1000" style="border:0" '

@@ -12,7 +12,7 @@ import tempfile
 import threading
 import uuid
 from collections import defaultdict
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from decimal import Decimal, InvalidOperation
 from functools import wraps
@@ -26,7 +26,12 @@ from mrnax.constraints.fto_guard import COMMERCIAL_ZERO_GPL_REQUIREMENT
 from mrnax.constraints.registry import ScopedConstraintEngine, default_m1_constraints
 from mrnax.engine.pareto_director import next_report_timestamp_ns, project_report_for_intent, run_design_pipeline
 from mrnax.engine.profiles import check_profile_readiness
-from mrnax.harness.sandbox import UntrustedExternalText, redact_secret_markers
+from mrnax.harness.sandbox import (
+    UntrustedExternalText,
+    redact_secret_markers,
+    redact_secrets_in_obj,
+    redact_secrets_in_text,
+)
 from mrnax.schemas.common import ComplianceProfile, SegmentScope, UridineChemistry
 from mrnax.schemas.construct_bundle import (
     ChemistryTrackSpec,
@@ -383,6 +388,7 @@ class ProjectHarnessSession:
         self._manifests: dict[str, RunManifest] = {}
         self._historical_release_blocks: defaultdict[str, set[str]] = defaultdict(set)
         self._experiments: list[ExperimentRecord] = []
+        self._experiment_origins: dict[str, list[str]] = {}
         self._bundle_intent_map: dict[str, str] = {}
         self._ambiguous_report_intents: set[str] = set()
         self._external_notes: list[UntrustedExternalText] = []
@@ -435,6 +441,7 @@ class ProjectHarnessSession:
         self._manifests.clear()
         self._historical_release_blocks.clear()
         self._experiments.clear()
+        self._experiment_origins.clear()
         self._bundle_intent_map.clear()
         self._ambiguous_report_intents.clear()
         intent_files = sorted((self.store_dir / "intents").glob("intent_v*.json"))
@@ -510,6 +517,13 @@ class ProjectHarnessSession:
             if isinstance(saved_map, dict):
                 has_saved_bundle_map = True
                 self._bundle_intent_map.update({str(k): str(v) for k, v in saved_map.items()})
+            saved_exp_origins = meta.get("experiment_origins")
+            if isinstance(saved_exp_origins, dict):
+                for ek, ev in saved_exp_origins.items():
+                    if isinstance(ev, list):
+                        self._experiment_origins[str(ek)] = [str(x) for x in ev if isinstance(x, str) and x]
+                    elif isinstance(ev, str) and ev:
+                        self._experiment_origins[str(ek)] = [ev]
         stored_pid = meta.get("project_id") or (self._intents[0].project_id if self._intents else None)
         if isinstance(stored_pid, str) and stored_pid.strip():
             self.project_id = stored_pid.strip()
@@ -644,6 +658,15 @@ class ProjectHarnessSession:
                     disk_ref = meta.get("active_reference_bundle_id")
                     if isinstance(disk_ref, str) and disk_ref in self._bundles:
                         self.active_reference_bundle_id = disk_ref
+                    disk_origins = meta.get("experiment_origins")
+                    if isinstance(disk_origins, dict):
+                        parsed_origins: dict[str, list[str]] = {}
+                        for ek, ev in disk_origins.items():
+                            if isinstance(ev, list):
+                                parsed_origins[str(ek)] = [str(x) for x in ev if isinstance(x, str) and x]
+                            elif isinstance(ev, str) and ev:
+                                parsed_origins[str(ek)] = [ev]
+                        self._experiment_origins = parsed_origins
             else:
                 meta = {}
         if has_saved_exp_order is None:
@@ -706,6 +729,8 @@ class ProjectHarnessSession:
             "last_applied_experiment_id": self._experiments[-1].experiment_id if self._experiments else None,
             "state_revision": revision,
         }
+        if self._experiment_origins:
+            meta_payload["experiment_origins"] = {k: list(v) for k, v in self._experiment_origins.items()}
         if self._ambiguous_report_intents:
             meta_payload["ambiguous_report_intents"] = sorted(self._ambiguous_report_intents)
         if self.quarantined_bundles:
@@ -713,7 +738,12 @@ class ProjectHarnessSession:
         _write_json(self.store_dir / "project_state.json", meta_payload)
         self._state_revision = revision
 
-    def _persist_intent(self, intent: DesignIntent) -> DesignIntent:
+    def _persist_intent(
+        self,
+        intent: DesignIntent,
+        *,
+        publish_reference_bundle_id: str | None = None,
+    ) -> DesignIntent:
         previous = self._intents[-1] if self._intents else None
         if intent.intent_version != len(self._intents) + 1 or intent.parent_intent_id != (previous.intent_id if previous else None):
             raise ValueError("Stale intent revision or parent")
@@ -724,6 +754,9 @@ class ProjectHarnessSession:
         out = self.store_dir / "intents" / f"intent_v{intent.intent_version:03d}_{intent.intent_id}.json"
         _write_json(out, intent.model_dump(mode="json"), exclusive=True)
         self._intents.append(intent)
+        if publish_reference_bundle_id is not None:
+            self.active_reference_bundle_id = publish_reference_bundle_id
+            self._bundle_intent_map.setdefault(publish_reference_bundle_id, intent.intent_id)
         self._save_state_meta()
         return intent
 
@@ -908,7 +941,24 @@ class ProjectHarnessSession:
         conflicting_single_pick: bool = False,
         use_commercial_surrogate: bool | None = None,
         random_seed: int = 42,
+        redact_extra_secrets: Iterable[str] = (),
     ) -> DesignIntent:
+        user_utterance = redact_secrets_in_text(user_utterance, extra_secrets=redact_extra_secrets)
+        accession_or_source = redact_secrets_in_text(accession_or_source, extra_secrets=redact_extra_secrets)
+        if entry_version is not None:
+            entry_version = redact_secrets_in_text(entry_version, extra_secrets=redact_extra_secrets)
+        if restriction_enzymes is not None:
+            restriction_enzymes = [
+                redact_secrets_in_text(x, extra_secrets=redact_extra_secrets) for x in restriction_enzymes
+            ]
+        if detarget_tissues is not None:
+            detarget_tissues = [
+                redact_secrets_in_text(x, extra_secrets=redact_extra_secrets) for x in detarget_tissues
+            ]
+        if protected_tissues is not None:
+            protected_tissues = [
+                redact_secrets_in_text(x, extra_secrets=redact_extra_secrets) for x in protected_tissues
+            ]
         prot_clean = protein_sequence.strip().upper()
         chem = uridine_chemistry or _detect_chemistry(user_utterance)
         enz = restriction_enzymes if restriction_enzymes is not None else (_detect_enzymes(user_utterance) or ["BspQI"])
@@ -973,7 +1023,7 @@ class ProjectHarnessSession:
         for scope_k, seq_v in (locked_regions or {}).items():
             locks[scope_k] = LockedRegionSpec(
                 scope=scope_k,
-                locked_value=seq_v.upper().replace("T", "U"),
+                locked_value=redact_secrets_in_text(seq_v, extra_secrets=redact_extra_secrets).upper().replace("T", "U"),
                 reason=f"User locked {scope_k}",
                 locked_at_turn_id=turn_id,
             )
@@ -1094,9 +1144,12 @@ class ProjectHarnessSession:
             portfolio_tracks=tracks,  # type: ignore[arg-type]
             runtime_policy=run_pol,
         )
-        self._persist_intent(intent)
         if reference_bundle is not None:
-            self.register_bundle(reference_bundle, set_as_reference=True, originating_intent_id=intent.intent_id)
+            self.register_bundle(reference_bundle, set_as_reference=False)
+        self._persist_intent(
+            intent,
+            publish_reference_bundle_id=(reference_bundle.bundle_id if reference_bundle is not None else None),
+        )
         return intent
 
     def create_turn_intent_canonical(
@@ -1117,6 +1170,8 @@ class ProjectHarnessSession:
         use_preset_reference_r: bool = False,
         use_commercial_surrogate: bool | None = None,
         random_seed: int = 42,
+        turn_id: str | None = None,
+        redact_extra_secrets: Iterable[str] = (),
     ) -> DesignIntent:
         """Single shared initial-turn adapter used identically by HTTP `/turn` and MCP `design_constructs`."""
         validated = InitialTurnInput.model_validate(
@@ -1138,14 +1193,26 @@ class ProjectHarnessSession:
                 "random_seed": random_seed,
             }
         )
-        user_utterance = validated.user_utterance
+        user_utterance = redact_secrets_in_text(validated.user_utterance, extra_secrets=redact_extra_secrets)
         protein_sequence = validated.protein_sequence
-        accession_or_source = validated.accession_or_source
-        entry_version = validated.entry_version
+        accession_or_source = redact_secrets_in_text(validated.accession_or_source, extra_secrets=redact_extra_secrets)
+        entry_version = (
+            redact_secrets_in_text(validated.entry_version, extra_secrets=redact_extra_secrets)
+            if validated.entry_version is not None
+            else None
+        )
         compliance_track = validated.compliance_track
         uridine_chemistry = validated.uridine_chemistry
-        restriction_enzymes = validated.restriction_enzymes
-        locked_five_prime_utr = validated.locked_five_prime_utr
+        restriction_enzymes = (
+            [redact_secrets_in_text(x, extra_secrets=redact_extra_secrets) for x in validated.restriction_enzymes]
+            if validated.restriction_enzymes is not None
+            else None
+        )
+        locked_five_prime_utr = (
+            redact_secrets_in_text(validated.locked_five_prime_utr, extra_secrets=redact_extra_secrets)
+            if validated.locked_five_prime_utr is not None
+            else None
+        )
         detarget_liver = validated.detarget_liver
         prioritize_late_signal = validated.prioritize_late_signal
         conflicting_single_pick = validated.conflicting_single_pick
@@ -1154,7 +1221,26 @@ class ProjectHarnessSession:
         use_commercial_surrogate = validated.use_commercial_surrogate
         random_seed = validated.random_seed
         snap = json.loads((self.seed_dir / "egfp_reporter_snapshot.json").read_text(encoding="utf-8"))
-        prot_seq = (protein_sequence or snap["mammalian_reporter_egfp"]["protein_sequence"]).strip()
+        raw_prot = (protein_sequence or "").strip()
+        if raw_prot:
+            prot_seq = raw_prot
+        else:
+            low_utt = user_utterance.lower()
+            names_egfp = any(k in low_utt for k in ("egfp", "gfp", "p42212", "u55762"))
+            other_targets = any(
+                k in low_utt for k in ("mcherry", "cas9", "luciferase", "fluc", "spike", "insulin", "epo")
+            )
+            accession_is_egfp = accession_or_source in ("GenBank:U55762.1", "UniProt:P42212")
+            allow_preset_egfp = bool(
+                accession_is_egfp
+                and not other_targets
+                and (use_preset_reference_r or names_egfp)
+            )
+            if not allow_preset_egfp:
+                raise ValueError(
+                    "Missing protein_sequence: supply an explicit amino-acid sequence or call search_protein_assets for a verified preset."
+                )
+            prot_seq = snap["mammalian_reporter_egfp"]["protein_sequence"].strip()
         ref_bundle: ConstructBundle | None = None
         if reference_bundle_id:
             ref_bundle = self.get_bundle(reference_bundle_id)
@@ -1179,7 +1265,7 @@ class ProjectHarnessSession:
 
         effective_track: ComplianceProfile = compliance_track or "research_max"
         return self.create_initial_intent(
-            turn_id=f"turn_{len(self._intents) + 1:02d}",
+            turn_id=turn_id or f"turn_{len(self._intents) + 1:02d}",
             user_utterance=user_utterance,
             protein_sequence=prot_seq,
             accession_or_source=accession_or_source,
@@ -1195,6 +1281,7 @@ class ProjectHarnessSession:
             conflicting_single_pick=conflicting_single_pick,
             use_commercial_surrogate=use_commercial_surrogate,
             random_seed=random_seed,
+            redact_extra_secrets=redact_extra_secrets,
         )
 
     def refine_turn_intent_canonical(
@@ -1210,6 +1297,9 @@ class ProjectHarnessSession:
         compliance_track: ComplianceProfile | None = None,
         detarget_liver: bool | None = None,
         use_commercial_surrogate: bool | None = None,
+        turn_id: str | None = None,
+        expected_parent_intent_id: str | None = None,
+        redact_extra_secrets: Iterable[str] = (),
     ) -> DesignIntent:
         """Single shared refine-turn adapter used identically by HTTP `/turn` and MCP `refine_construct`."""
         validated = RefineTurnInput.model_validate(
@@ -1226,13 +1316,22 @@ class ProjectHarnessSession:
                 "use_commercial_surrogate": use_commercial_surrogate,
             }
         )
-        user_utterance = validated.user_utterance
-        eff_enzymes = (
+        user_utterance = redact_secrets_in_text(validated.user_utterance, extra_secrets=redact_extra_secrets)
+        raw_enzymes = (
             validated.updated_restriction_enzymes
             if validated.updated_restriction_enzymes is not None
             else validated.restriction_enzymes
         )
-        locked_five_prime_utr = validated.locked_five_prime_utr
+        eff_enzymes = (
+            [redact_secrets_in_text(x, extra_secrets=redact_extra_secrets) for x in raw_enzymes]
+            if raw_enzymes is not None
+            else None
+        )
+        locked_five_prime_utr = (
+            redact_secrets_in_text(validated.locked_five_prime_utr, extra_secrets=redact_extra_secrets)
+            if validated.locked_five_prime_utr is not None
+            else None
+        )
         lock_cds_from_bundle_id = validated.lock_cds_from_bundle_id
         unlock_scopes = validated.unlock_scopes
         uridine_chemistry = validated.uridine_chemistry
@@ -1261,7 +1360,7 @@ class ProjectHarnessSession:
             else None
         )
         return self.apply_incremental_intent_update(
-            turn_id=f"turn_{len(self._intents) + 1:02d}",
+            turn_id=turn_id or f"turn_{len(self._intents) + 1:02d}",
             user_utterance=user_utterance,
             updated_restriction_enzymes=eff_enzymes,
             additional_locked_scopes=add_locks,
@@ -1272,6 +1371,8 @@ class ProjectHarnessSession:
             detarget_tissues=detarget,
             protected_tissues=prot_tiss,
             use_commercial_surrogate=bool(use_commercial_surrogate),
+            expected_parent_intent_id=expected_parent_intent_id,
+            redact_extra_secrets=redact_extra_secrets,
         )
 
     def extract_structured_intent_deterministic(
@@ -1325,16 +1426,27 @@ class ProjectHarnessSession:
         detarget_tissues: list[str] | None = None,
         protected_tissues: list[str] | None = None,
         use_commercial_surrogate: bool = False,
+        expected_parent_intent_id: str | None = None,
+        redact_extra_secrets: Iterable[str] = (),
     ) -> DesignIntent:
         """Single-item incremental edit inheriting 100% of untouched locks, constraints, and targets."""
+        user_utterance = redact_secrets_in_text(user_utterance, extra_secrets=redact_extra_secrets)
         prev = self.latest_intent()
-        new_locks = dict(prev.locked_scopes)
-        for un_s in unlocked_scopes or []:
-            new_locks.pop(un_s, None)
+        if expected_parent_intent_id is not None and prev.intent_id != expected_parent_intent_id:
+            raise ValueError(
+                f"Concurrent revision conflict: expected parent intent '{expected_parent_intent_id}', found '{prev.intent_id}'"
+            )
+        new_locks: dict[str, LockedRegionSpec] = {}
+        for l_k, l_obj in prev.locked_scopes.items():
+            if l_k in (unlocked_scopes or []):
+                continue
+            new_locks[l_k] = l_obj.model_copy_validated(
+                reason=redact_secrets_in_text(l_obj.reason, extra_secrets=redact_extra_secrets)
+            )
         for s_k, s_val in (additional_locked_scopes or {}).items():
             new_locks[s_k] = LockedRegionSpec(
                 scope=s_k,
-                locked_value=s_val.upper().replace("T", "U"),
+                locked_value=redact_secrets_in_text(s_val, extra_secrets=redact_extra_secrets).upper().replace("T", "U"),
                 reason=f"Locked at {turn_id}: {user_utterance}",
                 locked_at_turn_id=turn_id,
             )
@@ -1356,21 +1468,34 @@ class ProjectHarnessSession:
             s for s in ("five_prime_utr", "cds", "three_prime_utr") if s not in new_locks
         ]
 
+        clean_enz = (
+            [redact_secrets_in_text(x, extra_secrets=redact_extra_secrets) for x in updated_restriction_enzymes]
+            if updated_restriction_enzymes is not None
+            else None
+        )
         new_constraints: list[ConstraintSpec] = []
         replaced_enz = False
         for c in prev.constraints:
-            if c.constraint_kind == "type_iis_restriction_free" and updated_restriction_enzymes is not None:
+            clean_locator = (
+                redact_secrets_in_text(c.source_locator, extra_secrets=redact_extra_secrets)
+                if c.source_locator
+                else c.source_locator
+            )
+            clean_params = redact_secrets_in_obj(c.params, extra_secrets=redact_extra_secrets, redact_keys=False)
+            if c.constraint_kind == "type_iis_restriction_free" and clean_enz is not None:
                 new_constraints.append(
                     c.model_copy_validated(
                         source_type="user_explicit",
                         source_locator=turn_id,
-                        params={"enzymes": updated_restriction_enzymes, "forbidden_motifs": c.params.get("forbidden_motifs", [])},
+                        params={"enzymes": clean_enz, "forbidden_motifs": clean_params.get("forbidden_motifs", [])},
                     )
                 )
                 replaced_enz = True
             else:
-                new_constraints.append(c)
-        if updated_restriction_enzymes is not None and not replaced_enz:
+                new_constraints.append(
+                    c.model_copy_validated(source_locator=clean_locator, params=clean_params)
+                )
+        if clean_enz is not None and not replaced_enz:
             new_constraints.append(
                 ConstraintSpec(
                     requirement_id="gate_type_iis_restriction",
@@ -1379,7 +1504,7 @@ class ProjectHarnessSession:
                     severity="hard_gate",
                     source_type="user_explicit",
                     source_locator=turn_id,
-                    params={"enzymes": updated_restriction_enzymes, "forbidden_motifs": []},
+                    params={"enzymes": clean_enz, "forbidden_motifs": []},
                 )
             )
 
@@ -1431,11 +1556,44 @@ class ProjectHarnessSession:
                 enabled_evaluators=["surrogate_v1_clean"]
             )
 
+        else:
+            new_objs = [
+                (
+                    o.model_copy_validated(
+                        source_utterance=redact_secrets_in_text(
+                            o.source_utterance, extra_secrets=redact_extra_secrets
+                        )
+                    )
+                    if o.source_utterance
+                    else o
+                )
+                for o in prev.objectives
+            ]
+
+        new_targets = [
+            t.model_copy_validated(
+                accession_or_source=redact_secrets_in_text(
+                    t.accession_or_source, extra_secrets=redact_extra_secrets
+                ),
+                entry_version=(
+                    redact_secrets_in_text(t.entry_version, extra_secrets=redact_extra_secrets)
+                    if t.entry_version is not None
+                    else None
+                ),
+            )
+            for t in prev.protein_targets
+        ]
+        new_blocking_q = [
+            redact_secrets_in_text(q, extra_secrets=redact_extra_secrets)
+            for q in prev.blocking_questions
+        ]
         updated = prev.model_copy_validated(
             intent_id=f"int_{uuid.uuid4().hex[:8]}",
             intent_version=prev.intent_version + 1,
             parent_intent_id=prev.intent_id,
             created_from_turn_ids=[*prev.created_from_turn_ids, turn_id],
+            protein_targets=new_targets,
+            blocking_questions=new_blocking_q,
             reference_bundle_id=self.active_reference_bundle_id or prev.reference_bundle_id,
             uridine_chemistry=updated_chemistry or prev.uridine_chemistry,
             compliance_track=updated_compliance_track or prev.compliance_track,
@@ -1465,7 +1623,14 @@ class ProjectHarnessSession:
     @_with_current_state
     def execute_design(self, intent: DesignIntent | None = None) -> list[ConstructBundle]:
         active_intent = intent or self.latest_intent()
-        ref = self._bundles.get(active_intent.reference_bundle_id) if active_intent.reference_bundle_id else None
+        ref: ConstructBundle | None = None
+        if active_intent.reference_bundle_id:
+            ref = self._bundles.get(active_intent.reference_bundle_id)
+            if ref is None:
+                raise ValueError(
+                    f"Referenced bundle '{active_intent.reference_bundle_id}' is missing from project store '{self.store_dir}'"
+                )
+            self._bundle_intent_map.setdefault(ref.bundle_id, active_intent.intent_id)
         bundles, report, manifest = run_design_pipeline(
             active_intent, reference_bundle=ref, seed_dir=self.seed_dir
         )
@@ -1605,6 +1770,7 @@ class ProjectHarnessSession:
         *,
         batch_comparable: bool = True,
         held_out_validation_passed: bool = False,
+        request_turn_id: str | None = None,
     ) -> ExperimentRecord:
         """Deterministic 4-branch wet-lab feedback handler (Joint Ruling #6)."""
         exp_dir = (self.store_dir / "experiments").resolve()
@@ -1675,9 +1841,20 @@ class ProjectHarnessSession:
                     else {}
                 )
                 persisted_exp_order = persisted_meta.get("experiment_order") or []
+                persisted_origins = persisted_meta.get("experiment_origins") or {}
+                persisted_list = persisted_origins.get(existing_exp.experiment_id)
+                persisted_has_turn = (
+                    (isinstance(persisted_list, list) and request_turn_id in persisted_list)
+                    or persisted_list == request_turn_id
+                )
+                if request_turn_id:
+                    writers = self._experiment_origins.setdefault(record.experiment_id, [])
+                    if request_turn_id not in writers:
+                        writers.append(request_turn_id)
                 if (
                     persisted_meta.get("active_reference_bundle_id") != self.active_reference_bundle_id
                     or existing_exp.experiment_id not in persisted_exp_order
+                    or (request_turn_id and not persisted_has_turn)
                     or (
                         self._experiments
                         and persisted_meta.get("last_applied_experiment_id") != self._experiments[-1].experiment_id
@@ -1712,6 +1889,10 @@ class ProjectHarnessSession:
                 )
             )
             self._experiments = merged
+            if request_turn_id:
+                writers = self._experiment_origins.setdefault(updated.experiment_id, [])
+                if request_turn_id not in writers:
+                    writers.append(request_turn_id)
             if (
                 decision is not None
                 and decision.new_reference_bundle_id

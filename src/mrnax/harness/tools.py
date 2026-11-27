@@ -68,9 +68,24 @@ def _tool_json_schema(model_cls: type[BaseModel]) -> dict[str, Any]:
 class AtomicToolbox:
     """Exposes the 9 canonical `mrnax_core` tools with JSON-Schema specs for tool-calling LLMs & MCP."""
 
-    def __init__(self, session: ProjectHarnessSession) -> None:
+    def __init__(
+        self,
+        session: ProjectHarnessSession,
+        *,
+        turn_id_prefix: str | None = None,
+        expected_parent_intent_id: str | None = None,
+    ) -> None:
         self.session = session
         self.constraint_engine = ScopedConstraintEngine.from_seed_dir(session.seed_dir)
+        self.turn_id_prefix = turn_id_prefix
+        self.expected_parent_intent_id = expected_parent_intent_id
+        self._call_counter = 0
+
+    def _next_turn_id(self) -> str | None:
+        if not self.turn_id_prefix:
+            return None
+        self._call_counter += 1
+        return f"{self.turn_id_prefix}_{len(self.session._intents) + 1:02d}_{self._call_counter:02d}"
 
     # 1. search_protein_assets
     def search_protein_assets(self, query: str) -> dict[str, Any]:
@@ -150,7 +165,9 @@ class AtomicToolbox:
             use_preset_reference_r=use_preset_reference_r,
             use_commercial_surrogate=use_commercial_surrogate,
             random_seed=random_seed,
+            turn_id=self._next_turn_id(),
         )
+        self.expected_parent_intent_id = intent.intent_id
         if intent.status != "ready":
             return {
                 "intent_id": intent.intent_id,
@@ -196,7 +213,10 @@ class AtomicToolbox:
             compliance_track=compliance_track,  # type: ignore[arg-type]
             detarget_liver=detarget_liver,
             use_commercial_surrogate=use_commercial_surrogate,
+            turn_id=self._next_turn_id(),
+            expected_parent_intent_id=self.expected_parent_intent_id,
         )
+        self.expected_parent_intent_id = intent_v.intent_id
         if intent_v.status != "ready":
             return {
                 "intent_id": intent_v.intent_id,
@@ -248,7 +268,10 @@ class AtomicToolbox:
             raise ValueError("Feedback validation flags must be booleans")
         rec = ExperimentRecord.model_validate(record_json)
         updated = self.session.ingest_experiment_feedback(
-            rec, batch_comparable=batch_comparable, held_out_validation_passed=held_out_validation_passed,
+            rec,
+            batch_comparable=batch_comparable,
+            held_out_validation_passed=held_out_validation_passed,
+            request_turn_id=self._next_turn_id(),
         )
         return updated.model_dump(mode="json")
 

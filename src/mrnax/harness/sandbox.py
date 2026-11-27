@@ -6,6 +6,9 @@ import hashlib
 import ipaddress
 import re
 import unicodedata
+import urllib.parse
+from collections.abc import Iterable
+from typing import Any
 from urllib.parse import urlparse
 
 from mrnax.schemas.construct_bundle import FrozenSchemaModel
@@ -18,12 +21,60 @@ _SECRET_MARKER_RE = re.compile(
     r")\b"
 )
 
+_REDACT_KEY_RE = re.compile(
+    r"(?:"
+    r"\b(?:sk-[A-Za-z0-9._-]{16,300}|AIza[0-9A-Za-z_-]{31,45}|pk_[A-Za-z0-9._-]{16,300}|[0-9a-f]{32}\.[A-Za-z0-9_-]{12,32})\b"
+    r"|(?i:\bBearer\s+[A-Za-z0-9._+/=-]{8,300})"
+    r")"
+)
+
 
 def redact_secret_markers(text: str) -> str:
     repaired = unicodedata.normalize("NFKC", text.replace("\u0251", "a").replace("\u0261", "g"))
     if _SECRET_MARKER_RE.search(repaired):
         return _SECRET_MARKER_RE.sub("[REDACTED_API_KEY]", repaired)
     return _SECRET_MARKER_RE.sub("[REDACTED_API_KEY]", text)
+
+
+def redact_secrets_in_text(text: str, *, extra_secrets: Iterable[str] = ()) -> str:
+    cleaned = redact_secret_markers(_REDACT_KEY_RE.sub("[REDACTED_API_KEY]", text))
+    for sec in extra_secrets:
+        tok = (sec or "").strip()
+        if not tok:
+            continue
+        encoded = urllib.parse.quote(tok, safe="")
+        variants = (tok, encoded) if (encoded and encoded != tok) else (tok,)
+        if len(tok) >= 6:
+            for variant in variants:
+                if len(variant) >= 6 and variant in cleaned:
+                    cleaned = cleaned.replace(variant, "[REDACTED_API_KEY]")
+        elif len(tok) >= 2:
+            for variant in variants:
+                if len(variant) >= 2:
+                    pat = rf"(?<![A-Za-z0-9_]){re.escape(variant)}(?![A-Za-z0-9_])"
+                    cleaned = re.sub(pat, "[REDACTED_API_KEY]", cleaned)
+    return cleaned
+
+
+def redact_secrets_in_obj(
+    obj: Any, *, extra_secrets: Iterable[str] = (), redact_keys: bool = False
+) -> Any:
+    if isinstance(obj, str):
+        return redact_secrets_in_text(obj, extra_secrets=extra_secrets)
+    if isinstance(obj, list):
+        return [redact_secrets_in_obj(item, extra_secrets=extra_secrets, redact_keys=redact_keys) for item in obj]
+    if isinstance(obj, tuple):
+        return [redact_secrets_in_obj(item, extra_secrets=extra_secrets, redact_keys=redact_keys) for item in obj]
+    if isinstance(obj, dict):
+        return {
+            (
+                redact_secrets_in_text(k, extra_secrets=extra_secrets)
+                if (redact_keys and isinstance(k, str))
+                else k
+            ): redact_secrets_in_obj(v, extra_secrets=extra_secrets, redact_keys=redact_keys)
+            for k, v in obj.items()
+        }
+    return obj
 
 
 class SSRFBlockedError(PermissionError):

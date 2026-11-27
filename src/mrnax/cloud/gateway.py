@@ -31,6 +31,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
+import httpx
 from fastapi import FastAPI, Header, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -49,7 +50,16 @@ from mrnax.constraints.registry import ScopedConstraintEngine
 from mrnax.engine.pareto_director import project_report_for_intent
 from mrnax.engine.profiles import resolve_default_seed_dir
 from mrnax.harness.auth_secrets import SecretVault
-from mrnax.harness.dialogue import LiveDialogueAgent, normalize_dialogue_provider
+from mrnax.harness.dialogue import (
+    _REDACT_KEY_RE,
+    DEFAULT_PROVIDER_MODELS,
+    SUPPORTED_PROVIDER_MODELS,
+    LiveDialogueAgent,
+    UpstreamProviderProtocolError,
+    normalize_dialogue_provider,
+    redact_secrets_in_obj,
+    redact_secrets_in_text,
+)
 from mrnax.harness.state_machine import (
     InitialTurnInput,
     ProjectHarnessSession,
@@ -318,8 +328,13 @@ def _format_bounded_decimal(d: Decimal, max_chars: int = 64) -> str:
     return text[:max_chars]
 
 
-def _sanitize_validation_errors(obj: Any, depth: int = 0) -> Any:
-    """Sanitize FastAPI/Pydantic validation errors without calling decimal_encoder or int(Decimal)."""
+def _sanitize_validation_errors(
+    obj: Any,
+    depth: int = 0,
+    *,
+    extra_secrets: tuple[str, ...] = (),
+) -> Any:
+    """Sanitize FastAPI/Pydantic validation errors without calling decimal_encoder or echoing sensitive inputs."""
     if obj is None or isinstance(obj, bool):
         return obj
     if isinstance(obj, Decimal):
@@ -331,7 +346,8 @@ def _sanitize_validation_errors(obj: Any, depth: int = 0) -> Any:
     if isinstance(obj, float):
         return obj if math.isfinite(obj) else str(obj)
     if isinstance(obj, str):
-        return obj if len(obj) <= 256 else (obj[:253] + "...")
+        scrubbed = redact_secrets_in_text(obj, extra_secrets=extra_secrets)
+        return scrubbed if len(scrubbed) <= 256 else (scrubbed[:253] + "...")
     if isinstance(obj, (bytes, bytearray)):
         return f"<{len(obj)} bytes>"
     if depth > 6:
@@ -339,16 +355,17 @@ def _sanitize_validation_errors(obj: Any, depth: int = 0) -> Any:
     if isinstance(obj, dict):
         out: dict[str, Any] = {}
         for k, v in list(obj.items())[:32]:
-            ks = str(k)[:64]
-            if ks == "url":
+            ks = redact_secrets_in_text(str(k)[:64], extra_secrets=extra_secrets)
+            if ks in ("url", "input"):
                 continue
-            if ks == "input" and isinstance(v, (Decimal, int, float)) and not isinstance(v, bool):
-                continue
-            out[ks] = _sanitize_validation_errors(v, depth + 1)
+            out[ks] = _sanitize_validation_errors(v, depth + 1, extra_secrets=extra_secrets)
         return out
     if isinstance(obj, (list, tuple)):
-        return [_sanitize_validation_errors(x, depth + 1) for x in list(obj)[:32]]
-    return str(obj)[:128]
+        return [
+            _sanitize_validation_errors(x, depth + 1, extra_secrets=extra_secrets)
+            for x in list(obj)[:32]
+        ]
+    return redact_secrets_in_text(str(obj), extra_secrets=extra_secrets)[:128]
 
 
 class _DecimalJsonRequest(Request):
@@ -369,10 +386,459 @@ class _ExactDecimalAPIRoute(APIRoute):
         return _handler
 
 
+def _looks_like_credential_value(value: str) -> bool:
+    low = value.lower()
+    if low.startswith(("sk-", "pk_", "aiza", "bearer ")):
+        return True
+    return bool(_REDACT_KEY_RE.search(value)) or (redact_secrets_in_text(value) != value)
+
+
 class AgentChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
-    provider: Annotated[str, AfterValidator(normalize_dialogue_provider)] = "deepseek"
-    model: str | None = None
+    provider: Annotated[str, AfterValidator(normalize_dialogue_provider)] | None = None
+    model: str | None = Field(default=None, max_length=100)
+    client_request_id: str | None = Field(default=None, max_length=80)
+
+    @field_validator("model")
+    @classmethod
+    def _validate_model(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        cleaned = v.strip()
+        if not cleaned:
+            return None
+        if _looks_like_credential_value(cleaned) or not re.fullmatch(r"[A-Za-z0-9._:/-]{1,100}", cleaned):
+            raise ValueError("Invalid model identifier")
+        return cleaned
+
+    @field_validator("client_request_id")
+    @classmethod
+    def _validate_client_request_id(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        cleaned = v.strip()
+        if not cleaned:
+            return None
+        if _looks_like_credential_value(cleaned) or not _SAFE_ID_RE.fullmatch(cleaned):
+            raise ValueError("Invalid client_request_id")
+        return cleaned
+
+
+MUTATING_AGENT_TOOLS = frozenset({"design_constructs", "refine_construct", "ingest_experiment"})
+
+
+def _atomic_write_private_json(target_path: Path, payload: Any) -> None:
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=target_path.parent, mode="w", encoding="utf-8", delete=False) as tmp:
+        staged = Path(tmp.name)
+        try:
+            json.dump(payload, tmp, indent=2, ensure_ascii=False)
+            tmp.write("\n")
+            tmp.close()
+            os.chmod(staged, 0o600)
+            os.replace(staged, target_path)
+        finally:
+            staged.unlink(missing_ok=True)
+
+
+_SHA256_HEX_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _hash_client_request_id(req_id: str) -> str:
+    return hashlib.sha256(req_id.encode("utf-8")).hexdigest()
+
+
+def _is_https_request(req: Request) -> bool:
+    xfp = (req.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
+    return req.url.scheme == "https" or xfp == "https"
+
+
+def _experiment_file_digests(proj_dir: Path) -> dict[str, str]:
+    exp_dir = proj_dir / "experiments"
+    if not exp_dir.is_dir():
+        return {}
+    digests: dict[str, str] = {}
+    for p in sorted(exp_dir.glob("*.json")):
+        try:
+            digests[p.name] = hashlib.sha256(p.read_bytes()).hexdigest()[:16]
+        except OSError:
+            continue
+    return digests
+
+
+def _project_has_existing_state(proj_dir: Path) -> bool:
+    for sub in ("intents", "bundles", "reports", "experiments"):
+        d = proj_dir / sub
+        if d.is_dir() and any(d.iterdir()):
+            return True
+    for fname in (
+        "agent_chat_history.json",
+        "agent_chat_requests.json",
+        "turn_requests.json",
+        "pending_delivery_claim.json",
+        "project_state.json",
+        "quarantined_external_evidence.jsonl",
+    ):
+        if (proj_dir / fname).is_file():
+            return True
+    return False
+
+
+def _load_agent_chat_history(
+    proj_dir: Path,
+    max_turns: int = 20,
+    *,
+    extra_secrets: tuple[str, ...] = (),
+) -> list[dict[str, Any]]:
+    history_path = proj_dir / "agent_chat_history.json"
+    if not history_path.is_file():
+        return []
+    try:
+        raw = json.loads(history_path.read_text(encoding="utf-8"))
+    except ValueError:
+        return []
+    if not isinstance(raw, list):
+        return []
+    entries = [redact_secrets_in_obj(item, extra_secrets=extra_secrets) for item in raw if isinstance(item, dict)]
+    return entries[-max_turns:]
+
+
+def _save_agent_chat_history(
+    proj_dir: Path,
+    entries: list[dict[str, Any]],
+    *,
+    max_turns: int = 30,
+    extra_secrets: tuple[str, ...] = (),
+) -> None:
+    bounded = entries[-max_turns:]
+    sanitized = [redact_secrets_in_obj(item, extra_secrets=extra_secrets) for item in bounded if isinstance(item, dict)]
+    _atomic_write_private_json(proj_dir / "agent_chat_history.json", sanitized)
+
+
+def _sanitize_journal_entry(entry: dict[str, Any], *, extra_secrets: tuple[str, ...] = ()) -> dict[str, Any]:
+    """Scrub secrets from user/model text in journal entries without altering protocol keys or state markers."""
+    out: dict[str, Any] = {}
+    protected_top = (
+        "status",
+        "request_digest",
+        "turn_id_prefix",
+        "baseline_intent_id",
+        "baseline_intent_count",
+        "baseline_exp_digests",
+        "mutating_tools_committed",
+        "mutated_intent_id",
+        "expected_parent_intent_id",
+        "updated_at",
+    )
+    for k in protected_top:
+        if k in entry:
+            out[k] = entry[k]
+
+    if "pending_batch_tool_calls" in entry and isinstance(entry["pending_batch_tool_calls"], list):
+        clean_batch: list[dict[str, Any]] = []
+        for item in entry["pending_batch_tool_calls"]:
+            if not isinstance(item, dict):
+                continue
+            item_out: dict[str, Any] = {}
+            if "tool_call_id" in item:
+                item_out["tool_call_id"] = item["tool_call_id"]
+            if "name" in item:
+                item_out["name"] = redact_secrets_in_text(str(item["name"]), extra_secrets=extra_secrets)
+            if "raw_arguments" in item:
+                item_out["raw_arguments"] = redact_secrets_in_text(
+                    str(item["raw_arguments"]), extra_secrets=extra_secrets
+                )
+            clean_batch.append(item_out)
+        out["pending_batch_tool_calls"] = clean_batch
+
+    if "tool_calls" in entry and isinstance(entry["tool_calls"], list):
+        clean_tcs: list[dict[str, Any]] = []
+        for tc in entry["tool_calls"]:
+            if not isinstance(tc, dict):
+                continue
+            tc_out: dict[str, Any] = {}
+            if "tool_call_id" in tc:
+                tc_out["tool_call_id"] = tc["tool_call_id"]
+            if "name" in tc:
+                tc_out["name"] = redact_secrets_in_text(str(tc["name"]), extra_secrets=extra_secrets)
+            if "arguments" in tc:
+                tc_out["arguments"] = redact_secrets_in_obj(
+                    tc["arguments"], extra_secrets=extra_secrets, redact_keys=False
+                )
+            if "result" in tc:
+                tc_out["result"] = redact_secrets_in_obj(
+                    tc["result"], extra_secrets=extra_secrets, redact_keys=False
+                )
+            clean_tcs.append(tc_out)
+        out["tool_calls"] = clean_tcs
+
+    if "baseline_llm_history" in entry and isinstance(entry["baseline_llm_history"], list):
+        clean_hist: list[dict[str, str]] = []
+        for msg in entry["baseline_llm_history"]:
+            if not isinstance(msg, dict):
+                continue
+            role = msg.get("role")
+            content = msg.get("content")
+            if role in ("user", "assistant") and isinstance(content, str):
+                clean_hist.append(
+                    {
+                        "role": str(role),
+                        "content": redact_secrets_in_text(content, extra_secrets=extra_secrets),
+                    }
+                )
+        out["baseline_llm_history"] = clean_hist
+
+    if "response" in entry and isinstance(entry["response"], dict):
+        orig_resp = entry["response"]
+        clean_resp = redact_secrets_in_obj(orig_resp, extra_secrets=extra_secrets, redact_keys=False)
+        for pkey in ("status", "provider", "model"):
+            if pkey in orig_resp:
+                clean_resp[pkey] = orig_resp[pkey]
+        if isinstance(orig_resp.get("intent"), dict) and isinstance(clean_resp.get("intent"), dict):
+            for ipkey in ("intent_id", "intent_version", "status"):
+                if ipkey in orig_resp["intent"]:
+                    clean_resp["intent"][ipkey] = orig_resp["intent"][ipkey]
+        out["response"] = clean_resp
+
+    return out
+
+
+class _JournalCorruptionError(ValueError):
+    """Raised when a persistent idempotency journal cannot be parsed safely."""
+
+
+def _load_hashed_requests(
+    req_path: Path,
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]], bool]:
+    if not req_path.is_file():
+        return {}, {}, False
+    try:
+        raw = json.loads(req_path.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        raise _JournalCorruptionError(
+            "Corrupted idempotency request journal; refusing duplicate execution."
+        ) from exc
+    if not isinstance(raw, dict):
+        raise _JournalCorruptionError(
+            "Corrupted idempotency request journal; refusing duplicate execution."
+        )
+    if "schema_version" in raw:
+        if raw.get("schema_version") != 2 or not isinstance(raw.get("entries"), dict):
+            raise _JournalCorruptionError(
+                "Corrupted idempotency request journal; refusing duplicate execution."
+            )
+        entries = {
+            k: dict(v)
+            for k, v in raw["entries"].items()
+            if isinstance(k, str) and isinstance(v, dict) and _SHA256_HEX_RE.fullmatch(k)
+        }
+        raw_legacy_hex = raw.get("legacy_hex")
+        legacy_hex_v2 = (
+            {
+                k: dict(v)
+                for k, v in raw_legacy_hex.items()
+                if isinstance(k, str) and isinstance(v, dict) and _SHA256_HEX_RE.fullmatch(k)
+            }
+            if isinstance(raw_legacy_hex, dict)
+            else {}
+        )
+        return entries, legacy_hex_v2, False
+
+    # Legacy flat journal: hash non-hex IDs now and retain unverified 64-hex keys in `legacy_hex` across saves.
+    out: dict[str, dict[str, Any]] = {}
+    legacy_hex: dict[str, dict[str, Any]] = {}
+    for k, v in raw.items():
+        if not isinstance(k, str) or not isinstance(v, dict):
+            continue
+        rec_copy = dict(v)
+        if _SHA256_HEX_RE.fullmatch(k):
+            legacy_hex[k] = rec_copy
+        else:
+            hashed_k = _hash_client_request_id(k)
+            existing = out.get(hashed_k)
+            if existing is None or (existing.get("status") != "completed" and rec_copy.get("status") == "completed"):
+                out[hashed_k] = rec_copy
+    return out, legacy_hex, True
+
+
+def _lookup_request_record(
+    entries: dict[str, dict[str, Any]],
+    legacy_hex: dict[str, dict[str, Any]],
+    raw_id: str | None,
+    req_key: str | None,
+) -> tuple[dict[str, Any] | None, bool]:
+    if not req_key:
+        return None, False
+    rec = entries.get(req_key)
+    if rec is not None:
+        return rec, False
+    if req_key in legacy_hex:
+        upgraded = dict(legacy_hex.pop(req_key))
+        entries[req_key] = upgraded
+        return upgraded, True
+    if raw_id and _SHA256_HEX_RE.fullmatch(raw_id) and raw_id in legacy_hex:
+        upgraded = dict(legacy_hex.pop(raw_id))
+        entries[req_key] = upgraded
+        return upgraded, True
+    return None, False
+
+
+def _save_hashed_requests(
+    req_path: Path,
+    requests_map: dict[str, dict[str, Any]],
+    *,
+    legacy_hex: dict[str, dict[str, Any]] | None = None,
+    max_entries: int = 50,
+    extra_secrets: tuple[str, ...] = (),
+) -> None:
+    normalized: dict[str, dict[str, Any]] = {}
+    for k, v in requests_map.items():
+        if not isinstance(k, str) or not isinstance(v, dict):
+            continue
+        hashed_k = k if _SHA256_HEX_RE.fullmatch(k) else _hash_client_request_id(k)
+        normalized[hashed_k] = v
+    unresolved = [(k, v) for k, v in normalized.items() if v.get("status") != "completed"]
+    completed = [(k, v) for k, v in normalized.items() if v.get("status") == "completed"]
+    kept_items = completed[-max_entries:] + unresolved
+    sanitized = {
+        k: _sanitize_journal_entry(v, extra_secrets=extra_secrets)
+        for k, v in kept_items
+    }
+    payload: dict[str, Any] = {"schema_version": 2, "entries": sanitized}
+    if legacy_hex:
+        leg_items = [
+            (k, v)
+            for k, v in legacy_hex.items()
+            if isinstance(k, str) and isinstance(v, dict) and _SHA256_HEX_RE.fullmatch(k)
+        ]
+        if leg_items:
+            payload["legacy_hex"] = {
+                k: _sanitize_journal_entry(v, extra_secrets=extra_secrets)
+                for k, v in leg_items[-max_entries:]
+            }
+    _atomic_write_private_json(req_path, payload)
+
+
+def _load_agent_chat_requests(
+    proj_dir: Path,
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]], bool]:
+    return _load_hashed_requests(proj_dir / "agent_chat_requests.json")
+
+
+def _save_agent_chat_requests(
+    proj_dir: Path,
+    requests_map: dict[str, dict[str, Any]],
+    *,
+    legacy_hex: dict[str, dict[str, Any]] | None = None,
+    max_entries: int = 50,
+    extra_secrets: tuple[str, ...] = (),
+) -> None:
+    _save_hashed_requests(
+        proj_dir / "agent_chat_requests.json",
+        requests_map,
+        legacy_hex=legacy_hex,
+        max_entries=max_entries,
+        extra_secrets=extra_secrets,
+    )
+
+
+def _format_tool_calls_for_recovery_prompt(
+    tool_calls: list[dict[str, Any]],
+    *,
+    max_total_chars: int = 4000,
+    extra_secrets: tuple[str, ...] = (),
+) -> str:
+    items = [tc for tc in tool_calls if isinstance(tc, dict)]
+    if not items:
+        return "[]"
+    per_item = max(220, (max_total_chars - 16) // len(items))
+    formatted: list[dict[str, Any]] = []
+    for tc in items:
+        name_s = redact_secrets_in_text(str(tc.get("name") or ""), extra_secrets=extra_secrets)
+        args_raw = redact_secrets_in_text(
+            json.dumps(tc.get("arguments", {}), ensure_ascii=False),
+            extra_secrets=extra_secrets,
+        )
+        res_obj = redact_secrets_in_obj(tc.get("result", {}), extra_secrets=extra_secrets, redact_keys=False)
+        res_raw = json.dumps(res_obj, ensure_ascii=False)
+        budget = max(80, per_item - len(name_s) - 64)
+        args_budget = min(len(args_raw), max(40, budget // 3))
+        res_budget = max(60, budget - args_budget)
+        formatted.append(
+            {
+                "name": name_s,
+                "arguments": (
+                    tc.get("arguments", {})
+                    if len(args_raw) <= args_budget
+                    else (args_raw[: args_budget - 3] + "...")
+                ),
+                "result": (
+                    res_obj
+                    if len(res_raw) <= res_budget
+                    else (res_raw[: res_budget - 3] + "...")
+                ),
+            }
+        )
+    return json.dumps(formatted, ensure_ascii=False)
+
+
+def _safe_upstream_status_detail(
+    exc: httpx.HTTPStatusError,
+    *,
+    extra_secrets: tuple[str, ...] = (),
+) -> str:
+    code_hint = ""
+    try:
+        body = exc.response.json()
+        if isinstance(body, dict):
+            err_obj = body.get("error") if isinstance(body.get("error"), dict) else body
+            raw_code = err_obj.get("code") or err_obj.get("type")
+            if (
+                isinstance(raw_code, str)
+                and re.fullmatch(r"[a-z][a-z0-9_]{0,39}", raw_code)
+                and not raw_code.startswith(("sk-", "pk_", "aiza"))
+                and redact_secrets_in_text(raw_code, extra_secrets=extra_secrets) == raw_code
+            ):
+                code_hint = f" ({raw_code})"
+    except ValueError:
+        pass
+    return f"Upstream LLM provider returned HTTP {exc.response.status_code}{code_hint}."
+
+
+def _build_agent_project_context(
+    session: ProjectHarnessSession,
+    *,
+    target_intent: DesignIntent | None = None,
+) -> dict[str, Any] | None:
+    if not session._intents:
+        return None
+    curr = target_intent if target_intent is not None else session._intents[-1]
+    enzymes = next(
+        (c.params.get("enzymes", []) for c in curr.constraints if c.constraint_kind == "type_iis_restriction_free"),
+        [],
+    )
+    recommended_ids: list[str] = []
+    try:
+        rep = session.latest_report(curr.intent_id)
+        if rep is not None:
+            recommended_ids = list(rep.recommended_bundle_ids)
+    except ValueError:
+        recommended_ids = []
+    return {
+        "project_id": session.project_id,
+        "active_intent_id": curr.intent_id,
+        "active_intent_version": curr.intent_version,
+        "intent_status": curr.status,
+        "entry_mode": curr.entry_mode,
+        "compliance_track": curr.compliance_track,
+        "uridine_chemistry": curr.uridine_chemistry,
+        "protein_lengths_aa": [len(t.protein_sequence) for t in curr.protein_targets],
+        "enzymes": enzymes,
+        "locked_scopes": list(curr.locked_scopes.keys()),
+        "bundle_count": len(session._bundles),
+        "recommended_bundle_ids": recommended_ids,
+        "active_reference_bundle_id": session.active_reference_bundle_id,
+    }
 
 
 def create_control_plane_app(
@@ -396,13 +862,30 @@ def create_control_plane_app(
     app = FastAPI(title="mRNAx v2 7x24 Control Plane & Web Harness Gateway", version="0.2.0")
     app.router.route_class = _ExactDecimalAPIRoute
 
+    def _collect_active_secrets(*extra: str | None) -> tuple[str, ...]:
+        vault_secrets = [v for v in SecretVault()._read_all().values() if isinstance(v, str)]
+        return tuple(
+            dict.fromkeys(
+                s.strip()
+                for s in (*vault_secrets, configured_token, *extra)
+                if isinstance(s, str) and len(s.strip()) >= 2
+            )
+        )
+
     @app.exception_handler(RequestValidationError)
     async def _bounded_validation_exception_handler(
-        _request: Request, exc: RequestValidationError
+        request: Request, exc: RequestValidationError
     ) -> JSONResponse:
+        cookie_secrets = [v for k, v in request.cookies.items() if k.startswith("mrnax_pk_")]
+        secrets_tuple = _collect_active_secrets(
+            request.headers.get("X-MRNAX-LLM-Key"),
+            request.headers.get("X-MRNAX-Access-Token"),
+            request.headers.get("X-MRNAX-Project-Key"),
+            *cookie_secrets,
+        )
         return JSONResponse(
             status_code=422,
-            content={"detail": _sanitize_validation_errors(exc.errors())},
+            content={"detail": _sanitize_validation_errors(exc.errors(), extra_secrets=secrets_tuple)},
         )
     app.add_middleware(
         CORSMiddleware,
@@ -422,9 +905,11 @@ def create_control_plane_app(
             "Authorization",
             "X-MRNAX-Access-Token",
             "X-MRNAX-Project-Key",
+            "X-MRNAX-Idempotency-Key",
             "X-MRNAX-LLM-Key",
             "X-MRNAX-LLM-Provider",
         ],
+        expose_headers=["X-MRNAX-Project-Key"],
     )
 
     # Bounded LRU sliding-window IP rate limiter across all gateway endpoints
@@ -474,13 +959,51 @@ def create_control_plane_app(
         allow_bind_new: bool = False,
         header_project_key: str | None = None,
         header_access_token: str | None = None,
+        pending_claim_proof: str | None = None,
     ) -> tuple[str, str | None]:
         safe_pid = _validate_safe_id(project_id, "project_id")
         is_admin = _is_valid_admin_token(header_access_token)
         proj_dir = resolved_projects / safe_pid
         owner_file = proj_dir / "owner_token_sha256.txt"
+        claim_file = proj_dir / "pending_delivery_claim.json"
         cookie_key = req.cookies.get(f"mrnax_pk_{safe_pid}", "")
         supplied_key = (header_project_key or cookie_key or "").strip()
+        https_req = _is_https_request(req)
+
+        def _parse_owner_file(path: Path) -> tuple[str, str | None]:
+            lines = path.read_text(encoding="utf-8").splitlines()
+            expected_sha = lines[0].strip() if lines else ""
+            inline_claim = None
+            for ln in lines[1:]:
+                if ln.startswith("claim:"):
+                    val = ln[6:].strip()
+                    inline_claim = val or None
+                    break
+            return expected_sha, inline_claim
+
+        def _write_owner_file_exclusive(path: Path, expected_sha: str, claim_proof: str | None) -> None:
+            payload = (expected_sha + "\n" + (f"claim:{claim_proof}\n" if claim_proof else "")).encode("utf-8")
+            with tempfile.NamedTemporaryFile(dir=path.parent, mode="wb", delete=False) as tmp_owner:
+                staged = Path(tmp_owner.name)
+                try:
+                    tmp_owner.write(payload)
+                    tmp_owner.close()
+                    os.chmod(staged, 0o600)
+                    os.link(staged, path)
+                finally:
+                    staged.unlink(missing_ok=True)
+
+        def _atomic_replace_owner_file(path: Path, expected_sha: str, claim_proof: str | None) -> None:
+            payload = (expected_sha + "\n" + (f"claim:{claim_proof}\n" if claim_proof else "")).encode("utf-8")
+            with tempfile.NamedTemporaryFile(dir=path.parent, mode="wb", delete=False) as tmp_owner:
+                staged = Path(tmp_owner.name)
+                try:
+                    tmp_owner.write(payload)
+                    tmp_owner.close()
+                    os.chmod(staged, 0o600)
+                    os.replace(staged, path)
+                finally:
+                    staged.unlink(missing_ok=True)
 
         if allow_bind_new:
             proj_dir.mkdir(parents=True, exist_ok=True)
@@ -488,18 +1011,42 @@ def create_control_plane_app(
             raise HTTPException(status_code=404, detail=f"Unknown project '{safe_pid}'")
         with project_lock(proj_dir):
             if owner_file.is_file():
+                expected_sha, stored_claim = _parse_owner_file(owner_file)
+                if stored_claim is None and claim_file.is_file():
+                    try:
+                        claim_doc = json.loads(claim_file.read_text(encoding="utf-8"))
+                        stored_claim = str(claim_doc.get("claim_proof_sha256") or "") or None
+                    except ValueError:
+                        stored_claim = None
                 if is_admin:
                     return safe_pid, None
-                expected_sha = owner_file.read_text(encoding="utf-8").strip()
                 actual_sha = hashlib.sha256(supplied_key.encode("utf-8")).hexdigest() if supplied_key else ""
-                if not supplied_key or not hmac.compare_digest(actual_sha, expected_sha):
-                    raise HTTPException(
-                        status_code=403,
-                        detail="Project access denied: missing or invalid project capability key (X-MRNAX-Project-Key).",
-                    )
-                return safe_pid, None
+                if supplied_key and hmac.compare_digest(actual_sha, expected_sha):
+                    if stored_claim is not None:
+                        _atomic_replace_owner_file(owner_file, expected_sha, None)
+                    claim_file.unlink(missing_ok=True)
+                    return safe_pid, None
+                # First-call BYO / turn crash recovery: retain claim proof until client demonstrates key receipt.
+                if (not supplied_key) and pending_claim_proof and stored_claim:
+                    if hmac.compare_digest(pending_claim_proof, stored_claim):
+                        rotated_key = f"pk_{secrets.token_urlsafe(24)}"
+                        rotated_sha = hashlib.sha256(rotated_key.encode("utf-8")).hexdigest()
+                        _atomic_replace_owner_file(owner_file, rotated_sha, stored_claim)
+                        if resp is not None:
+                            resp.set_cookie(
+                                key=f"mrnax_pk_{safe_pid}",
+                                value=rotated_key,
+                                httponly=True,
+                                secure=https_req,
+                                samesite="lax",
+                            )
+                        return safe_pid, rotated_key
+                raise HTTPException(
+                    status_code=403,
+                    detail="Project access denied: missing or invalid project capability key (X-MRNAX-Project-Key).",
+                )
 
-            has_existing_state = (proj_dir / "intents").is_dir() and any((proj_dir / "intents").iterdir())
+            has_existing_state = _project_has_existing_state(proj_dir)
             if has_existing_state:
                 if is_admin:
                     return safe_pid, None
@@ -515,13 +1062,16 @@ def create_control_plane_app(
                     return safe_pid, None
                 raise HTTPException(status_code=404, detail=f"Unknown project '{safe_pid}'")
 
-            # Exclusive atomic creation (`O_CREAT | O_EXCL`) even when initiated by an admin turn!
-            effective_key = supplied_key if len(supplied_key) >= 16 else f"pk_{secrets.token_urlsafe(24)}"
+            # Exclusive atomic creation of both capability digest and pending claim proof together (`os.link`).
+            was_server_minted = len(supplied_key) < 16
+            effective_key = supplied_key if not was_server_minted else f"pk_{secrets.token_urlsafe(24)}"
+            effective_sha = hashlib.sha256(effective_key.encode("utf-8")).hexdigest()
+            effective_claim = pending_claim_proof if (was_server_minted and pending_claim_proof) else None
             proj_dir.mkdir(parents=True, exist_ok=True)
             try:
-                fd = os.open(str(owner_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                _write_owner_file_exclusive(owner_file, effective_sha, effective_claim)
             except FileExistsError as exc:
-                expected_sha = owner_file.read_text(encoding="utf-8").strip()
+                expected_sha, _ = _parse_owner_file(owner_file)
                 actual_sha = hashlib.sha256(supplied_key.encode("utf-8")).hexdigest() if supplied_key else ""
                 if is_admin or (supplied_key and hmac.compare_digest(actual_sha, expected_sha)):
                     return safe_pid, None
@@ -529,18 +1079,19 @@ def create_control_plane_app(
                     status_code=403,
                     detail="Project access denied: concurrent project ownership collision.",
                 ) from exc
-            try:
-                os.write(fd, (hashlib.sha256(effective_key.encode("utf-8")).hexdigest() + "\n").encode("utf-8"))
-            finally:
-                os.close(fd)
             if resp is not None:
                 resp.set_cookie(
                     key=f"mrnax_pk_{safe_pid}",
                     value=effective_key,
                     httponly=True,
+                    secure=https_req,
                     samesite="lax",
                 )
             return safe_pid, effective_key
+
+    def _is_legacy_unbound_anonymous(proj_dir: Path, header_access_token: str | None) -> bool:
+        owner_file = proj_dir / "owner_token_sha256.txt"
+        return (not owner_file.is_file()) and _project_has_existing_state(proj_dir) and (not _is_valid_admin_token(header_access_token))
 
     def _get_session(safe_pid: str) -> ProjectHarnessSession:
         return ProjectHarnessSession(
@@ -591,6 +1142,9 @@ def create_control_plane_app(
             or Path("/Users/alex/.local/bin/colab").is_file(),
             "drive_bridge_present": Path("/opt/vps-connect/batch2-drive").is_file(),
             "server_llm_providers_ready": configured_providers,
+            "default_llm_provider": "deepseek",
+            "default_llm_models": dict(DEFAULT_PROVIDER_MODELS),
+            "supported_llm_models": {k: list(v) for k, v in SUPPORTED_PROVIDER_MODELS.items()},
             "gateway_token_required_for_server_llm": bool(configured_token),
             "caller_token_authenticated": token_valid,
         }
@@ -635,9 +1189,16 @@ def create_control_plane_app(
             header_project_key=x_mrnax_project_key,
             header_access_token=x_mrnax_access_token,
         )
-        with project_lock(resolved_projects / safe_pid):
+        proj_dir = resolved_projects / safe_pid
+        chat_authorized = (proj_dir / "owner_token_sha256.txt").is_file() or _is_valid_admin_token(x_mrnax_access_token)
+        cookie_cap = request.cookies.get(f"mrnax_pk_{safe_pid}")
+        read_secrets = _collect_active_secrets(x_mrnax_access_token, x_mrnax_project_key, cookie_cap)
+        with project_lock(proj_dir):
             session = _get_session(safe_pid)
-            intents = [i.model_dump(mode="json") for i in session._intents]
+            intents = redact_secrets_in_obj(
+                [i.model_dump(mode="json") for i in session._intents],
+                extra_secrets=read_secrets,
+            )
             curr_intent = session._intents[-1] if session._intents else None
             try:
                 latest_rep = session.latest_report()
@@ -655,8 +1216,11 @@ def create_control_plane_app(
                 "quarantined_bundles": session.quarantined_bundles,
                 "intent_count": len(intents),
                 "intents": intents,
-                "latest_report": report_view,
-                "candidates": cands,
+                "latest_report": redact_secrets_in_obj(report_view, extra_secrets=read_secrets),
+                "candidates": redact_secrets_in_obj(cands, extra_secrets=read_secrets),
+                "chat_history": _load_agent_chat_history(proj_dir, extra_secrets=read_secrets)
+                if chat_authorized
+                else [],
             }
 
     @app.post("/v1/projects/{project_id}/turn")
@@ -667,8 +1231,32 @@ def create_control_plane_app(
         response: Response,
         x_mrnax_project_key: str | None = Header(default=None),
         x_mrnax_access_token: str | None = Header(default=None),
+        x_mrnax_idempotency_key: str | None = Header(default=None),
     ) -> dict[str, Any]:
         _enforce_rate_limit(request)
+        turn_idemp_raw = (x_mrnax_idempotency_key or "").strip() if x_mrnax_idempotency_key is not None else ""
+        if x_mrnax_idempotency_key is not None:
+            if (not turn_idemp_raw) or _looks_like_credential_value(turn_idemp_raw) or not _SAFE_ID_RE.fullmatch(turn_idemp_raw):
+                raise HTTPException(
+                    status_code=422,
+                    detail="Invalid X-MRNAX-Idempotency-Key header.",
+                )
+        turn_req_key = _hash_client_request_id(turn_idemp_raw) if turn_idemp_raw else None
+        turn_req_digest = hashlib.sha256(req.model_dump_json().encode("utf-8")).hexdigest() if turn_req_key else None
+        safe_pid_preview = _validate_safe_id(project_id, "project_id")
+        pre_turn_cookie = request.cookies.get(f"mrnax_pk_{safe_pid_preview}", "")
+        turn_claim_proof = (
+            hashlib.sha256(f"turn:{turn_req_key}:{turn_req_digest}".encode("utf-8")).hexdigest()
+            if (
+                req.mode == "initial"
+                and turn_req_key
+                and turn_req_digest
+                and not _is_valid_admin_token(x_mrnax_access_token)
+                and not (x_mrnax_project_key or pre_turn_cookie or "").strip()
+            )
+            else None
+        )
+
         safe_pid, minted_key = _authorize_or_bind_project(
             project_id,
             request,
@@ -676,64 +1264,251 @@ def create_control_plane_app(
             allow_bind_new=(req.mode == "initial"),
             header_project_key=x_mrnax_project_key,
             header_access_token=x_mrnax_access_token,
+            pending_claim_proof=turn_claim_proof,
         )
-        with project_lock(resolved_projects / safe_pid):
-            session = _get_session(safe_pid)
-            prev_intent = session._intents[-1] if session._intents else None
+        proj_dir = resolved_projects / safe_pid
+        cookie_cap = request.cookies.get(f"mrnax_pk_{safe_pid}")
+        turn_secrets = _collect_active_secrets(x_mrnax_access_token, x_mrnax_project_key, cookie_cap, minted_key)
 
-            if isinstance(req, RefineTurnRequest):
-                if prev_intent is None:
+        with project_lock(proj_dir):
+            turn_journal_path = proj_dir / "turn_requests.json"
+            if turn_req_key:
+                try:
+                    turn_requests_map, turn_legacy_hex, turn_migrated = _load_hashed_requests(turn_journal_path)
+                except _JournalCorruptionError as exc:
+                    raise HTTPException(status_code=409, detail=str(exc)) from exc
+                prior_turn, turn_lookup_migrated = _lookup_request_record(
+                    turn_requests_map, turn_legacy_hex, turn_idemp_raw, turn_req_key
+                )
+                turn_migrated = turn_migrated or turn_lookup_migrated
+            else:
+                turn_requests_map, turn_legacy_hex, turn_migrated = {}, {}, False
+                prior_turn = None
+            if prior_turn and turn_req_digest:
+                if prior_turn.get("request_digest") and prior_turn.get("request_digest") != turn_req_digest:
                     raise HTTPException(
-                        status_code=400,
-                        detail="Cannot run 'refine' before creating an initial DesignIntent in this project.",
+                        status_code=409,
+                        detail="Idempotency conflict: X-MRNAX-Idempotency-Key reused with a different request payload.",
                     )
-                intent = session.refine_turn_intent_canonical(
-                    user_utterance=req.user_utterance,
-                    restriction_enzymes=req.restriction_enzymes,
-                    updated_restriction_enzymes=req.updated_restriction_enzymes,
-                    locked_five_prime_utr=req.locked_five_prime_utr,
-                    lock_cds_from_bundle_id=req.lock_cds_from_bundle_id,
-                    unlock_scopes=req.unlock_scopes,
-                    uridine_chemistry=req.uridine_chemistry,
-                    compliance_track=req.compliance_track,
-                    detarget_liver=req.detarget_liver,
-                    use_commercial_surrogate=req.use_commercial_surrogate,
+                if prior_turn.get("status") == "completed" and isinstance(prior_turn.get("response"), dict):
+                    if turn_migrated:
+                        _save_hashed_requests(
+                            turn_journal_path,
+                            turn_requests_map,
+                            legacy_hex=turn_legacy_hex,
+                            extra_secrets=turn_secrets,
+                        )
+                    orig_resp = dict(prior_turn["response"])
+                    cached_turn = redact_secrets_in_obj(orig_resp, extra_secrets=turn_secrets, redact_keys=False)
+                    if isinstance(orig_resp.get("status"), str):
+                        cached_turn["status"] = orig_resp["status"]
+                    if isinstance(orig_resp.get("intent"), dict) and isinstance(cached_turn.get("intent"), dict):
+                        for ipkey in ("intent_id", "intent_version", "status"):
+                            if ipkey in orig_resp["intent"]:
+                                cached_turn["intent"][ipkey] = orig_resp["intent"][ipkey]
+                    if minted_key is not None:
+                        cached_turn["project_key"] = minted_key
+                    return cached_turn
+
+            session = _get_session(safe_pid)
+            owned_turn_prefix = f"turnreq_{turn_req_key[:16]}" if turn_req_key else None
+            owned_turn_intent = (
+                next(
+                    (
+                        i
+                        for i in reversed(session._intents)
+                        if i.created_from_turn_ids and i.created_from_turn_ids[-1].startswith(f"{owned_turn_prefix}_")
+                    ),
+                    None,
+                )
+                if (prior_turn and owned_turn_prefix)
+                else None
+            )
+
+            clean_turn_utterance = redact_secrets_in_text(req.user_utterance, extra_secrets=turn_secrets)
+            if owned_turn_intent is not None:
+                intent = owned_turn_intent
+                base_id = prior_turn.get("baseline_intent_id") if prior_turn else None
+                prev_intent = (
+                    next((i for i in session._intents if i.intent_id == base_id), None)
+                    if isinstance(base_id, str)
+                    else None
                 )
             else:
-                intent = session.create_turn_intent_canonical(
-                    user_utterance=req.user_utterance,
-                    protein_sequence=req.protein_sequence,
-                    accession_or_source=req.accession_or_source,
-                    entry_version=req.entry_version,
-                    compliance_track=req.compliance_track,
-                    uridine_chemistry=req.uridine_chemistry,
-                    restriction_enzymes=req.restriction_enzymes,
-                    locked_five_prime_utr=req.locked_five_prime_utr,
-                    detarget_liver=req.detarget_liver,
-                    prioritize_late_signal=req.prioritize_late_signal,
-                    conflicting_single_pick=req.conflicting_single_pick,
-                    reference_bundle_id=req.reference_bundle_id,
-                    use_preset_reference_r=req.use_preset_reference_r,
-                    use_commercial_surrogate=req.use_commercial_surrogate,
-                    random_seed=req.random_seed,
+                expected_turn_parent_id: str | None = None
+                if prior_turn is not None and "baseline_intent_id" in prior_turn:
+                    saved_base_id = prior_turn.get("baseline_intent_id")
+                    prev_intent = (
+                        next((i for i in session._intents if i.intent_id == saved_base_id), None)
+                        if isinstance(saved_base_id, str)
+                        else None
+                    )
+                    if isinstance(saved_base_id, str) and prev_intent is None:
+                        raise HTTPException(
+                            status_code=409,
+                            detail=f"Concurrent revision conflict: baseline intent '{saved_base_id}' no longer present.",
+                        )
+                    expected_turn_parent_id = saved_base_id if isinstance(saved_base_id, str) else None
+                    if not isinstance(req, RefineTurnRequest):
+                        cur_head_id = session._intents[-1].intent_id if session._intents else None
+                        if cur_head_id != expected_turn_parent_id:
+                            raise HTTPException(
+                                status_code=409,
+                                detail=(
+                                    f"Concurrent revision conflict: expected baseline intent '{expected_turn_parent_id}', "
+                                    f"found '{cur_head_id}'."
+                                ),
+                            )
+                else:
+                    prev_intent = session._intents[-1] if session._intents else None
+                    if turn_req_key and turn_req_digest:
+                        turn_requests_map[turn_req_key] = {
+                            "status": "in_progress",
+                            "request_digest": turn_req_digest,
+                            "baseline_intent_id": prev_intent.intent_id if prev_intent else None,
+                        }
+                        _save_hashed_requests(
+                            turn_journal_path,
+                            turn_requests_map,
+                            legacy_hex=turn_legacy_hex,
+                            extra_secrets=turn_secrets,
+                        )
+                assigned_turn_id = (
+                    f"{owned_turn_prefix}_{len(session._intents) + 1:02d}"
+                    if owned_turn_prefix
+                    else None
                 )
 
-            diff = _compute_intent_diff(prev_intent, intent)
+                def _cleanup_uncommitted_turn() -> None:
+                    if prior_turn is None and turn_req_key and turn_req_key in turn_requests_map:
+                        turn_requests_map.pop(turn_req_key, None)
+                        if turn_requests_map or turn_legacy_hex:
+                            _save_hashed_requests(
+                                turn_journal_path,
+                                turn_requests_map,
+                                legacy_hex=turn_legacy_hex,
+                                extra_secrets=turn_secrets,
+                            )
+                        else:
+                            turn_journal_path.unlink(missing_ok=True)
+                    if (
+                        minted_key is not None
+                        and not session._intents
+                        and not session._bundles
+                        and not (proj_dir / "agent_chat_history.json").is_file()
+                        and not _experiment_file_digests(proj_dir)
+                    ):
+                        (proj_dir / "owner_token_sha256.txt").unlink(missing_ok=True)
+                        (proj_dir / "pending_delivery_claim.json").unlink(missing_ok=True)
+
+                try:
+                    if isinstance(req, RefineTurnRequest):
+                        if prev_intent is None:
+                            raise HTTPException(
+                                status_code=400,
+                                detail="Cannot run 'refine' before creating an initial DesignIntent in this project.",
+                            )
+                        intent = session.refine_turn_intent_canonical(
+                            user_utterance=clean_turn_utterance,
+                            restriction_enzymes=req.restriction_enzymes,
+                            updated_restriction_enzymes=req.updated_restriction_enzymes,
+                            locked_five_prime_utr=req.locked_five_prime_utr,
+                            lock_cds_from_bundle_id=req.lock_cds_from_bundle_id,
+                            unlock_scopes=req.unlock_scopes,
+                            uridine_chemistry=req.uridine_chemistry,
+                            compliance_track=req.compliance_track,
+                            detarget_liver=req.detarget_liver,
+                            use_commercial_surrogate=req.use_commercial_surrogate,
+                            turn_id=assigned_turn_id,
+                            expected_parent_intent_id=expected_turn_parent_id,
+                            redact_extra_secrets=turn_secrets,
+                        )
+                    else:
+                        intent = session.create_turn_intent_canonical(
+                            user_utterance=clean_turn_utterance,
+                            protein_sequence=req.protein_sequence,
+                            accession_or_source=req.accession_or_source,
+                            entry_version=req.entry_version,
+                            compliance_track=req.compliance_track,
+                            uridine_chemistry=req.uridine_chemistry,
+                            restriction_enzymes=req.restriction_enzymes,
+                            locked_five_prime_utr=req.locked_five_prime_utr,
+                            detarget_liver=req.detarget_liver,
+                            prioritize_late_signal=req.prioritize_late_signal,
+                            conflicting_single_pick=req.conflicting_single_pick,
+                            reference_bundle_id=req.reference_bundle_id,
+                            use_preset_reference_r=req.use_preset_reference_r,
+                            use_commercial_surrogate=req.use_commercial_surrogate,
+                            random_seed=req.random_seed,
+                            turn_id=assigned_turn_id,
+                            redact_extra_secrets=turn_secrets,
+                        )
+                except HTTPException:
+                    _cleanup_uncommitted_turn()
+                    raise
+                except ValueError as exc:
+                    _cleanup_uncommitted_turn()
+                    msg = redact_secrets_in_text(str(exc), extra_secrets=turn_secrets)
+                    code = 409 if ("Concurrent revision" in msg or "missing from project store" in msg) else 422
+                    raise HTTPException(status_code=code, detail=msg) from exc
+
+            diff = redact_secrets_in_obj(_compute_intent_diff(prev_intent, intent), extra_secrets=turn_secrets)
+            safe_intent_dump = redact_secrets_in_obj(intent.model_dump(mode="json"), extra_secrets=turn_secrets)
             if intent.status != "ready":
-                out_clarify: dict[str, Any] = {
-                    "status": "NEEDS_CLARIFICATION",
-                    "blocking_questions": intent.blocking_questions,
-                    "intent": intent.model_dump(mode="json"),
-                    "intent_diff": diff,
-                    "report": None,
-                    "candidates": [],
-                }
+                out_clarify: dict[str, Any] = redact_secrets_in_obj(
+                    {
+                        "status": "NEEDS_CLARIFICATION",
+                        "blocking_questions": intent.blocking_questions,
+                        "intent": safe_intent_dump,
+                        "intent_diff": diff,
+                        "report": None,
+                        "candidates": [],
+                    },
+                    extra_secrets=turn_secrets,
+                )
+                out_clarify["status"] = "NEEDS_CLARIFICATION"
+                if turn_req_key and turn_req_digest:
+                    turn_requests_map[turn_req_key] = {
+                        "status": "completed",
+                        "request_digest": turn_req_digest,
+                        "response": dict(out_clarify),
+                    }
+                    _save_hashed_requests(
+                        turn_journal_path,
+                        turn_requests_map,
+                        legacy_hex=turn_legacy_hex,
+                        extra_secrets=turn_secrets,
+                    )
+                elif turn_migrated:
+                    _save_hashed_requests(
+                        turn_journal_path,
+                        turn_requests_map,
+                        legacy_hex=turn_legacy_hex,
+                        extra_secrets=turn_secrets,
+                    )
                 if minted_key is not None:
                     out_clarify["project_key"] = minted_key
                 return out_clarify
 
-            bundles = session.execute_design(intent)
-            latest_rep = session.latest_report(intent.intent_id)
+            try:
+                existing_rep = session.latest_report(intent.intent_id)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=409,
+                    detail=redact_secrets_in_text(str(exc), extra_secrets=turn_secrets),
+                ) from exc
+            try:
+                if existing_rep is None:
+                    bundles = session.execute_design(intent)
+                    latest_rep = session.latest_report(intent.intent_id)
+                else:
+                    latest_rep = existing_rep
+                    bundles = list(session._bundles.values())
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=409,
+                    detail=redact_secrets_in_text(str(exc), extra_secrets=turn_secrets),
+                ) from exc
             assert latest_rep is not None
             report_view, cards = _serialize_report_with_candidates(
                 latest_rep,
@@ -746,15 +1521,28 @@ def create_control_plane_app(
                 f"uv run mrnax replay --intent-file intents/intent_v{intent.intent_version:03d}_{intent.intent_id}.json "
                 f"--out-dir artifacts/replay_{intent.intent_id}"
             )
-            out_ok: dict[str, Any] = {
-                "status": "COMPLETED",
-                "blocking_questions": [],
-                "intent": intent.model_dump(mode="json"),
-                "intent_diff": diff,
-                "report": report_view,
-                "candidates": cards,
-                "cli_replay_command": replay_cmd,
-            }
+            out_ok: dict[str, Any] = redact_secrets_in_obj(
+                {
+                    "status": "COMPLETED",
+                    "blocking_questions": [],
+                    "intent": safe_intent_dump,
+                    "intent_diff": diff,
+                    "report": report_view,
+                    "candidates": cards,
+                    "cli_replay_command": replay_cmd,
+                },
+                extra_secrets=turn_secrets,
+            )
+            out_ok["status"] = "COMPLETED"
+            if turn_req_key and turn_req_digest:
+                turn_requests_map[turn_req_key] = {
+                    "status": "completed",
+                    "request_digest": turn_req_digest,
+                    "response": dict(out_ok),
+                }
+                _save_hashed_requests(turn_journal_path, turn_requests_map, extra_secrets=turn_secrets)
+            elif turn_migrated:
+                _save_hashed_requests(turn_journal_path, turn_requests_map, extra_secrets=turn_secrets)
             if minted_key is not None:
                 out_ok["project_key"] = minted_key
             return out_ok
@@ -768,13 +1556,60 @@ def create_control_plane_app(
         x_mrnax_project_key: str | None = Header(default=None),
         x_mrnax_access_token: str | None = Header(default=None),
         x_mrnax_llm_key: str | None = Header(default=None),
-    ) -> dict[str, Any]:
+        x_mrnax_llm_provider: str | None = Header(default=None),
+    ) -> Any:
         _enforce_rate_limit(request, max_per_min=20)
         if not _verify_privileged_access(x_mrnax_access_token, x_mrnax_llm_key):
             raise HTTPException(
                 status_code=401,
                 detail="Privileged LLM Agent mode requires either X-MRNAX-Access-Token or your own X-MRNAX-LLM-Key.",
             )
+
+        header_provider: str | None = None
+        if x_mrnax_llm_provider is not None:
+            header_provider_raw = x_mrnax_llm_provider.strip()
+            if not header_provider_raw:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Unsupported X-MRNAX-LLM-Provider header.",
+                )
+            try:
+                header_provider = normalize_dialogue_provider(header_provider_raw)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Unsupported X-MRNAX-LLM-Provider header.",
+                ) from exc
+        if header_provider and req.provider and header_provider != req.provider:
+            raise HTTPException(
+                status_code=400,
+                detail="Provider mismatch between X-MRNAX-LLM-Provider header and request body provider.",
+            )
+        effective_provider = header_provider or req.provider or "deepseek"
+
+        cookie_cap = request.cookies.get(f"mrnax_pk_{project_id}")
+        pre_secrets = _collect_active_secrets(x_mrnax_llm_key, x_mrnax_access_token, x_mrnax_project_key, cookie_cap)
+        if req.model and redact_secrets_in_text(req.model, extra_secrets=pre_secrets) != req.model:
+            raise HTTPException(status_code=422, detail="Invalid model identifier.")
+
+        req_id = req.client_request_id
+        req_key = _hash_client_request_id(req_id) if req_id else None
+        req_digest = hashlib.sha256(
+            json.dumps(
+                {"message": req.message, "provider": effective_provider, "model": req.model or ""},
+                sort_keys=True,
+                ensure_ascii=False,
+            ).encode("utf-8")
+        ).hexdigest()
+        byo_clean = (x_mrnax_llm_key or "").strip()
+        claim_proof = (
+            hashlib.sha256(
+                f"{req_key or 'no_id'}:{req_digest}:{hashlib.sha256(byo_clean.encode('utf-8')).hexdigest()}".encode("utf-8")
+            ).hexdigest()
+            if byo_clean and not _is_valid_admin_token(x_mrnax_access_token)
+            else None
+        )
+
         safe_pid, minted_key = _authorize_or_bind_project(
             project_id,
             request,
@@ -782,42 +1617,774 @@ def create_control_plane_app(
             allow_bind_new=True,
             header_project_key=x_mrnax_project_key,
             header_access_token=x_mrnax_access_token,
+            pending_claim_proof=claim_proof,
         )
-        with project_lock(resolved_projects / safe_pid):
-            session = _get_session(safe_pid)
-            prev_intent = session._intents[-1] if session._intents else None
-            toolbox = AtomicToolbox(session)
-            agent = LiveDialogueAgent(toolbox, provider=req.provider, model=req.model)
-            reply = agent.send_user_message(
-                req.message,
-                explicit_api_key=x_mrnax_llm_key.strip() if x_mrnax_llm_key else None,
+        proj_dir = resolved_projects / safe_pid
+        if _is_legacy_unbound_anonymous(proj_dir, x_mrnax_access_token):
+            raise HTTPException(
+                status_code=403,
+                detail="Project access denied: pre-existing unbound project requires X-MRNAX-Access-Token for Agent chat.",
             )
-            curr_intent = session._intents[-1] if session._intents else None
-            latest_rep = session.latest_report(curr_intent.intent_id if curr_intent else None)
+        cookie_cap = request.cookies.get(f"mrnax_pk_{safe_pid}")
+        active_secrets = _collect_active_secrets(
+            x_mrnax_llm_key, x_mrnax_access_token, x_mrnax_project_key, cookie_cap, minted_key
+        )
+        https_req = _is_https_request(request)
+
+        def _ensure_ready_intent_evaluated(
+            session: ProjectHarnessSession, target_intent: DesignIntent | None
+        ) -> None:
+            if target_intent is None or target_intent.status != "ready":
+                return
+            existing_rep = session.latest_report(target_intent.intent_id)
+            if existing_rep is None:
+                session.execute_design(target_intent)
+
+        def _assemble_agent_chat_response(
+            session: ProjectHarnessSession,
+            *,
+            target_intent: DesignIntent | None,
+            baseline_intent: DesignIntent | None,
+            provider_name: str,
+            model_name: str,
+            reply_text: str,
+            tool_calls_list: list[dict[str, Any]],
+        ) -> dict[str, Any]:
+            try:
+                latest_rep = session.latest_report(target_intent.intent_id) if target_intent is not None else None
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=409,
+                    detail=redact_secrets_in_text(str(exc), extra_secrets=active_secrets),
+                ) from exc
             report_view, cards = _serialize_report_with_candidates(
                 latest_rep,
                 session._bundles.values(),
-                intent=curr_intent,
+                intent=target_intent,
                 seed_dir=resolved_seed,
                 disallow_sandbox_override=True,
             )
             diff = (
-                _compute_intent_diff(prev_intent, curr_intent)
-                if (curr_intent is not None and prev_intent is not None and curr_intent.intent_id != prev_intent.intent_id)
+                _compute_intent_diff(baseline_intent, target_intent)
+                if (
+                    target_intent is not None
+                    and baseline_intent is not None
+                    and target_intent.intent_id != baseline_intent.intent_id
+                )
                 else None
             )
-            chat_out: dict[str, Any] = {
-                "status": "COMPLETED",
-                "assistant_reply": reply,
-                "tool_calls": [
-                    {"name": tc["name"], "arguments": tc["arguments"]}
-                    for tc in agent.tool_call_trace
+            tool_calls_out = redact_secrets_in_obj(
+                [
+                    {"name": tc.get("name", ""), "arguments": tc.get("arguments", {})}
+                    for tc in tool_calls_list
+                    if isinstance(tc, dict)
                 ],
-                "intent": curr_intent.model_dump(mode="json") if curr_intent else None,
+                extra_secrets=active_secrets,
+            )
+            needs_clarification = bool(target_intent is not None and target_intent.status != "ready")
+            out_status = "NEEDS_CLARIFICATION" if needs_clarification else "COMPLETED"
+            out_payload: dict[str, Any] = {
+                "status": out_status,
+                "blocking_questions": (
+                    list(target_intent.blocking_questions)
+                    if (needs_clarification and target_intent is not None)
+                    else []
+                ),
+                "provider": redact_secrets_in_text(provider_name, extra_secrets=active_secrets),
+                "model": redact_secrets_in_text(model_name, extra_secrets=active_secrets),
+                "assistant_reply": redact_secrets_in_text(reply_text, extra_secrets=active_secrets),
+                "tool_calls": tool_calls_out,
+                "intent": target_intent.model_dump(mode="json") if target_intent else None,
                 "intent_diff": diff,
                 "report": report_view,
                 "candidates": cards,
             }
+            if target_intent is not None and target_intent.status == "ready":
+                out_payload["cli_replay_command"] = (
+                    f"uv run mrnax replay --intent-file intents/intent_v{target_intent.intent_version:03d}_{target_intent.intent_id}.json "
+                    f"--out-dir artifacts/replay_{target_intent.intent_id}"
+                )
+            sanitized_out = redact_secrets_in_obj(out_payload, extra_secrets=active_secrets)
+            sanitized_out["status"] = out_status
+            if isinstance(sanitized_out.get("intent"), dict) and target_intent is not None:
+                sanitized_out["intent"]["status"] = target_intent.status
+            return sanitized_out
+
+        with project_lock(proj_dir):
+            try:
+                requests_map, legacy_hex_map, req_migrated = _load_agent_chat_requests(proj_dir)
+            except _JournalCorruptionError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            if req_key:
+                prior_req_record, lookup_migrated = _lookup_request_record(
+                    requests_map, legacy_hex_map, req_id, req_key
+                )
+                req_migrated = req_migrated or lookup_migrated
+            else:
+                prior_req_record = None
+            if prior_req_record:
+                prior_digest = prior_req_record.get("request_digest")
+                if prior_digest and prior_digest != req_digest:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Idempotency conflict: client_request_id reused with a different request payload.",
+                    )
+            if prior_req_record and prior_req_record.get("status") == "completed":
+                if req_migrated:
+                    _save_agent_chat_requests(
+                        proj_dir,
+                        requests_map,
+                        legacy_hex=legacy_hex_map,
+                        extra_secrets=active_secrets,
+                    )
+                cached_resp = prior_req_record.get("response")
+                if isinstance(cached_resp, dict):
+                    out_cached = redact_secrets_in_obj(
+                        dict(cached_resp), extra_secrets=active_secrets, redact_keys=False
+                    )
+                    for pkey in ("status", "provider", "model"):
+                        if pkey in cached_resp:
+                            out_cached[pkey] = cached_resp[pkey]
+                    if isinstance(cached_resp.get("intent"), dict) and isinstance(out_cached.get("intent"), dict):
+                        for ipkey in ("intent_id", "intent_version", "status"):
+                            if ipkey in cached_resp["intent"]:
+                                out_cached["intent"][ipkey] = cached_resp["intent"][ipkey]
+                    if minted_key is not None:
+                        out_cached["project_key"] = minted_key
+                    return out_cached
+
+            session = _get_session(safe_pid)
+            intents_by_id = {i.intent_id: i for i in session._intents}
+            prior_history = _load_agent_chat_history(proj_dir, max_turns=30, extra_secrets=active_secrets)
+
+            # Crash-window 2 recovery: history was saved right before request journal marked completed.
+            if req_key:
+                hist_match = next(
+                    (h for h in reversed(prior_history) if h.get("client_request_key") == req_key),
+                    None,
+                )
+                if hist_match is not None:
+                    matched_intent_id = hist_match.get("intent_id")
+                    matched_intent = intents_by_id.get(matched_intent_id) if isinstance(matched_intent_id, str) else None
+                    if matched_intent is None and isinstance(hist_match.get("intent_version"), int):
+                        matched_intent = next(
+                            (i for i in session._intents if i.intent_version == hist_match["intent_version"]),
+                            None,
+                        )
+                    base_id = prior_req_record.get("baseline_intent_id") if prior_req_record else None
+                    base_intent = intents_by_id.get(base_id) if isinstance(base_id, str) else None
+                    chat_out = _assemble_agent_chat_response(
+                        session,
+                        target_intent=matched_intent,
+                        baseline_intent=base_intent,
+                        provider_name=str(hist_match.get("provider") or effective_provider),
+                        model_name=str(hist_match.get("model") or req.model or DEFAULT_PROVIDER_MODELS[effective_provider]),
+                        reply_text=str(hist_match.get("assistant_reply") or ""),
+                        tool_calls_list=[tc for tc in (hist_match.get("tool_calls") or []) if isinstance(tc, dict)],
+                    )
+                    requests_map[req_key] = {
+                        "status": "completed",
+                        "request_digest": req_digest,
+                        "response": dict(chat_out),
+                    }
+                    _save_agent_chat_requests(
+                        proj_dir,
+                        requests_map,
+                        legacy_hex=legacy_hex_map,
+                        extra_secrets=active_secrets,
+                    )
+                    if minted_key is not None:
+                        chat_out["project_key"] = minted_key
+                    return chat_out
+
+            turn_id_prefix = (
+                str(prior_req_record.get("turn_id_prefix"))
+                if (prior_req_record is not None and isinstance(prior_req_record.get("turn_id_prefix"), str))
+                else (f"req_{req_key[:16]}" if req_key else f"anon_{secrets.token_hex(6)}")
+            )
+            owned_intents = (
+                [
+                    i
+                    for i in session._intents
+                    if i.created_from_turn_ids and i.created_from_turn_ids[-1].startswith(f"{turn_id_prefix}_")
+                ]
+                if prior_req_record is not None
+                else []
+            )
+            owned_exp_ids = (
+                {
+                    exp_id
+                    for exp_id, tids in session._experiment_origins.items()
+                    if any(
+                        isinstance(tid, str) and tid.startswith(f"{turn_id_prefix}_")
+                        for tid in (tids if isinstance(tids, list) else [tids])
+                    )
+                }
+                if prior_req_record is not None
+                else set()
+            )
+            baseline_intent_id = (
+                prior_req_record.get("baseline_intent_id")
+                if prior_req_record is not None
+                else (session._intents[-1].intent_id if session._intents else None)
+            )
+            baseline_intent_count = (
+                int(prior_req_record["baseline_intent_count"])
+                if (prior_req_record is not None and "baseline_intent_count" in prior_req_record)
+                else len(session._intents)
+            )
+            diff_prev_intent = (
+                intents_by_id.get(baseline_intent_id) if isinstance(baseline_intent_id, str) else None
+            )
+
+            recovered_target_intent: DesignIntent | None = owned_intents[-1] if owned_intents else None
+            if prior_req_record is not None:
+                rec_mut_id = prior_req_record.get("mutated_intent_id")
+                if recovered_target_intent is None and isinstance(rec_mut_id, str):
+                    cand_mut = intents_by_id.get(rec_mut_id)
+                    if cand_mut is not None and (
+                        not cand_mut.created_from_turn_ids
+                        or cand_mut.created_from_turn_ids[-1].startswith(f"{turn_id_prefix}_")
+                    ):
+                        recovered_target_intent = cand_mut
+            exp_changed = bool(owned_exp_ids)
+
+            prior_mutating = bool(
+                prior_req_record is not None
+                and (
+                    prior_req_record.get("mutating_tools_committed")
+                    or recovered_target_intent is not None
+                    or exp_changed
+                )
+            )
+
+            expected_parent_id = (
+                recovered_target_intent.intent_id
+                if recovered_target_intent is not None
+                else baseline_intent_id
+            )
+            toolbox = AtomicToolbox(
+                session,
+                turn_id_prefix=turn_id_prefix,
+                expected_parent_intent_id=expected_parent_id,
+            )
+            pre_intent_ids = {i.intent_id for i in session._intents}
+            pre_exp_ids = set(owned_exp_ids)
+            pending_batch: list[dict[str, Any]] = (
+                [dict(ptc) for ptc in (prior_req_record.get("pending_batch_tool_calls") or []) if isinstance(ptc, dict)]
+                if prior_req_record is not None
+                else []
+            )
+            initial_recovered_tc: list[dict[str, Any]] = (
+                [dict(tc) for tc in (prior_req_record.get("tool_calls") or []) if isinstance(tc, dict)]
+                if prior_req_record is not None
+                else []
+            )
+
+            # Reconcile any interrupted owned intent or pending batch tool calls (mutating or read-only).
+            if prior_mutating or pending_batch:
+                if recovered_target_intent is not None and recovered_target_intent in owned_intents:
+                    try:
+                        _ensure_ready_intent_evaluated(session, recovered_target_intent)
+                    except ValueError as exc:
+                        raise HTTPException(
+                            status_code=409,
+                            detail=redact_secrets_in_text(str(exc), extra_secrets=active_secrets),
+                        ) from exc
+                if pending_batch:
+                    head_ptc = pending_batch[0]
+                    head_name = str(head_ptc.get("name") or "")
+                    raw_head_args = str(head_ptc.get("raw_arguments") or "{}")
+                    parsed_head_args: Any = {}
+                    try:
+                        decoded_head = json.loads(raw_head_args)
+                        if isinstance(decoded_head, dict):
+                            parsed_head_args = redact_secrets_in_obj(decoded_head, extra_secrets=active_secrets)
+                    except (json.JSONDecodeError, ValueError, TypeError):
+                        decoded_head = {}
+                        parsed_head_args = {}
+
+                    recorded_intent_muts = sum(
+                        1
+                        for tc in initial_recovered_tc
+                        if tc.get("name") in ("design_constructs", "refine_construct")
+                        and not (isinstance(tc.get("result"), dict) and "error" in tc["result"])
+                    )
+                    recorded_exp_ids = {
+                        str(tc["result"].get("experiment_id"))
+                        for tc in initial_recovered_tc
+                        if tc.get("name") == "ingest_experiment"
+                        and isinstance(tc.get("result"), dict)
+                        and "error" not in tc["result"]
+                        and isinstance(tc["result"].get("experiment_id"), str)
+                    }
+                    head_exp_id: str | None = None
+                    if head_name == "ingest_experiment" and isinstance(decoded_head, dict):
+                        rec_json = decoded_head.get("record_json")
+                        if isinstance(rec_json, dict) and isinstance(rec_json.get("experiment_id"), str):
+                            head_exp_id = rec_json["experiment_id"]
+
+                    head_already_committed = (
+                        head_name in ("design_constructs", "refine_construct")
+                        and len(owned_intents) > recorded_intent_muts
+                    ) or (
+                        head_name == "ingest_experiment"
+                        and head_exp_id is not None
+                        and head_exp_id in owned_exp_ids
+                        and head_exp_id not in recorded_exp_ids
+                    )
+                    if head_already_committed:
+                        if head_name == "ingest_experiment":
+                            matched_exp = next(
+                                (e for e in session._experiments if e.experiment_id == head_exp_id), None
+                            )
+                            head_res: dict[str, Any] = (
+                                matched_exp.model_dump(mode="json")
+                                if matched_exp is not None
+                                else {"experiment_id": head_exp_id, "status": "committed"}
+                            )
+                            exp_changed = True
+                        elif recovered_target_intent is not None:
+                            try:
+                                completed_rep = session.latest_report(recovered_target_intent.intent_id)
+                            except ValueError as exc:
+                                raise HTTPException(
+                                    status_code=409,
+                                    detail=redact_secrets_in_text(str(exc), extra_secrets=active_secrets),
+                                ) from exc
+                            head_res = {
+                                "intent_id": recovered_target_intent.intent_id,
+                                "intent_version": recovered_target_intent.intent_version,
+                                "status": recovered_target_intent.status,
+                                "outcome_status": completed_rep.outcome_status if completed_rep is not None else None,
+                                "recommended_bundle_ids": completed_rep.recommended_bundle_ids
+                                if completed_rep is not None
+                                else [],
+                            }
+                        else:
+                            head_res = {"status": "committed"}
+                        initial_recovered_tc.append(
+                            {
+                                "tool_call_id": head_ptc.get("tool_call_id"),
+                                "name": redact_secrets_in_text(head_name, extra_secrets=active_secrets),
+                                "arguments": parsed_head_args if isinstance(parsed_head_args, dict) else {},
+                                "result": redact_secrets_in_obj(head_res, extra_secrets=active_secrets),
+                            }
+                        )
+                        pending_batch.pop(0)
+                        prior_mutating = True
+                        if req_key and prior_req_record is not None:
+                            requests_map[req_key] = {
+                                "status": "partial_mutating_committed",
+                                "request_digest": req_digest,
+                                "turn_id_prefix": turn_id_prefix,
+                                "baseline_intent_id": baseline_intent_id,
+                                "baseline_intent_count": baseline_intent_count,
+                                "baseline_llm_history": list(prior_req_record.get("baseline_llm_history") or []),
+                                "mutating_tools_committed": True,
+                                "mutated_intent_id": recovered_target_intent.intent_id
+                                if recovered_target_intent
+                                else None,
+                                "expected_parent_intent_id": toolbox.expected_parent_intent_id,
+                                "pending_batch_tool_calls": list(pending_batch),
+                                "tool_calls": list(initial_recovered_tc),
+                            }
+                            _save_agent_chat_requests(
+                                proj_dir,
+                                requests_map,
+                                legacy_hex=legacy_hex_map,
+                                extra_secrets=active_secrets,
+                            )
+                while pending_batch:
+                    ptc = pending_batch[0]
+                    fn_name = str(ptc.get("name") or "")
+                    raw_args = str(ptc.get("raw_arguments") or "{}")
+                    parsed_args: Any = {}
+                    try:
+                        decoded = json.loads(raw_args)
+                        if not isinstance(decoded, dict):
+                            raise ValueError("Tool arguments must decode to a JSON object")
+                        parsed_args = redact_secrets_in_obj(decoded, extra_secrets=active_secrets)
+                        res = toolbox.dispatch_tool_call(fn_name, parsed_args)
+                    except (json.JSONDecodeError, ValueError, KeyError, TypeError) as exc:
+                        err_msg = redact_secrets_in_text(str(exc), extra_secrets=active_secrets)
+                        if "Concurrent revision conflict" in err_msg:
+                            raise HTTPException(status_code=409, detail=err_msg) from exc
+                        res = {"error": redact_secrets_in_text(f"{type(exc).__name__}: {exc}", extra_secrets=active_secrets)}
+                    safe_res = redact_secrets_in_obj(res, extra_secrets=active_secrets)
+                    initial_recovered_tc.append(
+                        {
+                            "tool_call_id": ptc.get("tool_call_id"),
+                            "name": redact_secrets_in_text(fn_name, extra_secrets=active_secrets),
+                            "arguments": redact_secrets_in_obj(parsed_args, extra_secrets=active_secrets)
+                            if isinstance(parsed_args, dict)
+                            else {},
+                            "result": safe_res,
+                        }
+                    )
+                    pending_batch.pop(0)
+                    new_after_ptc = [
+                        i
+                        for i in session._intents
+                        if i.intent_id not in pre_intent_ids
+                        and i.created_from_turn_ids
+                        and i.created_from_turn_ids[-1].startswith(f"{turn_id_prefix}_")
+                    ]
+                    if new_after_ptc:
+                        recovered_target_intent = new_after_ptc[-1]
+                        pre_intent_ids.update(i.intent_id for i in new_after_ptc)
+                        prior_mutating = True
+                        try:
+                            _ensure_ready_intent_evaluated(session, recovered_target_intent)
+                        except ValueError as exc:
+                            raise HTTPException(
+                                status_code=409,
+                                detail=redact_secrets_in_text(str(exc), extra_secrets=active_secrets),
+                            ) from exc
+                    if fn_name == "ingest_experiment" and not (isinstance(safe_res, dict) and "error" in safe_res):
+                        exp_changed = True
+                        prior_mutating = True
+                    if req_key and prior_req_record is not None:
+                        requests_map[req_key] = {
+                            "status": "partial_mutating_committed" if prior_mutating else "partial_readonly_only",
+                            "request_digest": req_digest,
+                            "turn_id_prefix": turn_id_prefix,
+                            "baseline_intent_id": baseline_intent_id,
+                            "baseline_intent_count": baseline_intent_count,
+                            "baseline_llm_history": list(prior_req_record.get("baseline_llm_history") or []),
+                            "mutating_tools_committed": prior_mutating,
+                            "mutated_intent_id": recovered_target_intent.intent_id if recovered_target_intent else None,
+                            "expected_parent_intent_id": toolbox.expected_parent_intent_id,
+                            "pending_batch_tool_calls": list(pending_batch),
+                            "tool_calls": list(initial_recovered_tc),
+                        }
+                        _save_agent_chat_requests(
+                            proj_dir,
+                            requests_map,
+                            legacy_hex=legacy_hex_map,
+                            extra_secrets=active_secrets,
+                        )
+
+            llm_history: list[dict[str, Any]] = []
+            if prior_req_record is not None and isinstance(prior_req_record.get("baseline_llm_history"), list):
+                for msg in prior_req_record["baseline_llm_history"]:
+                    if isinstance(msg, dict) and msg.get("role") in ("user", "assistant") and isinstance(msg.get("content"), str):
+                        llm_history.append({"role": msg["role"], "content": msg["content"]})
+            else:
+                baseline_ver = diff_prev_intent.intent_version if diff_prev_intent is not None else 0
+                for item in prior_history[-10:]:
+                    if prior_req_record is not None:
+                        item_ver = item.get("intent_version")
+                        if isinstance(item_ver, int) and item_ver > baseline_ver:
+                            continue
+                    u_msg = item.get("user_message")
+                    a_msg = item.get("assistant_reply")
+                    if isinstance(u_msg, str) and u_msg.strip():
+                        llm_history.append({"role": "user", "content": u_msg})
+                    if isinstance(a_msg, str) and a_msg.strip():
+                        llm_history.append({"role": "assistant", "content": a_msg})
+
+            context_intent = recovered_target_intent if prior_mutating else diff_prev_intent
+            project_context = _build_agent_project_context(session, target_intent=context_intent)
+            exec_tracker: dict[str, Any] = {
+                "mutated": prior_mutating,
+                "mutated_intent_id": recovered_target_intent.intent_id if recovered_target_intent else None,
+                "pending_batch": list(pending_batch),
+            }
+
+            readonly_prior: list[dict[str, Any]] = (
+                list(initial_recovered_tc)
+                if (prior_req_record is not None and not prior_mutating)
+                else []
+            )
+            recovered_tool_calls: list[dict[str, Any]] | None = None
+            allow_tools = True
+            message_to_send = req.message
+            if prior_mutating and prior_req_record is not None:
+                recovered_tool_calls = list(initial_recovered_tc)
+                if not recovered_tool_calls and (recovered_target_intent is not None or exp_changed):
+                    try:
+                        rep_for_summary = (
+                            session.latest_report(recovered_target_intent.intent_id)
+                            if recovered_target_intent is not None
+                            else None
+                        )
+                    except ValueError as exc:
+                        raise HTTPException(
+                            status_code=409,
+                            detail=redact_secrets_in_text(str(exc), extra_secrets=active_secrets),
+                        ) from exc
+                    recovered_tool_calls = [
+                        {
+                            "name": "recovered_committed_state",
+                            "arguments": {},
+                            "result": {
+                                "intent_id": recovered_target_intent.intent_id if recovered_target_intent else None,
+                                "intent_version": recovered_target_intent.intent_version if recovered_target_intent else None,
+                                "status": recovered_target_intent.status if recovered_target_intent else "committed",
+                                "outcome_status": rep_for_summary.outcome_status if rep_for_summary else None,
+                                "experiments_updated": exp_changed,
+                            },
+                        }
+                    ]
+                allow_tools = False
+                message_to_send = (
+                    f"{req.message}\n\n"
+                    "[RECOVERED_TOOL_RESULTS_FROM_PRIOR_ATTEMPT]\n"
+                    f"{_format_tool_calls_for_recovery_prompt(recovered_tool_calls, max_total_chars=4000, extra_secrets=active_secrets)}\n"
+                    "[/RECOVERED_TOOL_RESULTS_FROM_PRIOR_ATTEMPT]"
+                )
+            elif readonly_prior:
+                message_to_send = (
+                    f"{req.message}\n\n"
+                    "[PRIOR_READONLY_LOOKUPS_COMPLETED]\n"
+                    f"{_format_tool_calls_for_recovery_prompt(readonly_prior, max_total_chars=3000, extra_secrets=active_secrets)}\n"
+                    "[/PRIOR_READONLY_LOOKUPS_COMPLETED]"
+                )
+
+            def _record_progress(agent_obj: LiveDialogueAgent, *, force_save_readonly: bool = False) -> bool:
+                owned_now = [
+                    i
+                    for i in session._intents
+                    if i.intent_id not in pre_intent_ids
+                    and i.created_from_turn_ids
+                    and i.created_from_turn_ids[-1].startswith(f"{turn_id_prefix}_")
+                ]
+                if owned_now:
+                    exec_tracker["mutated_intent_id"] = owned_now[-1].intent_id
+                exp_now = {
+                    exp_id
+                    for exp_id, tids in session._experiment_origins.items()
+                    if any(
+                        isinstance(tid, str) and tid.startswith(f"{turn_id_prefix}_")
+                        for tid in (tids if isinstance(tids, list) else [tids])
+                    )
+                }
+                exp_delta = bool(exp_now - pre_exp_ids)
+                trace_mut = any(
+                    tc.get("name") in MUTATING_AGENT_TOOLS
+                    and not (isinstance(tc.get("result"), dict) and "error" in tc["result"])
+                    for tc in agent_obj.tool_call_trace
+                )
+                has_mutated = bool(
+                    prior_mutating or exec_tracker["mutated"] or owned_now or exp_delta or trace_mut
+                )
+                exec_tracker["mutated"] = has_mutated
+                if req_key and (has_mutated or force_save_readonly or agent_obj.tool_call_trace):
+                    base_tc = recovered_tool_calls if recovered_tool_calls is not None else readonly_prior
+                    combined_tc = [
+                        {
+                            "tool_call_id": tc.get("tool_call_id"),
+                            "name": tc.get("name", ""),
+                            "arguments": tc.get("arguments", {}),
+                            "result": tc.get("result", {}),
+                        }
+                        for tc in (*base_tc, *agent_obj.tool_call_trace)
+                        if isinstance(tc, dict)
+                    ]
+                    requests_map[req_key] = {
+                        "status": "partial_mutating_committed" if has_mutated else "partial_readonly_only",
+                        "request_digest": req_digest,
+                        "turn_id_prefix": turn_id_prefix,
+                        "baseline_intent_id": baseline_intent_id,
+                        "baseline_intent_count": baseline_intent_count,
+                        "baseline_llm_history": list(llm_history),
+                        "mutating_tools_committed": has_mutated,
+                        "mutated_intent_id": exec_tracker["mutated_intent_id"],
+                        "expected_parent_intent_id": toolbox.expected_parent_intent_id,
+                        "pending_batch_tool_calls": list(exec_tracker["pending_batch"]),
+                        "tool_calls": combined_tc,
+                    }
+                    _save_agent_chat_requests(
+                        proj_dir,
+                        requests_map,
+                        legacy_hex=legacy_hex_map,
+                        extra_secrets=active_secrets,
+                    )
+                return has_mutated
+
+            if req_key and prior_req_record is None:
+                requests_map[req_key] = {
+                    "status": "in_progress",
+                    "request_digest": req_digest,
+                    "turn_id_prefix": turn_id_prefix,
+                    "baseline_intent_id": baseline_intent_id,
+                    "baseline_intent_count": baseline_intent_count,
+                    "baseline_llm_history": list(llm_history),
+                    "mutating_tools_committed": False,
+                    "mutated_intent_id": None,
+                    "expected_parent_intent_id": toolbox.expected_parent_intent_id,
+                    "pending_batch_tool_calls": [],
+                    "tool_calls": [],
+                }
+                _save_agent_chat_requests(
+                    proj_dir,
+                    requests_map,
+                    legacy_hex=legacy_hex_map,
+                    extra_secrets=active_secrets,
+                )
+
+            agent_holder: dict[str, LiveDialogueAgent] = {}
+
+            def _on_tool_batch_started(batch: list[dict[str, Any]]) -> None:
+                exec_tracker["pending_batch"] = [dict(x) for x in batch]
+                ag = agent_holder.get("agent")
+                if ag is not None and req_key:
+                    _record_progress(ag, force_save_readonly=True)
+
+            def _on_tool_executed(entry: dict[str, Any]) -> None:
+                done_id = str(entry.get("tool_call_id") or "")
+                exec_tracker["pending_batch"] = [
+                    x for x in exec_tracker["pending_batch"] if x.get("tool_call_id") != done_id
+                ]
+                ag = agent_holder.get("agent")
+                if ag is not None:
+                    _record_progress(ag, force_save_readonly=True)
+
+            agent = LiveDialogueAgent(
+                toolbox,
+                provider=effective_provider,
+                model=req.model,
+                history=llm_history,
+                project_context=project_context,
+                extra_secrets=active_secrets,
+                on_tool_executed=_on_tool_executed,
+                on_tool_batch_started=_on_tool_batch_started,
+            )
+            agent_holder["agent"] = agent
+
+            def _handle_agent_failure(err_detail: str) -> Any:
+                did_mutate = _record_progress(
+                    agent,
+                    force_save_readonly=bool(agent.tool_call_trace or readonly_prior or recovered_tool_calls),
+                )
+                if did_mutate:
+                    if minted_key is not None:
+                        err_resp = JSONResponse(
+                            status_code=502,
+                            content={"detail": err_detail, "project_key": minted_key},
+                            headers={"X-MRNAX-Project-Key": minted_key},
+                        )
+                        err_resp.set_cookie(
+                            key=f"mrnax_pk_{safe_pid}",
+                            value=minted_key,
+                            httponly=True,
+                            secure=https_req,
+                            samesite="lax",
+                        )
+                        return err_resp
+                    raise HTTPException(status_code=502, detail=err_detail)
+
+                # Zero mutations committed: roll back newly minted project ownership so first-call BYO retries cleanly.
+                # Retain baseline journal entries on retries so concurrent mutations cannot shift this request's baseline.
+                can_rollback_owner = (
+                    minted_key is not None
+                    and not session._intents
+                    and not (proj_dir / "agent_chat_history.json").is_file()
+                    and not _experiment_file_digests(proj_dir)
+                )
+                if can_rollback_owner:
+                    (proj_dir / "owner_token_sha256.txt").unlink(missing_ok=True)
+                    (proj_dir / "pending_delivery_claim.json").unlink(missing_ok=True)
+                    if (not _is_valid_admin_token(x_mrnax_access_token)) and req_key and req_key in requests_map:
+                        requests_map.pop(req_key, None)
+                        if requests_map or legacy_hex_map:
+                            _save_agent_chat_requests(
+                                proj_dir,
+                                requests_map,
+                                legacy_hex=legacy_hex_map,
+                                extra_secrets=active_secrets,
+                            )
+                        else:
+                            (proj_dir / "agent_chat_requests.json").unlink(missing_ok=True)
+                raise HTTPException(status_code=502, detail=err_detail)
+
+            try:
+                reply = agent.send_user_message(
+                    message_to_send,
+                    explicit_api_key=x_mrnax_llm_key.strip() if x_mrnax_llm_key else None,
+                    allow_tools=allow_tools,
+                )
+            except UpstreamProviderProtocolError:
+                return _handle_agent_failure("Upstream LLM provider returned an invalid response envelope.")
+            except httpx.HTTPStatusError as exc:
+                return _handle_agent_failure(_safe_upstream_status_detail(exc, extra_secrets=active_secrets))
+            except httpx.RequestError as exc:
+                return _handle_agent_failure(f"Upstream LLM network error ({type(exc).__name__}).")
+            except RuntimeError as exc:
+                return _handle_agent_failure(redact_secrets_in_text(str(exc), extra_secrets=active_secrets)[:240])
+
+            final_new_intents = [
+                i
+                for i in session._intents
+                if i.intent_id not in pre_intent_ids
+                and i.created_from_turn_ids
+                and i.created_from_turn_ids[-1].startswith(f"{turn_id_prefix}_")
+            ]
+            if prior_mutating:
+                curr_intent = (
+                    recovered_target_intent
+                    or (final_new_intents[-1] if final_new_intents else None)
+                    or diff_prev_intent
+                )
+            elif final_new_intents:
+                curr_intent = final_new_intents[-1]
+            else:
+                curr_intent = context_intent
+
+            raw_tool_calls = (
+                recovered_tool_calls
+                if recovered_tool_calls is not None
+                else ([*readonly_prior, *agent.tool_call_trace] if readonly_prior else agent.tool_call_trace)
+            )
+            chat_out = _assemble_agent_chat_response(
+                session,
+                target_intent=curr_intent,
+                baseline_intent=diff_prev_intent,
+                provider_name=agent.provider,
+                model_name=agent.model,
+                reply_text=reply,
+                tool_calls_list=raw_tool_calls,
+            )
+
+            full_history = _load_agent_chat_history(proj_dir, max_turns=30, extra_secrets=active_secrets)
+            if not req_key or not any(h.get("client_request_key") == req_key for h in full_history):
+                full_history.append(
+                    {
+                        "turn_ts_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                        "client_request_key": req_key,
+                        "provider": chat_out["provider"],
+                        "model": chat_out["model"],
+                        "user_message": redact_secrets_in_text(req.message, extra_secrets=active_secrets),
+                        "assistant_reply": chat_out["assistant_reply"],
+                        "tool_calls": chat_out["tool_calls"],
+                        "intent_id": curr_intent.intent_id if curr_intent else None,
+                        "intent_version": curr_intent.intent_version if curr_intent else None,
+                    }
+                )
+                _save_agent_chat_history(
+                    proj_dir, full_history, max_turns=30, extra_secrets=active_secrets
+                )
+
+            if req_key:
+                requests_map[req_key] = {
+                    "status": "completed",
+                    "request_digest": req_digest,
+                    "response": dict(chat_out),
+                }
+                _save_agent_chat_requests(
+                    proj_dir,
+                    requests_map,
+                    legacy_hex=legacy_hex_map,
+                    extra_secrets=active_secrets,
+                )
+            elif req_migrated:
+                _save_agent_chat_requests(
+                    proj_dir,
+                    requests_map,
+                    legacy_hex=legacy_hex_map,
+                    extra_secrets=active_secrets,
+                )
             if minted_key is not None:
                 chat_out["project_key"] = minted_key
             return chat_out
