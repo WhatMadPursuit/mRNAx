@@ -768,20 +768,29 @@ def _spdx_requires_gpl(expression: str) -> bool:
         return True
 
 
-# Exact METADATA notices from the reviewed Darwin wheels. ADR-0003 covers static and Python
-# copyleft. SciPy lists separate dynamically linked GCC and LGPL libquadmath libraries;
-# sklearn lists an Apache/LLVM libomp library whose exception mentions GPL interoperability.
-_REVIEWED_BINARY_NOTICES = {
-    "scipy": "c85f6c4154a28ccb2a49fe9a1cbcacb17939c14ffad7a2f63d32655610652bb7",
-    "scikit-learn": "b790419e16d1f5e137f4718a231eb44e47f827c371a566aa1b473b9c2935f9b5",
+# Exact METADATA notices from the reviewed Darwin arm64 and Linux x86_64 wheels. ADR-0003 covers
+# static and Python copyleft. SciPy lists separate dynamically linked GCC and LGPL libquadmath libraries;
+# sklearn lists an Apache/LLVM libomp library / GCC runtime whose exception mentions GPL interoperability.
+_REVIEWED_BINARY_NOTICES: dict[str, frozenset[str]] = {
+    "scipy": frozenset({
+        "c85f6c4154a28ccb2a49fe9a1cbcacb17939c14ffad7a2f63d32655610652bb7",
+        "2a463073ea6816d22b763c8e2f03886f4e8bf4f2a234f3c9267401d688588d17",
+    }),
+    "scikit-learn": frozenset({
+        "b790419e16d1f5e137f4718a231eb44e47f827c371a566aa1b473b9c2935f9b5",
+        "d22525053a4374436269e2fd29b4121bc6e1634d4eea0ceae8a4d7d997406a03",
+    }),
 }
 _BIOPYTHON_AGREEMENT_SHA256 = "11d1ebcaad2eb9f0f09a3df1deb4aca99a4da366ae9ae70f828c7447a24de453"
 
 
-# NumPy ships the GPL text for its GCC-excepted libgfortran runtime. Scope the
-# reviewed exception to that exact notice, so changing it or adding a file is checked.
-_REVIEWED_LICENSE_FILES = {
-    ("numpy", "LICENSE.txt"): "853f260937a63b0db91c5c9ea99a5c3bbe82e88834ada124a7415502403d1600",
+# NumPy ships the GPL text for its GCC-excepted libgfortran runtime. Scope the reviewed
+# exception to exact Darwin/Linux notices so changing it or adding a file is checked.
+_REVIEWED_LICENSE_FILES: dict[tuple[str, str], frozenset[str]] = {
+    ("numpy", "LICENSE.txt"): frozenset({
+        "853f260937a63b0db91c5c9ea99a5c3bbe82e88834ada124a7415502403d1600",
+        "8c3433f4b8b93e30a2b54a376ef8d0576a3e1e8d14b14eb288da0a75e0c99627",
+    }),
 }
 
 
@@ -902,7 +911,7 @@ def _distribution_requires_gpl(name: str, dist, metadata) -> bool:
         if any(c.startswith("License ::") and _has_gpl_license(c) for c in classifiers):
             return True
         if (_has_gpl_license(description) and
-                hashlib.sha256(description.encode()).hexdigest() != _REVIEWED_BINARY_NOTICES.get(name)):
+                hashlib.sha256(description.encode()).hexdigest() not in _REVIEWED_BINARY_NOTICES.get(name, ())):
             return True
 
     declared = metadata.get_all("License-File") or ()
@@ -913,7 +922,7 @@ def _distribution_requires_gpl(name: str, dist, metadata) -> bool:
         if not notice or not notice.strip():
             return True
         reviewed = _REVIEWED_LICENSE_FILES.get((name, filename))
-        if reviewed and hashlib.sha256(notice.encode()).hexdigest() == reviewed:
+        if reviewed and hashlib.sha256(notice.encode()).hexdigest() in reviewed:
             continue
         evidence = _classify_license_notice(notice)
         copyleft.update(evidence.copyleft)
