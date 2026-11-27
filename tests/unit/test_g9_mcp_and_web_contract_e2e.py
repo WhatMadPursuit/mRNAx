@@ -325,9 +325,10 @@ def test_mcp_stdio_subprocess_full_commercial_clean_lifecycle_and_web_contract_p
                 c["version_digest"] for c in h_body["candidates"]
             ]
 
-        # Seed bounds parity: -1 and 2147483648 rejected before writing any intent; 0 and 2147483647 accepted
-        for bad_seed in (-1, 2147483648):
-            bad_mcp_dir = tmp_path / f"bad_seed_{bad_seed}"
+        # Seed bounds & JSON Schema integer encoding parity across MCP and HTTP
+        for bad_seed in (-1, 2147483648, 42.5, True, "42"):
+            tag = str(bad_seed).replace("-", "neg").replace(".", "p")
+            bad_mcp_dir = tmp_path / f"bad_seed_{tag}_{type(bad_seed).__name__}"
             bad_rpc = json.dumps(
                 {
                     "jsonrpc": "2.0",
@@ -367,7 +368,7 @@ def test_mcp_stdio_subprocess_full_commercial_clean_lifecycle_and_web_contract_p
             assert bad_out["result"]["isError"] is True
             assert list((bad_mcp_dir / "intents").glob("*.json")) == []
 
-            bad_http_id = f"proj_bad_http_{bad_seed}".replace("-", "neg")
+            bad_http_id = f"proj_bad_http_{tag}_{type(bad_seed).__name__}"
             bad_h = client.post(
                 f"/v1/projects/{bad_http_id}/turn",
                 json={"user_utterance": "Seed check", "protein_sequence": "A", "random_seed": bad_seed},
@@ -377,8 +378,10 @@ def test_mcp_stdio_subprocess_full_commercial_clean_lifecycle_and_web_contract_p
                 (tmp_path / bad_http_id / "intents").glob("*.json")
             ) == []
 
-        for ok_seed in (0, 2147483647):
-            ok_mcp_dir = tmp_path / f"ok_seed_{ok_seed}"
+        for idx_s, (ok_seed, expected_int) in enumerate(
+            ((0, 0), (2147483647, 2147483647), (0.0, 0), (42.0, 42), (2147483647.0, 2147483647))
+        ):
+            ok_mcp_dir = tmp_path / f"ok_seed_{idx_s}"
             ok_rpc = json.dumps(
                 {
                     "jsonrpc": "2.0",
@@ -415,10 +418,30 @@ def test_mcp_stdio_subprocess_full_commercial_clean_lifecycle_and_web_contract_p
                 timeout=30.0,
             )
             assert json.loads(ok_proc.stdout.strip())["result"]["isError"] is False
-            assert len(list((ok_mcp_dir / "intents").glob("intent_v*.json"))) == 1
+            mcp_saved_seed = json.loads(
+                next((ok_mcp_dir / "intents").glob("intent_v*.json")).read_text(encoding="utf-8")
+            )["runtime_policy"]["random_seed"]
+            assert mcp_saved_seed == expected_int
             ok_h = client.post(
-                f"/v1/projects/proj_ok_http_{ok_seed}/turn",
+                f"/v1/projects/proj_ok_http_{idx_s}/turn",
                 json={"user_utterance": "Seed boundary ok", "protein_sequence": "A", "random_seed": ok_seed},
             )
             assert ok_h.status_code == 200
-            assert ok_h.json()["intent"]["runtime_policy"]["random_seed"] == ok_seed
+            assert ok_h.json()["intent"]["runtime_policy"]["random_seed"] == expected_int
+
+    # Permutation/idempotence check on tied objective vectors across persistence & projection
+    from mrnax.engine.pareto_director import _rank_and_order_pareto_candidates
+
+    tied_vecs = [
+        [0.9, 0.9],
+        [0.8, 0.2],
+        [0.2, 0.8],
+        [0.5, 0.5],
+        [0.5, 0.5],
+        [0.1, 0.7],
+        [0.7, 0.1],
+    ]
+    _, ord1 = _rank_and_order_pareto_candidates(tied_vecs)
+    reordered = [tied_vecs[i] for i in ord1]
+    _, ord2 = _rank_and_order_pareto_candidates(reordered)
+    assert ord2 == list(range(len(reordered)))

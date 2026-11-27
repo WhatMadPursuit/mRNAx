@@ -46,7 +46,12 @@ from mrnax.engine.pareto_director import project_report_for_intent
 from mrnax.engine.profiles import resolve_default_seed_dir
 from mrnax.harness.auth_secrets import SecretVault
 from mrnax.harness.dialogue import LiveDialogueAgent, normalize_dialogue_provider
-from mrnax.harness.state_machine import ProjectHarnessSession, build_preset_reference_r, project_lock
+from mrnax.harness.state_machine import (
+    CanonicalTurnInput,
+    ProjectHarnessSession,
+    build_preset_reference_r,
+    project_lock,
+)
 from mrnax.harness.tools import AtomicToolbox
 from mrnax.federated.external_evidence_adapter import CleanRoomPolicyError
 from mrnax.io_insdc.genbank_io import ExportConstraintViolationError, export_construct_package
@@ -264,27 +269,8 @@ class CommitAttemptRequest(BaseModel):
     sealed_sha256: str
 
 
-class ProjectTurnRequest(BaseModel):
-    mode: str = Field(default="initial", pattern="^(initial|refine)$")
-    user_utterance: str = Field(min_length=1, max_length=4000)
-    protein_sequence: str | None = None
-    accession_or_source: str = "GenBank:U55762.1"
-    entry_version: str | None = None
-    compliance_track: ComplianceProfile | None = None
-    uridine_chemistry: UridineChemistry | None = None
-    restriction_enzymes: list[str] | None = None
-    updated_restriction_enzymes: list[str] | None = None
-    locked_five_prime_utr: str | None = None
-    lock_cds_from_bundle_id: str | None = None
-    unlock_scopes: list[SegmentScope] | None = None
-    detarget_liver: bool | None = None
-    prioritize_late_signal: bool = False
-    conflicting_single_pick: bool = False
-    reference_bundle_id: str | None = None
-    use_preset_reference_r: bool = False
-    use_commercial_surrogate: bool | None = None
-    custom_reference_rna_sequence: str | None = None
-    random_seed: int = Field(default=42, ge=0, le=2_147_483_647)
+class ProjectTurnRequest(CanonicalTurnInput):
+    """HTTP `/turn` request inheriting 100% of `CanonicalTurnInput` wire validation."""
 
 
 class AgentChatRequest(BaseModel):

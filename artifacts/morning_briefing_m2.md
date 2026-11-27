@@ -33,7 +33,7 @@
 | **`G3`–`G5`** | GitHub 双分支发布 + Vultr `:8443` 热更新 + 双主题浏览器实测 | 线上 `6/6` 端到端实时自测全绿，Vultr 网关常驻内存 `< 180 MiB`（`:443` `sing-box` 全程未触碰），`kill -9` 崩溃秒级自愈零丢数，320–390px 手机端零横向溢出 |
 | **`G6`** | 方法级 FTO 护栏（`ADR-0003`）+ Wave 8 隐蔽许可陷阱拦截 | `RunManifest` 已写入非分区优化审计记录（阻断态与历史清单不虚报）；10 类隐蔽开源/非商用多跳依赖与 PEP 508/503 变体在 `commercial_clean` 档 100% 自动拦截 |
 | **`G7`** | **真生成器内循环升级** vs `本次未改善生成器` 纯重排（5 种子严格等算子调用对照） | **单链 eGFP（38 vs 38 次直接算子调用）**：模型半衰期得分 `8.11 → 10.56`（**+2.45，5/5 种子胜**），CDS 稳定性 **+15.3%（4/5 胜）**，双密码子指数 **+75.4%（5/5 胜）**；<br>**双链 DLL3×CD3（72 vs 72 次直接算子调用）**：最弱链模型半衰期得分 `5.39 → 5.47`（**+0.081，3/5 胜**），CDS 稳定性 **+81.6%（4/5 胜）**，双密码子指数提升至 **4.97 倍（5/5 胜）** |
-| **`G8`** | Colab L4 GPU 零漂移核验 + `RC-004` `EternaFold` 替换卡 + Drive 封存 | L4 实测 `Orthrus` 与 `structRFM`（强制 `USE_SPACED=False`）重复漂移均为 `0.0`；`EternaFold v1.3.1` 在 RMDB 基准相关性达 `0.6993`（优于 `ViennaRNA` `0.6747` 且零 `libRNA` 链接），运行时未挂载必阻断、挂载即执行；已写入 Google Drive `SEALED.json`（`1i_-_Vda3zLlW4tJsCx-SA8QkYaLEXypI`），闲置 Colab VM = `0` |
+| **`G8`** | Colab L4 GPU 零漂移核验 + `RC-004` `EternaFold` 替换卡 + Drive 封存 | L4 实测 `Orthrus` 与 `structRFM`（强制 `USE_SPACED=False`）重复漂移均为 `0.0`；`EternaFold v1.3.1` 在 RMDB 基准相关性达 `0.6993`（优于 `ViennaRNA` `0.6747` 且零 `libRNA` 链接），运行时未挂载必阻断、挂载即执行；已写入 Google Drive `SEALED.json`（`1V6vt-fasVC9eEC7opoDPcV81XwR-WEsi`），闲置 Colab VM = `0` |
 | **`G9`** | MCP 标准进程通信 + BYO-LLM / Web API 一致性 + 统一终审归档 | `mrnax mcp-serve`（含 `ping` 与 `random_seed`）与独立 HTTP `/turn` 商用写路径结果完全一致；正在执行终轮只读 `gpt-6.2-astra (ultra)` 独立盲审放行核验 |
 
 ---

@@ -1,44 +1,44 @@
 {
   "artifact_receipts": [
     {
-      "bytes": 27826,
-      "file_id": "1foDDkLAs9e_JKH8MUyHklOWnOR7fhBUO",
-      "md5": "fc24a4ec935d59cd442dac50d527b000",
+      "bytes": 27828,
+      "file_id": "1JVpfiuiMEXhIGHr9rlsHTSMvMAES87d4",
+      "md5": "56387f7ce6be3e27b37b67a3a175ae64",
       "mime_type": "application/json",
       "name": "paired_ablation_report.json",
-      "parent_id": "1t4OY2_pqpuPNEMJH6E1WA1VooovGi-jl",
-      "sha256": "996572942bb96cbaa04a399c0455e9e7de7c2aa2c9c6676cd0518314e97e5bbb"
+      "parent_id": "13-vFlpnIlnrdasJ1plhEFAIe5jRvdnsG",
+      "sha256": "3e60516d54f2fe4c7a39e85814a2af2ed73c5dcfd6110629ae1a61f5bab06767"
     },
     {
       "bytes": 6888,
-      "file_id": "1o-q1G-zg4U7dJST6eKtxikxSRNs34hsX",
+      "file_id": "1g1tofgCJfXl7NfykXauPdZTnBy94f4Pv",
       "md5": "23fdcc71d6029432cb07bbf2bcf1b2e0",
       "mime_type": "application/json",
       "name": "g8_cloud_gpu_and_eternafold_report.json",
-      "parent_id": "1t4OY2_pqpuPNEMJH6E1WA1VooovGi-jl",
+      "parent_id": "13-vFlpnIlnrdasJ1plhEFAIe5jRvdnsG",
       "sha256": "82f42c07cbbefc06765e6ba8b0ccfe03a823341f3723482cfd9c6b5b6f1505a3"
     },
     {
       "bytes": 6707,
-      "file_id": "139yDPzlTWB3tjL8VpFBz29WmHplN6XL-",
+      "file_id": "1fL5PctJmXiuUA8dSIWk_phBiGUTYHdvP",
       "md5": "af71faf104873de3d8697cf188ff8621",
       "mime_type": "text/yaml",
       "name": "RC-004-eternafold-v1.3.1.yaml",
-      "parent_id": "1t4OY2_pqpuPNEMJH6E1WA1VooovGi-jl",
+      "parent_id": "13-vFlpnIlnrdasJ1plhEFAIe5jRvdnsG",
       "sha256": "6515b159e736c2b79095646a8b56fb080fe63f7b2a9c76632be56dacb4908b34"
     }
   ],
-  "attempt_folder_id": "1t4OY2_pqpuPNEMJH6E1WA1VooovGi-jl",
+  "attempt_folder_id": "13-vFlpnIlnrdasJ1plhEFAIe5jRvdnsG",
   "colab_own_idle_vms": 0,
   "prior_g8_l4_sealed_json_id": "1JCh2aA2aE7PVLdT0Kt6hAyZhOQtqP4Ok",
   "runs_root_folder_id": "1nyeK6f5M234X8a1E32pNK2qaqzQQS1Dc",
   "seal_receipt": {
     "bytes": 1295,
-    "file_id": "1i_-_Vda3zLlW4tJsCx-SA8QkYaLEXypI",
-    "md5": "8e77f89fb5fbbac26bf3d10104df44e8",
+    "file_id": "1V6vt-fasVC9eEC7opoDPcV81XwR-WEsi",
+    "md5": "12d3743728af194c1889dcc1d7d2ee05",
     "mime_type": "application/json",
     "name": "SEALED.json",
-    "parent_id": "1t4OY2_pqpuPNEMJH6E1WA1VooovGi-jl",
-    "sha256": "293db701531e44327ff45daf5613183efdec6a542781393278d47a2ad5f22126"
+    "parent_id": "13-vFlpnIlnrdasJ1plhEFAIe5jRvdnsG",
+    "sha256": "b3e975dfd79a53b9b8ba9344e3cecc9f825679f69fe62048a392f1c21b09f87e"
   }
 }

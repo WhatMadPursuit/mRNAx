@@ -16,6 +16,8 @@ from functools import wraps
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, field_validator
+
 from mrnax.constraints.frameshift_m1psi import remediate_m1psi_slippery_runs
 from mrnax.constraints.registry import ScopedConstraintEngine, default_m1_constraints
 from mrnax.engine.pareto_director import next_report_timestamp_ns, run_design_pipeline
@@ -40,6 +42,51 @@ from mrnax.schemas.design_intent import (
 from mrnax.schemas.evaluation_report import EvaluationReport
 from mrnax.schemas.experiment_record import ExperimentRecord, FeedbackDecisionRecord
 from mrnax.schemas.run_manifest import RunManifest
+
+
+def _parse_json_schema_seed(v: Any) -> int:
+    """Validate JSON Schema `type: integer` (accepting int and zero-fraction finite float; rejecting bool/str)."""
+    if isinstance(v, bool):
+        raise ValueError("random_seed must be an integer, not boolean")
+    if isinstance(v, int):
+        return v
+    if isinstance(v, float):
+        if math.isfinite(v) and v.is_integer():
+            return int(v)
+        raise ValueError("random_seed must have zero fractional part")
+    raise ValueError("random_seed must be a JSON integer")
+
+
+class CanonicalTurnInput(BaseModel):
+    """Shared wire-validation contract enforced identically by HTTP `/turn` and MCP tools."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: StrictStr = Field(default="initial", pattern="^(initial|refine)$")
+    user_utterance: StrictStr = Field(min_length=1, max_length=4000)
+    protein_sequence: StrictStr | None = None
+    accession_or_source: StrictStr = "GenBank:U55762.1"
+    entry_version: StrictStr | None = None
+    compliance_track: ComplianceProfile | None = None
+    uridine_chemistry: UridineChemistry | None = None
+    restriction_enzymes: list[StrictStr] | None = None
+    updated_restriction_enzymes: list[StrictStr] | None = None
+    locked_five_prime_utr: StrictStr | None = None
+    lock_cds_from_bundle_id: StrictStr | None = None
+    unlock_scopes: list[SegmentScope] | None = None
+    detarget_liver: StrictBool | None = None
+    prioritize_late_signal: StrictBool = False
+    conflicting_single_pick: StrictBool = False
+    reference_bundle_id: StrictStr | None = None
+    use_preset_reference_r: StrictBool = False
+    use_commercial_surrogate: StrictBool | None = None
+    custom_reference_rna_sequence: StrictStr | None = None
+    random_seed: int = Field(default=42, ge=0, le=2_147_483_647)
+
+    @field_validator("random_seed", mode="before")
+    @classmethod
+    def _validate_seed_before(cls, v: Any) -> int:
+        return _parse_json_schema_seed(v)
 
 
 def _detect_chemistry(utterance: str, default: UridineChemistry = "m1psi") -> UridineChemistry:
@@ -830,14 +877,41 @@ class ProjectHarnessSession:
         random_seed: int = 42,
     ) -> DesignIntent:
         """Single shared initial-turn adapter used identically by HTTP `/turn` and MCP `design_constructs`."""
-        if not isinstance(user_utterance, str) or not (1 <= len(user_utterance) <= 4000):
-            raise ValueError("user_utterance must be a non-empty string of at most 4000 characters")
-        if isinstance(random_seed, bool) or not isinstance(random_seed, int) or not (0 <= random_seed <= 2_147_483_647):
-            raise ValueError("random_seed must be an integer between 0 and 2147483647")
-        if compliance_track is not None and compliance_track not in ("research_max", "commercial_clean"):
-            raise ValueError(f"Invalid compliance_track: {compliance_track!r}")
-        if uridine_chemistry is not None and uridine_chemistry not in ("unmodified_u", "pseudouridine", "m1psi"):
-            raise ValueError(f"Invalid uridine_chemistry: {uridine_chemistry!r}")
+        validated = CanonicalTurnInput.model_validate(
+            {
+                "mode": "initial",
+                "user_utterance": user_utterance,
+                "protein_sequence": protein_sequence,
+                "accession_or_source": accession_or_source,
+                "entry_version": entry_version,
+                "compliance_track": compliance_track,
+                "uridine_chemistry": uridine_chemistry,
+                "restriction_enzymes": restriction_enzymes,
+                "locked_five_prime_utr": locked_five_prime_utr,
+                "detarget_liver": detarget_liver,
+                "prioritize_late_signal": prioritize_late_signal,
+                "conflicting_single_pick": conflicting_single_pick,
+                "reference_bundle_id": reference_bundle_id,
+                "use_preset_reference_r": use_preset_reference_r,
+                "use_commercial_surrogate": use_commercial_surrogate,
+                "random_seed": random_seed,
+            }
+        )
+        user_utterance = validated.user_utterance
+        protein_sequence = validated.protein_sequence
+        accession_or_source = validated.accession_or_source
+        entry_version = validated.entry_version
+        compliance_track = validated.compliance_track
+        uridine_chemistry = validated.uridine_chemistry
+        restriction_enzymes = validated.restriction_enzymes
+        locked_five_prime_utr = validated.locked_five_prime_utr
+        detarget_liver = validated.detarget_liver
+        prioritize_late_signal = validated.prioritize_late_signal
+        conflicting_single_pick = validated.conflicting_single_pick
+        reference_bundle_id = validated.reference_bundle_id
+        use_preset_reference_r = validated.use_preset_reference_r
+        use_commercial_surrogate = validated.use_commercial_surrogate
+        random_seed = validated.random_seed
         snap = json.loads((self.seed_dir / "egfp_reporter_snapshot.json").read_text(encoding="utf-8"))
         prot_seq = (protein_sequence or snap["mammalian_reporter_egfp"]["protein_sequence"]).strip()
         ref_bundle: ConstructBundle | None = None
@@ -896,12 +970,29 @@ class ProjectHarnessSession:
         use_commercial_surrogate: bool | None = None,
     ) -> DesignIntent:
         """Single shared refine-turn adapter used identically by HTTP `/turn` and MCP `refine_construct`."""
-        if not isinstance(user_utterance, str) or not (1 <= len(user_utterance) <= 4000):
-            raise ValueError("user_utterance must be a non-empty string of at most 4000 characters")
-        if compliance_track is not None and compliance_track not in ("research_max", "commercial_clean"):
-            raise ValueError(f"Invalid compliance_track: {compliance_track!r}")
-        if uridine_chemistry is not None and uridine_chemistry not in ("unmodified_u", "pseudouridine", "m1psi"):
-            raise ValueError(f"Invalid uridine_chemistry: {uridine_chemistry!r}")
+        validated = CanonicalTurnInput.model_validate(
+            {
+                "mode": "refine",
+                "user_utterance": user_utterance,
+                "restriction_enzymes": restriction_enzymes,
+                "locked_five_prime_utr": locked_five_prime_utr,
+                "lock_cds_from_bundle_id": lock_cds_from_bundle_id,
+                "unlock_scopes": unlock_scopes,
+                "uridine_chemistry": uridine_chemistry,
+                "compliance_track": compliance_track,
+                "detarget_liver": detarget_liver,
+                "use_commercial_surrogate": use_commercial_surrogate,
+            }
+        )
+        user_utterance = validated.user_utterance
+        restriction_enzymes = validated.restriction_enzymes
+        locked_five_prime_utr = validated.locked_five_prime_utr
+        lock_cds_from_bundle_id = validated.lock_cds_from_bundle_id
+        unlock_scopes = validated.unlock_scopes
+        uridine_chemistry = validated.uridine_chemistry
+        compliance_track = validated.compliance_track
+        detarget_liver = validated.detarget_liver
+        use_commercial_surrogate = validated.use_commercial_surrogate
         prev_intent = self.latest_intent()
         add_locks: dict[SegmentScope, str] | None = (
             {"five_prime_utr": locked_five_prime_utr} if locked_five_prime_utr else None
