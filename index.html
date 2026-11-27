@@ -1,278 +1,398 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>mRNAx v2 · Agentic RNA Sequence Design Workbench</title>
-  <link rel="stylesheet" href="./styles.css" />
-</head>
-<body>
-  <header class="topbar">
-    <div class="brand">
-      <span class="brand-badge">mRNAx v2</span>
-      <div>
-        <h1>Agentic RNA Sequence Design Workbench</h1>
-        <div class="brand-sub">输入 → Agent 意图编译与护栏 → 多范式优化输出 → 单项微调/版本继承 → INSDC 四件套导出</div>
-      </div>
-    </div>
-
-    <div class="status-strip">
-      <span class="pill" id="pill-gateway">
-        <span class="dot" id="dot-gateway"></span>
-        <span id="txt-gateway">7×24 Vultr Gateway: 连接中...</span>
-      </span>
-      <span class="pill" id="pill-engine">Engine: research_max · ViennaRNA</span>
-      <span class="pill" id="pill-project">Project: <strong id="txt-project-id" class="mono">proj_live</strong></span>
-      <button class="btn btn-sm" id="btn-new-session" title="新建空白项目会话">＋ 新会话</button>
-      <button class="btn btn-sm btn-primary" id="btn-run-selftest">🧪 一键全链路 I/O 自测</button>
-      <button class="btn btn-sm" id="btn-open-settings">⚙️ 接口与密钥</button>
-    </div>
-  </header>
-
-  <main class="workbench">
-    <!-- Column 1: Input & Presets -->
-    <section class="panel" aria-label="输入与约束配置">
-      <div class="panel-header">
-        <span class="panel-title">① 输入与实验场景（Dual-Entry）</span>
-        <span class="badge info" id="badge-aa-len">239 aa · M✓</span>
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>mRNAx v2 · Sequence &amp; Pareto Bio-CAD</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <!-- Compact Single-Row Top Bar (< 8% viewport height) -->
+    <header class="top-bar">
+      <div class="top-left">
+        <span class="wordmark">mRNAx <span class="ver-tag">v2</span></span>
+        <span class="sep-slash">/</span>
+        <span class="mono meta-id" id="txt-project-id">proj_init</span>
+        <span class="rev-pill mono" id="badge-active-rev">v00</span>
+        <span class="gw-status" title="7x24 Control Plane Status">
+          <span class="dot" id="dot-gateway"></span>
+          <span class="mono" id="txt-gateway">连接中...</span>
+        </span>
+        <span class="mono meta-muted hide-sm" id="pill-engine">Engine: —</span>
       </div>
 
-      <div class="tabs" role="tablist">
-        <div class="tab active" id="tab-protein-only" data-entry="protein_only">入口一：仅蛋白</div>
-        <div class="tab" id="tab-with-r" data-entry="with_r">入口二：蛋白 + 参考构建 R</div>
-      </div>
+      <div class="top-right">
+        <button type="button" class="btn-ghost" id="btn-new-session">新建项目</button>
 
-      <div>
-        <div class="field-label">
-          <span>快速预设与边界测试样本</span>
+        <details class="dropdown-menu" id="diag-menu">
+          <summary class="btn-ghost">诊断与测试 ▾</summary>
+          <div class="dropdown-panel">
+            <button type="button" class="menu-item" id="btn-run-selftest">
+              运行 6/6 全链路实时自测
+            </button>
+            <button type="button" class="menu-item" id="preset-egfp">
+              载入标准 eGFP (239 aa)
+            </button>
+            <hr class="menu-hr" />
+            <button type="button" class="menu-item" id="preset-no-m">
+              护栏测试：缺起始 M 序列
+            </button>
+            <button type="button" class="menu-item" id="preset-conflict">
+              护栏测试：单候选冲突目标
+            </button>
+          </div>
+        </details>
+
+        <button type="button" class="btn-ghost" id="btn-open-settings">网关与密钥</button>
+
+        <button
+          type="button"
+          class="btn-theme"
+          id="btn-theme-toggle"
+          aria-label="切换日光蓝白与哑光石墨深色主题"
+        >
+          <span id="txt-theme-label">◐ 石墨深色</span>
+        </button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <!-- Collapsible Entity Composer (AlphaFold / Swiss Bio-CAD Horizontal Bar) -->
+      <details class="setup-fold" id="setup-fold" open>
+        <summary class="setup-summary">
+          <div class="setup-summary-left">
+            <span class="sec-kicker">SETUP</span>
+            <span class="mono" id="setup-collapsed-summary">
+              eGFP · 239 aa · m1Psi · BsaI
+            </span>
+          </div>
+          <span class="setup-toggle-hint mono">展开 / 收起参数 ▾</span>
+        </summary>
+
+        <div class="setup-grid">
+          <!-- Column 1: Target Protein & Entry Mode -->
+          <div class="setup-col">
+            <div class="col-head">
+              <div class="seg-tabs" role="tablist" aria-label="设计入口">
+                <button type="button" class="tab active" data-entry="protein_only">
+                  入口一 · 仅蛋白
+                </button>
+                <button type="button" class="tab" data-entry="with_r">
+                  入口二 · 蛋白 + 参考 R
+                </button>
+              </div>
+              <span class="badge mono" id="badge-aa-len">239 aa · M✓</span>
+            </div>
+
+            <textarea
+              id="input-protein"
+              class="seq-textarea mono"
+              rows="3"
+              aria-label="目标氨基酸序列"
+              spellcheck="false"
+            ></textarea>
+
+            <div id="box-ref-r" class="ref-r-strip mono" hidden>
+              <span class="kicker-inline">REF R:</span>
+              <span id="txt-ref-r-preview">加载预设参考构建 R...</span>
+            </div>
+          </div>
+
+          <!-- Column 2: Chemistry, Track & Linearization Enzymes -->
+          <div class="setup-col">
+            <div class="field-row-2">
+              <label class="field-lbl">
+                <span>尿苷化学修饰</span>
+                <select id="sel-chemistry" class="ctrl-select">
+                  <option value="m1psi" selected>m¹Ψ (N1-甲基假尿苷)</option>
+                  <option value="5mou">5moU (5-甲氧基尿苷)</option>
+                  <option value="pseudouridine">Ψ (假尿苷)</option>
+                  <option value="unmodified_u">U (未修饰尿苷)</option>
+                </select>
+              </label>
+
+              <label class="field-lbl">
+                <span>合规档位</span>
+                <select id="sel-profile" class="ctrl-select">
+                  <option value="research_max" selected>research_max (含 ViennaRNA)</option>
+                  <option value="commercial_clean">commercial_clean (纯商用洁净)</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="field-lbl">
+              <span>线性化内切酶禁区 (0 cuts)</span>
+              <div class="chip-group" id="enzyme-chips" role="group" aria-label="禁用内切酶">
+                <button type="button" class="chip selected mono" data-enz="BsaI">BsaI</button>
+                <button type="button" class="chip mono" data-enz="BspQI">BspQI</button>
+                <button type="button" class="chip mono" data-enz="BsmBI">BsmBI</button>
+                <button type="button" class="chip mono" data-enz="SapI">SapI</button>
+                <button type="button" class="chip mono" data-enz="EcoRI">EcoRI</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Column 3: Modules, Execution Engine & Primary Run CTA -->
+          <div class="setup-col setup-col-cta">
+            <div class="field-row-2">
+              <label class="field-lbl">
+                <span>编译引擎</span>
+                <select id="sel-exec-mode" class="ctrl-select">
+                  <option value="deterministic" selected>确定性状态机 (零延迟)</option>
+                  <option value="llm_agent">LLM Agent 工具编排</option>
+                </select>
+              </label>
+              <div class="field-lbl">
+                <span>运行状态</span>
+                <span class="badge mono" id="badge-outcome">IDLE</span>
+              </div>
+            </div>
+
+            <div class="check-group">
+              <label class="chk-row">
+                <input type="checkbox" id="chk-detarget-liver" checked />
+                <span>3′UTR hsa-miR-122 肝脏去靶向盒</span>
+              </label>
+              <label class="chk-row">
+                <input type="checkbox" id="chk-late-signal" />
+                <span>优先 48h 后期持续表达目标</span>
+              </label>
+            </div>
+
+            <button type="button" class="btn-primary" id="btn-submit-initial">
+              生成候选构建
+            </button>
+          </div>
         </div>
-        <div class="chip-row">
-          <button class="chip" id="preset-egfp">加载 eGFP (U55762.1 · 239aa)</button>
-          <button class="chip" id="preset-no-m">负样本：缺起始 M 拦截</button>
-          <button class="chip" id="preset-conflict">负样本：目标冲突拦截</button>
+      </details>
+
+      <!-- Non-Modal Guardrail / Compliance Banner (Hidden when clean) -->
+      <section id="banner-notes" class="notice-banner" hidden></section>
+
+      <!-- Scheme 3 Auto-Appearing Revision Ledger & Same-Scale v01/v02 Track Comparison -->
+      <section id="revision-ledger" class="panel-surface ledger-panel" hidden>
+        <div class="ledger-header">
+          <div class="ledger-title-group">
+            <span class="sec-kicker">REVISION DIFF</span>
+            <span class="mono ledger-ver" id="ledger-ver-span">v01 → v02</span>
+            <span class="ledger-delta mono" id="ledger-delta-summary"></span>
+          </div>
+          <div class="ledger-locks mono" id="ledger-locks-bar"></div>
+        </div>
+        <div class="dual-scale-tracks" id="dual-scale-tracks"></div>
+      </section>
+
+      <!-- Scheme 2 Upper Stage: 2D Pareto Scatter + Sortable Sparkbar Candidate Matrix -->
+      <section class="pareto-stage">
+        <!-- Left: 2D Pareto Frontier Scatter -->
+        <div class="panel-surface pareto-plot-box">
+          <div class="panel-head">
+            <div>
+              <span class="sec-kicker">PARETO FRONTIER</span>
+              <h2 class="panel-title" id="pareto-plot-title">多目标权衡前沿</h2>
+            </div>
+            <div class="plot-legend mono">
+              <span><i class="lg-dot p1"></i>P1 前沿</span>
+              <span><i class="lg-dot dom"></i>被支配</span>
+            </div>
+          </div>
+          <div class="svg-wrap" id="pareto-svg-wrap">
+            <div class="empty-hint mono">点击上方「生成候选构建」绘制多目标帕累托前沿</div>
+          </div>
+        </div>
+
+        <!-- Right: Candidate Matrix & Bound Revision Export -->
+        <div class="panel-surface candidate-table-box">
+          <div class="panel-head">
+            <div class="panel-head-left">
+              <span class="sec-kicker">CANDIDATES</span>
+              <h2 class="panel-title" id="txt-cand-count">0 条合格候选</h2>
+            </div>
+
+            <div class="export-bar">
+              <button type="button" class="btn-export-main mono" id="btn-dl-gb" disabled>
+                GenBank (.gb) ↓
+              </button>
+              <details class="dropdown-menu" id="export-more-menu">
+                <summary class="btn-ghost mono">更多导出 ▾</summary>
+                <div class="dropdown-panel dropdown-right">
+                  <button type="button" class="menu-item mono" id="btn-dl-rna" disabled>
+                    full_rna.fasta
+                  </button>
+                  <button type="button" class="menu-item mono" id="btn-dl-cds" disabled>
+                    cds_only.fasta
+                  </button>
+                  <button type="button" class="menu-item mono" id="btn-dl-meta" disabled>
+                    chemistry_metadata.json
+                  </button>
+                  <hr class="menu-hr" />
+                  <button type="button" class="menu-item mono" id="btn-copy-cli" disabled>
+                    复制 CLI 重放命令
+                  </button>
+                </div>
+              </details>
+            </div>
+          </div>
+
+          <div class="table-scroll">
+            <table class="data-table" id="cand-table">
+              <thead>
+                <tr id="cand-thead-row">
+                  <th tabindex="0" data-sort="rank">Rank</th>
+                  <th tabindex="0" data-sort="id">Candidate</th>
+                  <th>Origin</th>
+                  <th tabindex="0" data-sort="gc" class="num-col">GC% · Len</th>
+                </tr>
+              </thead>
+              <tbody id="cand-tbody">
+                <tr>
+                  <td colspan="4" class="empty-cell mono">尚无候选构建</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- Full-Width True-Scale Linear Sequence CAD + Triplet Codon Inspector -->
+      <section class="panel-surface construct-cad-panel">
+        <div class="panel-head">
+          <div class="cad-title-row">
+            <span class="sec-kicker">CONSTRUCT MAP</span>
+            <h2 class="panel-title mono" id="txt-selected-bundle">未选择候选</h2>
+            <span class="mono coord-note">0-based · end-exclusive</span>
+          </div>
+          <label id="chain-picker" hidden>分子 <select id="inspect-chain" class="ctrl-select mono"></select></label>
+          <div class="enzyme-rail mono" id="enzyme-clearance-rail"></div>
+        </div>
+
+        <!-- Proportional Scale Bar + External Stop Pin + Ruler -->
+        <div class="map-canvas" id="map-canvas">
+          <div class="ruler-row mono" id="ruler-row"></div>
+          <div class="prop-track-wrap" id="prop-track-wrap">
+            <div class="empty-hint mono">生成后展示五段真实比例分子图谱</div>
+          </div>
+          <div class="seg-cards-row" id="seg-bar"></div>
+        </div>
+
+        <!-- Codon-Triplet & Amino-Acid Alignment Strip -->
+        <div class="codon-inspector mono" id="seg-inspector">
+          选择候选构建后自动对齐显示区段核苷酸与三联体密码子翻译轨
+        </div>
+      </section>
+
+      <!-- Docked Single-Item Refinement Console -->
+      <section class="panel-surface refine-dock">
+        <div class="refine-quick-row">
+          <span class="sec-kicker">SINGLE-ITEM REFINE</span>
+          <div class="intent-lineage mono" id="intent-lineage-bar">等待 v01 建立锁定基线</div>
+          <div class="quick-actions">
+            <button type="button" class="chip mono" id="quick-refine-bspqi" disabled>
+              Δ BsaI → BspQI
+            </button>
+            <button type="button" class="chip mono" id="quick-refine-lock-cds" disabled>
+              锁定当前 CDS
+            </button>
+            <button type="button" class="chip mono" id="quick-refine-m15-surrogate" disabled>
+              切换 M1.5 四头洁净代理
+            </button>
+            <button type="button" class="chip mono" id="quick-refine-commercial" disabled>
+              commercial_clean 门禁核验
+            </button>
+          </div>
+        </div>
+
+        <div class="refine-input-row">
+          <span class="prompt-caret mono">&gt;</span>
+          <input
+            type="text"
+            id="input-utterance"
+            class="refine-input"
+            aria-label="单字段增量微调或自然语言指令"
+            placeholder="输入单点微调指令（例如：避开 BspQI，其余锁定项继承不变）..."
+          />
+          <button type="button" class="btn-primary btn-compact" id="btn-send-turn">
+            应用微调 ↵
+          </button>
+        </div>
+
+        <details class="activity-drawer" id="activity-drawer">
+          <summary class="mono activity-summary">执行轨迹与审校日志 (<span id="txt-log-count">0</span>)</summary>
+          <div class="chat-stream" id="chat-stream"></div>
+        </details>
+      </section>
+    </main>
+
+    <!-- Native Modal Dialog 1: Gateway & Credentials -->
+    <dialog id="modal-settings" class="native-dialog" closedby="any" aria-labelledby="dlg-settings-title">
+      <div class="dlg-head">
+        <h1 id="dlg-settings-title" class="dlg-title">网关连接与 BYO-LLM 密钥</h1>
+        <form method="dialog">
+          <button type="submit" value="cancel" class="btn-ghost mono" aria-label="关闭设置">✕</button>
+        </form>
+      </div>
+      <div class="dlg-body">
+        <label class="field-lbl">
+          <span>7×24 Control Plane HTTPS 地址（仅允许受信任源）</span>
+          <input type="url" id="cfg-api-base" class="ctrl-input mono" />
+        </label>
+        <label class="field-lbl">
+          <span>Gateway Access Token（仅存当前标签页内存，调用服务端托管队列时可选）</span>
+          <input type="password" id="cfg-access-token" class="ctrl-input mono" autocomplete="off" />
+        </label>
+        <div class="field-row-2">
+          <label class="field-lbl">
+            <span>BYO-LLM Provider</span>
+            <select id="cfg-llm-provider" class="ctrl-select">
+              <option value="deepseek">deepseek</option>
+              <option value="openai">openai</option>
+              <option value="gemini">gemini</option>
+              <option value="kimi">kimi</option>
+              <option value="qwen">qwen</option>
+            </select>
+          </label>
+          <label class="field-lbl">
+            <span>临时 BYO API Key（仅存当前标签页内存）</span>
+            <input type="password" id="cfg-byo-key" class="ctrl-input mono" autocomplete="off" />
+          </label>
         </div>
       </div>
+      <div class="dlg-foot">
+        <button type="button" class="btn-ghost" id="btn-close-settings">取消</button>
+        <button type="button" class="btn-primary btn-compact" id="btn-save-settings" autofocus>
+          保存并重连
+        </button>
+      </div>
+    </dialog>
 
-      <div>
-        <div class="field-label">
-          <span>目标蛋白氨基酸序列（100% 锁定不变）</span>
-          <span id="txt-accession" class="mono">GenBank:U55762.1</span>
+    <!-- Native Modal Dialog 2: 6/6 End-to-End Live Self-Test -->
+    <dialog id="modal-selftest" class="native-dialog dlg-wide" closedby="any" aria-labelledby="dlg-selftest-title">
+      <div class="dlg-head">
+        <h1 id="dlg-selftest-title" class="dlg-title">全链路端到端实时 I/O 自测 (6 项)</h1>
+        <form method="dialog">
+          <button type="submit" value="cancel" class="btn-ghost mono" aria-label="关闭自测">✕</button>
+        </form>
+      </div>
+      <div class="dlg-body">
+        <div class="selftest-head-bar">
+          <span class="mono" id="selftest-summary">准备就绪</span>
+          <button type="button" class="btn-primary btn-compact" id="btn-trigger-selftest" autofocus>
+            重新运行 6 项实测
+          </button>
         </div>
-        <textarea id="input-protein" class="mono" rows="5" spellcheck="false" placeholder="粘贴以 M 开头的氨基酸序列..."></textarea>
+        <div id="selftest-list" class="selftest-list"></div>
       </div>
+      <div class="dlg-foot">
+        <button type="button" class="btn-ghost" id="btn-close-selftest">关闭</button>
+      </div>
+    </dialog>
 
-      <div id="box-ref-r" style="display:none;">
-        <div class="field-label">
-          <span>参考构建 R（HBA1 UTR + WT eGFP CDS + A100）</span>
-          <span class="badge">保守最小改动 A + 探索 B</span>
-        </div>
-        <div class="code-box" id="txt-ref-r-preview">加载预设参考构建 R 中...</div>
-      </div>
-
-      <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-        <div>
-          <div class="field-label"><span>尿苷化学修饰</span></div>
-          <select id="sel-chemistry">
-            <option value="m1psi" selected>m¹Ψ (N1-甲基假尿苷)</option>
-            <option value="pseudouridine">Ψ (假尿苷)</option>
-            <option value="unmodified_u">Unmodified U (未修饰)</option>
-          </select>
-        </div>
-        <div>
-          <div class="field-label"><span>运行档位</span></div>
-          <select id="sel-profile">
-            <option value="research_max" selected>research_max (开源满血内测)</option>
-            <option value="commercial_clean">commercial_clean (纯商用核查)</option>
-          </select>
-        </div>
-      </div>
-
-      <div>
-        <div class="field-label"><span>需避开的线性化 / 组装内切酶位点（全长跨区段扫描）</span></div>
-        <div class="chip-row" id="enzyme-chips">
-          <span class="chip selected" data-enz="BsaI">BsaI</span>
-          <span class="chip" data-enz="BspQI">BspQI</span>
-          <span class="chip" data-enz="SapI">SapI</span>
-          <span class="chip" data-enz="BsmBI">BsmBI</span>
-          <span class="chip" data-enz="EcoRI">EcoRI</span>
-          <span class="chip" data-enz="XbaI">XbaI</span>
-        </div>
-      </div>
-
-      <label class="check-row">
-        <input type="checkbox" id="chk-detarget-liver" checked />
-        <span>开启肝脏去靶向（3'UTR 注入 miR-122-5p 靶盒 + 骨骼肌保护）</span>
-      </label>
-
-      <label class="check-row">
-        <input type="checkbox" id="chk-late-signal" />
-        <span>优先看重后期持久信号（触发未验证湿实验边界透明提示）</span>
-      </label>
-
-      <button class="btn btn-primary" id="btn-submit-initial">🚀 生成首轮候选构建（Turn 1）</button>
-    </section>
-
-    <!-- Column 2: Agent / Harness Iteration Stream -->
-    <section class="panel" aria-label="Agent 意图链与多轮微调">
-      <div class="panel-header">
-        <span class="panel-title">② Agent / Harness 意图版本链与微调迭代</span>
-        <select id="sel-exec-mode" style="width:auto; padding:3px 8px; font-size:12px;">
-          <option value="deterministic" selected>秒级确定性 Harness 编译</option>
-          <option value="llm_agent">Live LLM Agent 工具调用 (DeepSeek/GPT/Kimi)</option>
-        </select>
-      </div>
-
-      <div id="intent-lineage-bar" class="badge-row">
-        <span class="badge info">等待首轮输入启动 DesignIntent v1...</span>
-      </div>
-
-      <div class="stream-box" id="chat-stream">
-        <div class="turn-card agent">
-          <div class="turn-meta"><span>mRNAx Harness 就绪</span><span>7×24 状态机持久化</span></div>
-          <div>支持从空白输入启动设计，随后通过下方快捷微调按钮或自然语言**只改单项约束**（例如将 <code>BsaI</code> 改为 <code>BspQI</code>），系统将 100% 自动继承已锁定的氨基酸序列、化学修饰与去靶向规则。</div>
-        </div>
-      </div>
-
-      <div>
-        <div class="field-label"><span>一键单项微调 / 多轮迭代快捷指令（测试继承锁定）</span></div>
-        <div class="chip-row">
-          <button class="chip" id="quick-refine-bspqi" disabled>微调：BsaI → 避开 BspQI（继承其余锁定）</button>
-          <button class="chip" id="quick-refine-lock-cds" disabled>微调：锁定当前最优 CDS，仅重配 UTR</button>
-          <button class="chip" id="quick-refine-m15-surrogate" disabled>M1.5：启用纯商用多轴代理裁判团 (surrogate_v1)</button>
-          <button class="chip" id="quick-refine-commercial" disabled>微调：切至 commercial_clean 检查 ViennaRNA 阻断</button>
-        </div>
-      </div>
-
-      <div>
-        <div class="field-label"><span>自然语言指令 / 迭代要求</span></div>
-        <textarea id="input-utterance" rows="2" placeholder="例如：把内切酶从 BsaI 换成避开 BspQI，其余蛋白序列、m1Psi 和肝脏去靶向保持不变..."></textarea>
-      </div>
-
-      <div style="display:flex; gap:8px;">
-        <button class="btn btn-primary" id="btn-send-turn" style="flex:1;">💬 发送指令执行本轮（Turn / Refine）</button>
-      </div>
-    </section>
-
-    <!-- Column 3: Output Construct Map, Pareto Table & Export -->
-    <section class="panel" aria-label="优化输出与导出">
-      <div class="panel-header">
-        <span class="panel-title">③ 多目标候选输出、五区段图谱与 INSDC 导出</span>
-        <span class="badge" id="badge-outcome">待运行</span>
-      </div>
-
-      <div id="banner-notes" style="display:none;" class="turn-card warn"></div>
-
-      <div>
-        <div class="field-label">
-          <span>当前选中构建五区段结构图（点击任一区段查看精确坐标与序列）</span>
-          <span id="txt-selected-bundle" class="mono">—</span>
-        </div>
-        <div class="seg-bar" id="seg-bar">
-          <div class="seg-block seg-five_prime_utr" style="width:12%">5'UTR</div>
-          <div class="seg-block seg-cds" style="width:52%">CDS</div>
-          <div class="seg-block seg-stop_cassette" style="width:6%">Stop</div>
-          <div class="seg-block seg-three_prime_utr" style="width:18%">3'UTR</div>
-          <div class="seg-block seg-poly_a" style="width:12%">PolyA</div>
-        </div>
-        <div class="code-box" id="seg-inspector" style="margin-top:6px;">运行生成后，点击上方区段查看 [start..end) 0-based 坐标、长度、GC% 与序列详情。</div>
-      </div>
-
-      <div>
-        <div class="field-label">
-          <span>合格候选列表（点击行切换查看详情）</span>
-          <span id="txt-cand-count" class="mono">0 条</span>
-        </div>
-        <div style="max-height:230px; overflow-y:auto; border:1px solid var(--border); border-radius:8px;">
-          <table class="cand-table">
-            <thead>
-              <tr>
-                <th>候选 ID</th>
-                <th>来源动作</th>
-                <th>Kozak 开放度</th>
-                <th>CDS 滑窗 MFE</th>
-                <th>miR-122 ΔG</th>
-                <th>GC% / 长度</th>
-              </tr>
-            </thead>
-            <tbody id="cand-tbody">
-              <tr><td colspan="6" style="color:var(--text-muted); text-align:center;">暂无候选，请点击左侧「生成首轮候选构建」</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div>
-        <div class="field-label"><span>一键导出标准 INSDC 四件套（经共享作用域硬门二次复核）</span></div>
-        <div class="chip-row">
-          <button class="chip" id="btn-dl-gb" disabled>⬇ construct.gb (GenBank)</button>
-          <button class="chip" id="btn-dl-rna" disabled>⬇ full_rna.fasta</button>
-          <button class="chip" id="btn-dl-cds" disabled>⬇ cds_only.fasta</button>
-          <button class="chip" id="btn-dl-meta" disabled>⬇ chemistry_metadata.json</button>
-          <button class="chip" id="btn-copy-cli" disabled>📋 复制确定性 CLI 重放命令</button>
-        </div>
-      </div>
-
-      <div>
-        <div class="field-label"><span>实测证据链锚点（GSE114002 + GSE232927 · 云端 143 万条流式核验）</span></div>
-        <div class="code-box" id="box-rule-evidence">RUL-5UTR-UAUG-MRL-001 [conditional_rule]: 移码 uAUG 在未修饰 U、Ψ、m¹Ψ 全部 7 份样本中一致降低 12h HEK293T MRL（ΔMRL ∈ [-2.8207, -0.8870]）；同源谱系去重计 1 票，不跨层外推至体内后期蛋白 AUC。</div>
-      </div>
-    </section>
-  </main>
-
-  <!-- Settings Modal -->
-  <div class="modal-backdrop" id="modal-settings">
-    <div class="modal">
-      <div class="panel-header">
-        <span class="panel-title">⚙️ 7×24 服务器接口与安全鉴权设置</span>
-        <button class="btn btn-sm" id="btn-close-settings">关闭</button>
-      </div>
-      <div>
-        <div class="field-label"><span>7×24 Vultr Gateway API 地址（HTTPS）</span></div>
-        <input type="text" id="cfg-api-base" class="mono" />
-      </div>
-      <div>
-        <div class="field-label"><span>Gateway Access Token（解锁服务端内置 DeepSeek/OpenAI/Kimi，仅存本地浏览器）</span></div>
-        <input type="password" id="cfg-access-token" class="mono" placeholder="输入服务端 MRNAX_GATEWAY_ACCESS_TOKEN（可选）" />
-      </div>
-      <div style="display:grid; grid-template-columns: 140px 1fr; gap:8px;">
-        <div>
-          <div class="field-label"><span>LLM 提供商</span></div>
-          <select id="cfg-llm-provider">
-            <option value="deepseek" selected>DeepSeek</option>
-            <option value="openai">OpenAI</option>
-            <option value="kimi">Kimi / Moonshot</option>
-            <option value="qwen">Qwen</option>
-          </select>
-        </div>
-        <div>
-          <div class="field-label"><span>或自带临时 API Key（仅存当前标签页 sessionStorage，不落盘）</span></div>
-          <input type="password" id="cfg-byo-key" class="mono" placeholder="可选：自带临时 LLM API Key" />
-        </div>
-      </div>
-      <div style="display:flex; justify-content:flex-end; gap:8px;">
-        <button class="btn btn-primary" id="btn-save-settings">保存并重连</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Automated Self-Test Modal -->
-  <div class="modal-backdrop" id="modal-selftest">
-    <div class="modal">
-      <div class="panel-header">
-        <span class="panel-title">🧪 全链路用户输入输出（I/O）自动化实测台</span>
-        <button class="btn btn-sm" id="btn-close-selftest">关闭</button>
-      </div>
-      <div style="font-size:12.5px; color:var(--text-muted);">
-        直接从当前浏览器向 7×24 Vultr 网关发起 6 组真实端到端回归测试（覆盖健康检查、缺 M 拦截、目标冲突拦截、首轮生成、BsaI→BspQI 单项微调锁定继承、参考构建 R 双轨与 GenBank 四件套导出）：
-      </div>
-      <div id="selftest-list" style="display:flex; flex-direction:column; gap:8px;"></div>
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <span id="selftest-summary" class="mono" style="font-size:12px;">准备就绪</span>
-        <button class="btn btn-primary" id="btn-trigger-selftest">▶ 重新执行全部 6 项测试</button>
-      </div>
-    </div>
-  </div>
-
-  <script type="module" src="./app.js"></script>
-</body>
+    <script src="./app.js"></script>
+  </body>
 </html>
