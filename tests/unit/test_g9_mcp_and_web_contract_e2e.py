@@ -97,6 +97,10 @@ def test_mcp_stdio_subprocess_full_commercial_clean_lifecycle_and_web_contract_p
     assert "random_seed" in listed_tools["design_constructs"]["inputSchema"]["properties"]
     seed_prop = listed_tools["design_constructs"]["inputSchema"]["properties"]["random_seed"]
     assert seed_prop["minimum"] == 0 and seed_prop["maximum"] == 2147483647
+    assert listed_tools["design_constructs"]["inputSchema"]["additionalProperties"] is False
+    assert listed_tools["refine_construct"]["inputSchema"]["additionalProperties"] is False
+    ev_prop = listed_tools["design_constructs"]["inputSchema"]["properties"]["entry_version"]
+    assert {"type": "null"} in ev_prop.get("anyOf", [])
 
     d_res = json.loads(by_id[3]["result"]["content"][0]["text"])
     assert d_res["outcome_status"].startswith("COMPLETED")
@@ -428,6 +432,127 @@ def test_mcp_stdio_subprocess_full_commercial_clean_lifecycle_and_web_contract_p
             )
             assert ok_h.status_code == 200
             assert ok_h.json()["intent"]["runtime_policy"]["random_seed"] == expected_int
+
+        # Exact raw JSON non-integral float tokens (`2147483647.0000001`, `42.000000000000001`) + mode-specific/malformed-alias parity
+        for tok_i, raw_tok in enumerate(("2147483647.0000001", "42.000000000000001")):
+            raw_json = (
+                f'{{"user_utterance":"Exact dec check","protein_sequence":"A","random_seed":{raw_tok}}}'.encode("utf-8")
+            )
+            h_dec = client.post(
+                f"/v1/projects/proj_dec_http_{tok_i}/turn",
+                content=raw_json,
+                headers={"Content-Type": "application/json"},
+            )
+            assert h_dec.status_code == 422
+            assert not (tmp_path / f"proj_dec_http_{tok_i}" / "intents").exists()
+
+            m_dec_dir = tmp_path / f"proj_dec_mcp_{tok_i}"
+            m_wire = (
+                b'{"jsonrpc":"2.0","id":41,"method":"tools/call","params":{"name":"design_constructs","arguments":'
+                + raw_json
+                + b"}}\n"
+            )
+            m_dec = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "mrnax.harness.cli",
+                    "mcp-serve",
+                    "--project-id",
+                    "proj_dec",
+                    "--store-dir",
+                    str(m_dec_dir),
+                    "--seed-dir",
+                    str(SEED),
+                ],
+                input=m_wire.decode("utf-8"),
+                capture_output=True,
+                text=True,
+                env=env,
+                check=True,
+                timeout=30.0,
+            )
+            assert json.loads(m_dec.stdout.strip())["result"]["isError"] is True
+            assert list((m_dec_dir / "intents").glob("*.json")) == []
+
+        # Malformed alias (`restriction_enzymes: [42]` alongside valid `updated_restriction_enzymes`) & refine `random_seed` rejected on both
+        for bad_ref in (
+            {"user_utterance": "Bad alias", "restriction_enzymes": [42], "updated_restriction_enzymes": ["BsaI"]},
+            {"user_utterance": "Seed on refine", "random_seed": 7},
+        ):
+            h_br = client.post("/v1/projects/proj_g9_http_indep/turn", json={"mode": "refine", **bad_ref})
+            assert h_br.status_code == 422
+            assert len(list((tmp_path / "proj_g9_http_indep" / "intents").glob("intent_v*.json"))) == 1
+
+            m_br = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "mrnax.harness.cli",
+                    "mcp-serve",
+                    "--project-id",
+                    "proj_g9_mcp",
+                    "--store-dir",
+                    str(mcp_store_named),
+                    "--seed-dir",
+                    str(SEED),
+                ],
+                input=json.dumps(
+                    {"jsonrpc": "2.0", "id": 42, "method": "tools/call", "params": {"name": "refine_construct", "arguments": bad_ref}}
+                )
+                + "\n",
+                capture_output=True,
+                text=True,
+                env=env,
+                check=True,
+                timeout=30.0,
+            )
+            assert json.loads(m_br.stdout.strip())["result"]["isError"] is True
+            assert len(list((mcp_store_named / "intents").glob("intent_v*.json"))) == 2
+
+        # OpenAPI schema + MCP tools/list + fractional JSON-RPC id + 9-tool strict validation
+        openapi_resp = client.get("/openapi.json")
+        assert openapi_resp.status_code == 200
+        oa_schemas = openapi_resp.json()["components"]["schemas"]
+        assert oa_schemas["InitialTurnRequest"]["additionalProperties"] is False
+        assert oa_schemas["RefineTurnRequest"]["additionalProperties"] is False
+
+        bad_init_extra = {"user_utterance": "Extra key", "protein_sequence": "A", "custom_reference_rna_sequence": None}
+        assert client.post("/v1/projects/proj_extra_http/turn", json={"mode": "initial", **bad_init_extra}).status_code == 422
+
+        from mrnax.harness.mcp_server import handle_jsonrpc_line
+        from mrnax.harness.state_machine import ProjectHarnessSession
+        from mrnax.harness.tools import AtomicToolbox
+
+        tb_probe = AtomicToolbox(ProjectHarnessSession(project_id="proj_g9_mcp", store_dir=mcp_store_named, seed_dir=SEED))
+        ping_frac = json.loads(handle_jsonrpc_line(tb_probe, '{"jsonrpc":"2.0","id":1.5,"method":"ping"}') or "")
+        assert ping_frac["id"] == 1.5 and ping_frac["result"] == {}
+        parse_err = json.loads(handle_jsonrpc_line(tb_probe, "{bad json") or "")
+        assert parse_err["error"]["code"] == -32700
+
+        list_tools = json.loads(handle_jsonrpc_line(tb_probe, '{"jsonrpc":"2.0","id":2,"method":"tools/list"}') or "")["result"]["tools"]
+        assert len(list_tools) == 9
+        for t_spec in list_tools:
+            assert t_spec["inputSchema"].get("additionalProperties") is False
+        dc_props = next(t["inputSchema"]["properties"] for t in list_tools if t["name"] == "design_constructs")
+        assert {"type": "null"} in dc_props["entry_version"]["anyOf"]
+
+        extra_mcp = json.loads(
+            handle_jsonrpc_line(
+                tb_probe,
+                json.dumps({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "design_constructs", "arguments": bad_init_extra}}),
+            )
+            or ""
+        )
+        assert extra_mcp["result"]["isError"] is True
+        bad_audit = json.loads(
+            handle_jsonrpc_line(
+                tb_probe,
+                json.dumps({"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "audit_construct", "arguments": {"bundle_id": "b1", "compliance_track": "bogus"}}}),
+            )
+            or ""
+        )
+        assert bad_audit["result"]["isError"] is True
 
     # Permutation/idempotence check on tied objective vectors across persistence & projection
     from mrnax.engine.pareto_director import _rank_and_order_pareto_candidates

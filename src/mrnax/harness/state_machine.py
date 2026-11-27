@@ -12,6 +12,7 @@ import threading
 import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from decimal import Decimal
 from functools import wraps
 from pathlib import Path
 from typing import Any
@@ -45,24 +46,29 @@ from mrnax.schemas.run_manifest import RunManifest
 
 
 def _parse_json_schema_seed(v: Any) -> int:
-    """Validate JSON Schema `type: integer` (accepting int and zero-fraction finite float; rejecting bool/str)."""
+    """Validate JSON Schema `type: integer` with exact decimal precision (zero fractional part; rejecting bool/str)."""
     if isinstance(v, bool):
         raise ValueError("random_seed must be an integer, not boolean")
     if isinstance(v, int):
         return v
-    if isinstance(v, float):
-        if math.isfinite(v) and v.is_integer():
+    if isinstance(v, Decimal):
+        if v.is_finite() and v == v.to_integral_value():
             return int(v)
+        raise ValueError("random_seed must have zero fractional part")
+    if isinstance(v, float):
+        if math.isfinite(v):
+            d = Decimal(str(v))
+            if d == d.to_integral_value():
+                return int(d)
         raise ValueError("random_seed must have zero fractional part")
     raise ValueError("random_seed must be a JSON integer")
 
 
-class CanonicalTurnInput(BaseModel):
-    """Shared wire-validation contract enforced identically by HTTP `/turn` and MCP tools."""
+class InitialTurnInput(BaseModel):
+    """Strict initial-turn wire contract shared 1:1 between HTTP `mode='initial'` and MCP `design_constructs`."""
 
     model_config = ConfigDict(extra="forbid")
 
-    mode: StrictStr = Field(default="initial", pattern="^(initial|refine)$")
     user_utterance: StrictStr = Field(min_length=1, max_length=4000)
     protein_sequence: StrictStr | None = None
     accession_or_source: StrictStr = "GenBank:U55762.1"
@@ -70,23 +76,36 @@ class CanonicalTurnInput(BaseModel):
     compliance_track: ComplianceProfile | None = None
     uridine_chemistry: UridineChemistry | None = None
     restriction_enzymes: list[StrictStr] | None = None
-    updated_restriction_enzymes: list[StrictStr] | None = None
     locked_five_prime_utr: StrictStr | None = None
-    lock_cds_from_bundle_id: StrictStr | None = None
-    unlock_scopes: list[SegmentScope] | None = None
     detarget_liver: StrictBool | None = None
     prioritize_late_signal: StrictBool = False
     conflicting_single_pick: StrictBool = False
     reference_bundle_id: StrictStr | None = None
     use_preset_reference_r: StrictBool = False
     use_commercial_surrogate: StrictBool | None = None
-    custom_reference_rna_sequence: StrictStr | None = None
     random_seed: int = Field(default=42, ge=0, le=2_147_483_647)
 
     @field_validator("random_seed", mode="before")
     @classmethod
     def _validate_seed_before(cls, v: Any) -> int:
         return _parse_json_schema_seed(v)
+
+
+class RefineTurnInput(BaseModel):
+    """Strict refine-turn wire contract shared 1:1 between HTTP `mode='refine'` and MCP `refine_construct`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    user_utterance: StrictStr = Field(min_length=1, max_length=4000)
+    restriction_enzymes: list[StrictStr] | None = None
+    updated_restriction_enzymes: list[StrictStr] | None = None
+    locked_five_prime_utr: StrictStr | None = None
+    lock_cds_from_bundle_id: StrictStr | None = None
+    unlock_scopes: list[SegmentScope] | None = None
+    uridine_chemistry: UridineChemistry | None = None
+    compliance_track: ComplianceProfile | None = None
+    detarget_liver: StrictBool | None = None
+    use_commercial_surrogate: StrictBool | None = None
 
 
 def _detect_chemistry(utterance: str, default: UridineChemistry = "m1psi") -> UridineChemistry:
@@ -877,9 +896,8 @@ class ProjectHarnessSession:
         random_seed: int = 42,
     ) -> DesignIntent:
         """Single shared initial-turn adapter used identically by HTTP `/turn` and MCP `design_constructs`."""
-        validated = CanonicalTurnInput.model_validate(
+        validated = InitialTurnInput.model_validate(
             {
-                "mode": "initial",
                 "user_utterance": user_utterance,
                 "protein_sequence": protein_sequence,
                 "accession_or_source": accession_or_source,
@@ -961,6 +979,7 @@ class ProjectHarnessSession:
         *,
         user_utterance: str,
         restriction_enzymes: list[str] | None = None,
+        updated_restriction_enzymes: list[str] | None = None,
         locked_five_prime_utr: str | None = None,
         lock_cds_from_bundle_id: str | None = None,
         unlock_scopes: list[SegmentScope] | None = None,
@@ -970,11 +989,11 @@ class ProjectHarnessSession:
         use_commercial_surrogate: bool | None = None,
     ) -> DesignIntent:
         """Single shared refine-turn adapter used identically by HTTP `/turn` and MCP `refine_construct`."""
-        validated = CanonicalTurnInput.model_validate(
+        validated = RefineTurnInput.model_validate(
             {
-                "mode": "refine",
                 "user_utterance": user_utterance,
                 "restriction_enzymes": restriction_enzymes,
+                "updated_restriction_enzymes": updated_restriction_enzymes,
                 "locked_five_prime_utr": locked_five_prime_utr,
                 "lock_cds_from_bundle_id": lock_cds_from_bundle_id,
                 "unlock_scopes": unlock_scopes,
@@ -985,7 +1004,11 @@ class ProjectHarnessSession:
             }
         )
         user_utterance = validated.user_utterance
-        restriction_enzymes = validated.restriction_enzymes
+        eff_enzymes = (
+            validated.updated_restriction_enzymes
+            if validated.updated_restriction_enzymes is not None
+            else validated.restriction_enzymes
+        )
         locked_five_prime_utr = validated.locked_five_prime_utr
         lock_cds_from_bundle_id = validated.lock_cds_from_bundle_id
         unlock_scopes = validated.unlock_scopes
@@ -1017,7 +1040,7 @@ class ProjectHarnessSession:
         return self.apply_incremental_intent_update(
             turn_id=f"turn_{len(self._intents) + 1:02d}",
             user_utterance=user_utterance,
-            updated_restriction_enzymes=restriction_enzymes,
+            updated_restriction_enzymes=eff_enzymes,
             additional_locked_scopes=add_locks,
             lock_cds_from_bundle_id=lock_cds_from_bundle_id,
             unlocked_scopes=unlock_scopes,

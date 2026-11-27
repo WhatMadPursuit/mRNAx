@@ -25,14 +25,16 @@ import tempfile
 import threading
 import time
 from collections import OrderedDict, deque
-from collections.abc import Iterable
+from collections.abc import Callable, Coroutine, Iterable
 from dataclasses import asdict
+from decimal import Decimal
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import FastAPI, Header, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import AfterValidator, BaseModel, Field
+from fastapi.routing import APIRoute
+from pydantic import AfterValidator, BaseModel, Discriminator, Field, Tag
 
 from mrnax.cloud.cas_store import (
     ExecutionCASStore,
@@ -47,8 +49,9 @@ from mrnax.engine.profiles import resolve_default_seed_dir
 from mrnax.harness.auth_secrets import SecretVault
 from mrnax.harness.dialogue import LiveDialogueAgent, normalize_dialogue_provider
 from mrnax.harness.state_machine import (
-    CanonicalTurnInput,
+    InitialTurnInput,
     ProjectHarnessSession,
+    RefineTurnInput,
     build_preset_reference_r,
     project_lock,
 )
@@ -269,8 +272,43 @@ class CommitAttemptRequest(BaseModel):
     sealed_sha256: str
 
 
-class ProjectTurnRequest(CanonicalTurnInput):
-    """HTTP `/turn` request inheriting 100% of `CanonicalTurnInput` wire validation."""
+class InitialTurnRequest(InitialTurnInput):
+    mode: Literal["initial"] = "initial"
+
+
+class RefineTurnRequest(RefineTurnInput):
+    mode: Literal["refine"] = "refine"
+
+
+def _turn_mode_discriminator(v: Any) -> str:
+    if isinstance(v, dict):
+        m = v.get("mode", "initial")
+        return m if isinstance(m, str) else "__invalid__"
+    return getattr(v, "mode", "initial")
+
+
+ProjectTurnRequest = Annotated[
+    Annotated[InitialTurnRequest, Tag("initial")] | Annotated[RefineTurnRequest, Tag("refine")],
+    Discriminator(_turn_mode_discriminator),
+]
+
+
+class _DecimalJsonRequest(Request):
+    async def json(self) -> Any:
+        if not hasattr(self, "_json"):
+            raw = await self.body()
+            self._json = json.loads(raw, parse_float=Decimal)
+        return self._json
+
+
+class _ExactDecimalAPIRoute(APIRoute):
+    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
+        orig = super().get_route_handler()
+
+        async def _handler(request: Request) -> Response:
+            return await orig(_DecimalJsonRequest(request.scope, request.receive))
+
+        return _handler
 
 
 class AgentChatRequest(BaseModel):
@@ -298,6 +336,7 @@ def create_control_plane_app(
     )
 
     app = FastAPI(title="mRNAx v2 7x24 Control Plane & Web Harness Gateway", version="0.2.0")
+    app.router.route_class = _ExactDecimalAPIRoute
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[
@@ -574,20 +613,16 @@ def create_control_plane_app(
             session = _get_session(safe_pid)
             prev_intent = session._intents[-1] if session._intents else None
 
-            if req.mode == "refine":
+            if isinstance(req, RefineTurnRequest):
                 if prev_intent is None:
                     raise HTTPException(
                         status_code=400,
                         detail="Cannot run 'refine' before creating an initial DesignIntent in this project.",
                     )
-                eff_enz = (
-                    req.updated_restriction_enzymes
-                    if req.updated_restriction_enzymes is not None
-                    else req.restriction_enzymes
-                )
                 intent = session.refine_turn_intent_canonical(
                     user_utterance=req.user_utterance,
-                    restriction_enzymes=eff_enz,
+                    restriction_enzymes=req.restriction_enzymes,
+                    updated_restriction_enzymes=req.updated_restriction_enzymes,
                     locked_five_prime_utr=req.locked_five_prime_utr,
                     lock_cds_from_bundle_id=req.lock_cds_from_bundle_id,
                     unlock_scopes=req.unlock_scopes,

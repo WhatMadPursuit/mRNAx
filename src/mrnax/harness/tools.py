@@ -8,9 +8,61 @@ from typing import Any
 
 from mrnax.constraints.registry import ScopedConstraintEngine
 from mrnax.engine.pareto_director import project_report_for_intent
-from mrnax.harness.state_machine import ProjectHarnessSession, paired_chains
+from mrnax.harness.state_machine import (
+    InitialTurnInput,
+    ProjectHarnessSession,
+    RefineTurnInput,
+    paired_chains,
+)
 from mrnax.io_insdc.genbank_io import export_construct_package
+from mrnax.schemas.common import ComplianceProfile
 from mrnax.schemas.experiment_record import ExperimentRecord
+from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr
+
+
+class _SearchProteinAssetsInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    query: StrictStr
+
+
+class _AuditConstructInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    bundle_id: StrictStr
+    compliance_track: ComplianceProfile | None = None
+
+
+class _CompareBundlesInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    bundle_id_a: StrictStr
+    bundle_id_b: StrictStr
+
+
+class _IngestExperimentInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    record_json: dict[str, Any]
+    batch_comparable: StrictBool = True
+    held_out_validation_passed: StrictBool = False
+
+
+class _ExplainTradeoffsInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    report_id: StrictStr | None = None
+
+
+class _GetJobStatusInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class _ExportBundleInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    bundle_id: StrictStr
+    out_dir: StrictStr = ""
+
+
+def _tool_json_schema(model_cls: type[BaseModel]) -> dict[str, Any]:
+    schema = dict(model_cls.model_json_schema())
+    schema.pop("title", None)
+    return schema
 
 
 class AtomicToolbox:
@@ -38,12 +90,15 @@ class AtomicToolbox:
     def audit_construct(
         self, bundle_id: str, compliance_track: str | None = None
     ) -> dict[str, Any]:
+        if compliance_track is not None and compliance_track not in ("research_max", "commercial_clean"):
+            raise ValueError(f"Unsupported compliance_track '{compliance_track}'")
         bundle = self.session.get_bundle(bundle_id)
         intent = self.session.intent_for_bundle(bundle_id)
+        effective_track = intent.compliance_track if compliance_track is None else compliance_track
         outcome = self.constraint_engine.evaluate_bundle(
             bundle,
             intent.constraints,
-            compliance_track=compliance_track or intent.compliance_track,
+            compliance_track=effective_track,
             expected_chemistry=intent.uridine_chemistry,
             locked_scopes=intent.locked_scopes,
             expected_protein_targets=intent.protein_targets,
@@ -129,10 +184,10 @@ class AtomicToolbox:
         detarget_liver: bool | None = None,
         use_commercial_surrogate: bool | None = None,
     ) -> dict[str, Any]:
-        eff_enz = updated_restriction_enzymes if updated_restriction_enzymes is not None else restriction_enzymes
         intent_v = self.session.refine_turn_intent_canonical(
             user_utterance=user_utterance,
-            restriction_enzymes=eff_enz,
+            restriction_enzymes=restriction_enzymes,
+            updated_restriction_enzymes=updated_restriction_enzymes,
             locked_five_prime_utr=locked_five_prime_utr,
             lock_cds_from_bundle_id=lock_cds_from_bundle_id,
             unlock_scopes=unlock_scopes,  # type: ignore[arg-type]
@@ -197,9 +252,11 @@ class AtomicToolbox:
 
     # 7. explain_tradeoffs
     def explain_tradeoffs(self, report_id: str | None = None) -> dict[str, Any]:
+        if report_id is not None and not isinstance(report_id, str):
+            raise ValueError("report_id must be a string or null")
         rep = (
             self.session._reports[report_id]
-            if report_id
+            if report_id is not None
             else self.session.latest_report()
         )
         if rep is None:
@@ -230,22 +287,23 @@ class AtomicToolbox:
             "active_reference_bundle_id": self.session.active_reference_bundle_id,
         }
 
-    _ALLOWED_TOOL_NAMES: frozenset[str] = frozenset(
-        {
-            "search_protein_assets",
-            "audit_construct",
-            "design_constructs",
-            "refine_construct",
-            "compare_bundles",
-            "ingest_experiment",
-            "explain_tradeoffs",
-            "get_job_status",
-            "export_bundle",
-        }
-    )
+    _TOOL_INPUT_MODELS: dict[str, type[BaseModel]] = {
+        "search_protein_assets": _SearchProteinAssetsInput,
+        "audit_construct": _AuditConstructInput,
+        "design_constructs": InitialTurnInput,
+        "refine_construct": RefineTurnInput,
+        "compare_bundles": _CompareBundlesInput,
+        "ingest_experiment": _IngestExperimentInput,
+        "explain_tradeoffs": _ExplainTradeoffsInput,
+        "get_job_status": _GetJobStatusInput,
+        "export_bundle": _ExportBundleInput,
+    }
+    _ALLOWED_TOOL_NAMES: frozenset[str] = frozenset(_TOOL_INPUT_MODELS.keys())
 
     # 9. export_bundle
     def export_bundle(self, bundle_id: str, out_dir: str = "") -> dict[str, Any]:
+        if not isinstance(out_dir, str):
+            raise ValueError("out_dir must be a string")
         b = self.session.get_bundle(bundle_id)
         intent = self.session.intent_for_bundle(bundle_id)
         if intent.compliance_track == "commercial_clean":
@@ -287,153 +345,64 @@ class AtomicToolbox:
         return manifest
 
     def openai_tool_schemas(self) -> list[dict[str, Any]]:
+        specs = [
+            (
+                "search_protein_assets",
+                "Look up verified protein sequence & version snapshot (e.g. eGFP P42212 / U55762.1).",
+            ),
+            (
+                "design_constructs",
+                "Create versioned DesignIntent and run real mRNAx optimization engine.",
+            ),
+            (
+                "refine_construct",
+                "Modify a single constraint/lock on the active session while inheriting all other locked items.",
+            ),
+            (
+                "explain_tradeoffs",
+                "Fetch deterministic metrics, Pareto ranks, and action_transparency for the latest run.",
+            ),
+            (
+                "compare_bundles",
+                "Compare segment-by-segment differences between two ConstructBundles.",
+            ),
+            (
+                "audit_construct",
+                "Run shared ScopedConstraintEngine and sequence_fto_guard on a ConstructBundle.",
+            ),
+            (
+                "ingest_experiment",
+                "Record an experiment with its batch comparability and held-out validation result.",
+            ),
+            (
+                "get_job_status",
+                "Return current session project_id, intent_versions, bundle_count, and active_reference_bundle_id.",
+            ),
+            (
+                "export_bundle",
+                "Export full RNA FASTA, CDS FASTA, INSDC GenBank, and chemistry_metadata.json.",
+            ),
+        ]
         return [
             {
                 "type": "function",
                 "function": {
-                    "name": "search_protein_assets",
-                    "description": "Look up verified protein sequence & version snapshot (e.g. eGFP P42212 / U55762.1).",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {"query": {"type": "string"}},
-                        "required": ["query"],
-                    },
+                    "name": name,
+                    "description": desc,
+                    "parameters": _tool_json_schema(self._TOOL_INPUT_MODELS[name]),
                 },
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "design_constructs",
-                    "description": "Create versioned DesignIntent and run real mRNAx optimization engine.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "user_utterance": {"type": "string", "minLength": 1, "maxLength": 4000},
-                            "protein_sequence": {"type": "string"},
-                            "accession_or_source": {"type": "string"},
-                            "entry_version": {"type": "string"},
-                            "compliance_track": {"type": "string", "enum": ["research_max", "commercial_clean"]},
-                            "uridine_chemistry": {"type": "string", "enum": ["unmodified_u", "pseudouridine", "m1psi"]},
-                            "restriction_enzymes": {"type": "array", "items": {"type": "string"}},
-                            "locked_five_prime_utr": {"type": "string"},
-                            "detarget_liver": {"type": "boolean"},
-                            "prioritize_late_signal": {"type": "boolean"},
-                            "conflicting_single_pick": {"type": "boolean"},
-                            "reference_bundle_id": {"type": "string"},
-                            "use_preset_reference_r": {"type": "boolean"},
-                            "use_commercial_surrogate": {"type": "boolean"},
-                            "random_seed": {"type": "integer", "default": 42, "minimum": 0, "maximum": 2147483647},
-                        },
-                        "required": ["user_utterance"],
-                    },
-                },
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "refine_construct",
-                    "description": "Modify a single constraint/lock on the active session while inheriting all other locked items.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "user_utterance": {"type": "string", "minLength": 1, "maxLength": 4000},
-                            "updated_restriction_enzymes": {"type": "array", "items": {"type": "string"}},
-                            "restriction_enzymes": {"type": "array", "items": {"type": "string"}},
-                            "locked_five_prime_utr": {"type": "string"},
-                            "lock_cds_from_bundle_id": {"type": "string"},
-                            "unlock_scopes": {"type": "array", "items": {"type": "string"}},
-                            "uridine_chemistry": {"type": "string", "enum": ["unmodified_u", "pseudouridine", "m1psi"]},
-                            "compliance_track": {"type": "string", "enum": ["research_max", "commercial_clean"]},
-                            "detarget_liver": {"type": "boolean"},
-                            "use_commercial_surrogate": {"type": "boolean"},
-                        },
-                        "required": ["user_utterance"],
-                    },
-                },
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "explain_tradeoffs",
-                    "description": "Fetch deterministic metrics, Pareto ranks, and action_transparency for the latest run.",
-                    "parameters": {"type": "object", "properties": {}},
-                },
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "compare_bundles",
-                    "description": "Compare segment-by-segment differences between two ConstructBundles.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "bundle_id_a": {"type": "string"},
-                            "bundle_id_b": {"type": "string"},
-                        },
-                        "required": ["bundle_id_a", "bundle_id_b"],
-                    },
-                },
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "audit_construct",
-                    "description": "Run shared ScopedConstraintEngine and sequence_fto_guard on a ConstructBundle.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "bundle_id": {"type": "string"},
-                            "compliance_track": {"type": "string", "enum": ["research_max", "commercial_clean"]},
-                        },
-                        "required": ["bundle_id"],
-                    },
-                },
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "ingest_experiment",
-                    "description": "Record an experiment with its batch comparability and held-out validation result.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "record_json": {"type": "object"},
-                            "batch_comparable": {"type": "boolean", "default": True},
-                            "held_out_validation_passed": {"type": "boolean", "default": False},
-                        },
-                        "required": ["record_json"],
-                    },
-                },
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "get_job_status",
-                    "description": "Return current session project_id, intent_versions, bundle_count, and active_reference_bundle_id.",
-                    "parameters": {"type": "object", "properties": {}},
-                },
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "export_bundle",
-                    "description": "Export full RNA FASTA, CDS FASTA, INSDC GenBank, and chemistry_metadata.json.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "bundle_id": {"type": "string"},
-                            "out_dir": {"type": "string"},
-                        },
-                        "required": ["bundle_id", "out_dir"],
-                    },
-                },
-            },
+            }
+            for name, desc in specs
         ]
 
     def dispatch_tool_call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        if name not in self._ALLOWED_TOOL_NAMES:
+        model_cls = self._TOOL_INPUT_MODELS.get(name)
+        if model_cls is None:
             raise ValueError(f"Disallowed or unknown tool '{name}'")
+        if not isinstance(arguments, dict):
+            raise ValueError("Tool arguments must be a JSON object")
+        parsed = model_cls.model_validate(arguments)
         fn = getattr(self, name, None)
         if fn is None or not callable(fn):
             raise ValueError(f"Unknown tool '{name}'")
-        return fn(**arguments)
+        return fn(**parsed.model_dump())

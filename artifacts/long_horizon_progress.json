@@ -1,6 +1,6 @@
 {
   "schema_version": "2.0",
-  "updated_at_utc": "2026-11-27T04:02:00Z",
+  "updated_at_utc": "2026-11-27T06:03:00Z",
   "active_phase": "Phase B",
   "status": "IN_PROGRESS",
   "gates": {
@@ -38,9 +38,9 @@
     },
     "G9": {
       "passed": false,
-      "evidence": "162/162 pytest GREEN, 3/3 Node UI PASS, 30/30 golden intent PASS, M2 B1/B2 PASS, tied-vector idempotent Pareto ordering + CanonicalTurnInput JSON Schema §6.1.1 wire parity PASS; awaiting unified final read-only gpt-6.2-astra ultra sign-off audit."
+      "evidence": "162/162 pytest GREEN (0 skips), 3/3 Node UI PASS, 30/30+6/6 golden intent PASS, M2 B1/B2 PASS, tied-vector idempotent Pareto ordering + InitialTurnInput/RefineTurnInput strict mode-scoped wire parity (exact Decimal JSON seed parsing, dual-alias enzyme validation, and 9-tool MCP schema alignment) PASS; awaiting final read-only gpt-6.2-astra ultra sign-off audit."
     }
   },
-  "last_commit_sha": "3dcc52d",
+  "last_commit_sha": "6d9b5a1",
   "colab_idle_vms": 0
 }
