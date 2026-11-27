@@ -6,51 +6,51 @@
   "pure_rerank_three_arm_replay": {
     "scorer_name": "surrogate_v1_composite",
     "baseline_ordered_ids": [
-      "bnd_3d0623d871434203848d6f1ec80c21f8_stage0_ref",
-      "bnd_3d0623d871434203848d6f1ec80c21f8_dnachisel",
-      "bnd_3d0623d871434203848d6f1ec80c21f8_pareto_04",
-      "bnd_3d0623d871434203848d6f1ec80c21f8_pareto_05",
-      "bnd_3d0623d871434203848d6f1ec80c21f8_pareto_06",
-      "bnd_3d0623d871434203848d6f1ec80c21f8_pareto_07",
-      "bnd_3d0623d871434203848d6f1ec80c21f8_pareto_08"
+      "bnd_3644467d99374e8db9af93bf6bced5f4_stage0_ref",
+      "bnd_3644467d99374e8db9af93bf6bced5f4_dnachisel",
+      "bnd_3644467d99374e8db9af93bf6bced5f4_pareto_04",
+      "bnd_3644467d99374e8db9af93bf6bced5f4_pareto_05",
+      "bnd_3644467d99374e8db9af93bf6bced5f4_pareto_06",
+      "bnd_3644467d99374e8db9af93bf6bced5f4_pareto_07",
+      "bnd_3644467d99374e8db9af93bf6bced5f4_pareto_08"
     ],
     "display_only_ordered_ids": [
-      "bnd_3d0623d871434203848d6f1ec80c21f8_stage0_ref",
-      "bnd_3d0623d871434203848d6f1ec80c21f8_dnachisel",
-      "bnd_3d0623d871434203848d6f1ec80c21f8_pareto_04",
-      "bnd_3d0623d871434203848d6f1ec80c21f8_pareto_05",
-      "bnd_3d0623d871434203848d6f1ec80c21f8_pareto_06",
-      "bnd_3d0623d871434203848d6f1ec80c21f8_pareto_07",
-      "bnd_3d0623d871434203848d6f1ec80c21f8_pareto_08"
+      "bnd_3644467d99374e8db9af93bf6bced5f4_stage0_ref",
+      "bnd_3644467d99374e8db9af93bf6bced5f4_dnachisel",
+      "bnd_3644467d99374e8db9af93bf6bced5f4_pareto_04",
+      "bnd_3644467d99374e8db9af93bf6bced5f4_pareto_05",
+      "bnd_3644467d99374e8db9af93bf6bced5f4_pareto_06",
+      "bnd_3644467d99374e8db9af93bf6bced5f4_pareto_07",
+      "bnd_3644467d99374e8db9af93bf6bced5f4_pareto_08"
     ],
     "baseline_equals_display_only_100pct": true,
     "rank_participating_ordered_ids": [
-      "bnd_3d0623d871434203848d6f1ec80c21f8_pareto_05",
-      "bnd_3d0623d871434203848d6f1ec80c21f8_pareto_06",
-      "bnd_3d0623d871434203848d6f1ec80c21f8_pareto_08",
-      "bnd_3d0623d871434203848d6f1ec80c21f8_pareto_07",
-      "bnd_3d0623d871434203848d6f1ec80c21f8_pareto_04",
-      "bnd_3d0623d871434203848d6f1ec80c21f8_stage0_ref",
-      "bnd_3d0623d871434203848d6f1ec80c21f8_dnachisel"
+      "bnd_3644467d99374e8db9af93bf6bced5f4_pareto_05",
+      "bnd_3644467d99374e8db9af93bf6bced5f4_pareto_06",
+      "bnd_3644467d99374e8db9af93bf6bced5f4_pareto_08",
+      "bnd_3644467d99374e8db9af93bf6bced5f4_pareto_07",
+      "bnd_3644467d99374e8db9af93bf6bced5f4_pareto_04",
+      "bnd_3644467d99374e8db9af93bf6bced5f4_stage0_ref",
+      "bnd_3644467d99374e8db9af93bf6bced5f4_dnachisel"
     ],
     "order_changed_in_group3": true,
     "candidate_digests": {
-      "bnd_3d0623d871434203848d6f1ec80c21f8_stage0_ref": "590d3d18fdefa1dbe991dda0774246b82f6474fdb5960c2bb24e5a3c62daf3af",
-      "bnd_3d0623d871434203848d6f1ec80c21f8_dnachisel": "8e04c0a2cf1e2114b1314c7a76bbe5e6b4f420ad8445df42f9bb96927f8df279",
-      "bnd_3d0623d871434203848d6f1ec80c21f8_pareto_04": "c72b9b7bd26572f9b59bb30993b8106d1d273c5dba345e95add2965f3471dbd6",
-      "bnd_3d0623d871434203848d6f1ec80c21f8_pareto_05": "df74c550a392822434305eae21432a286254de52bf0282f279d0768abe69fd92",
-      "bnd_3d0623d871434203848d6f1ec80c21f8_pareto_06": "b76978fc4f98d75a5b624569573245d558959127cb4c6f29466f6c6497f68dfc",
-      "bnd_3d0623d871434203848d6f1ec80c21f8_pareto_07": "5cee928a86863809cb32c0f73dc26e33646016d233ab060c79c36b8f570a8d55",
-      "bnd_3d0623d871434203848d6f1ec80c21f8_pareto_08": "cfca62df63c141cb63009783b2e1eb7183ee81830243de53eae0cb4bdfc39e57"
+      "bnd_3644467d99374e8db9af93bf6bced5f4_stage0_ref": "590d3d18fdefa1dbe991dda0774246b82f6474fdb5960c2bb24e5a3c62daf3af",
+      "bnd_3644467d99374e8db9af93bf6bced5f4_dnachisel": "8e04c0a2cf1e2114b1314c7a76bbe5e6b4f420ad8445df42f9bb96927f8df279",
+      "bnd_3644467d99374e8db9af93bf6bced5f4_pareto_04": "c72b9b7bd26572f9b59bb30993b8106d1d273c5dba345e95add2965f3471dbd6",
+      "bnd_3644467d99374e8db9af93bf6bced5f4_pareto_05": "df74c550a392822434305eae21432a286254de52bf0282f279d0768abe69fd92",
+      "bnd_3644467d99374e8db9af93bf6bced5f4_pareto_06": "b76978fc4f98d75a5b624569573245d558959127cb4c6f29466f6c6497f68dfc",
+      "bnd_3644467d99374e8db9af93bf6bced5f4_pareto_07": "5cee928a86863809cb32c0f73dc26e33646016d233ab060c79c36b8f570a8d55",
+      "bnd_3644467d99374e8db9af93bf6bced5f4_pareto_08": "cfca62df63c141cb63009783b2e1eb7183ee81830243de53eae0cb4bdfc39e57"
     },
     "candidate_scores": {
-      "bnd_3d0623d871434203848d6f1ec80c21f8_stage0_ref": 9.700324,
-      "bnd_3d0623d871434203848d6f1ec80c21f8_dnachisel": 8.894163,
-      "bnd_3d0623d871434203848d6f1ec80c21f8_pareto_04": 11.756509,
-      "bnd_3d0623d871434203848d6f1ec80c21f8_pareto_05": 13.632869,
-      "bnd_3d0623d871434203848d6f1ec80c21f8_pareto_06": 13.598235,
-      "bnd_3d0623d871434203848d6f1ec80c21f8_pareto_07": 12.739443,
-      "bnd_3d0623d871434203848d6f1ec80c21f8_pareto_08": 13.262841
+      "bnd_3644467d99374e8db9af93bf6bced5f4_stage0_ref": 9.700324,
+      "bnd_3644467d99374e8db9af93bf6bced5f4_dnachisel": 8.894163,
+      "bnd_3644467d99374e8db9af93bf6bced5f4_pareto_04": 11.756509,
+      "bnd_3644467d99374e8db9af93bf6bced5f4_pareto_05": 13.632869,
+      "bnd_3644467d99374e8db9af93bf6bced5f4_pareto_06": 13.598235,
+      "bnd_3644467d99374e8db9af93bf6bced5f4_pareto_07": 12.739443,
+      "bnd_3644467d99374e8db9af93bf6bced5f4_pareto_08": 13.262841
     },
     "generator_improvement_statement": "本次未改善生成器"
   },
@@ -65,8 +65,8 @@
       "guided_best_utr5_mrl": 6.71655,
       "guided_best_cds_stability": 0.04125,
       "guided_best_halflife": 10.79114,
-      "unguided_wall_sec": 0.0775,
-      "guided_wall_sec": 4.9072
+      "unguided_wall_sec": 0.0762,
+      "guided_wall_sec": 4.9622
     },
     {
       "seed": 101,
@@ -78,8 +78,8 @@
       "guided_best_utr5_mrl": 6.71655,
       "guided_best_cds_stability": 0.03637,
       "guided_best_halflife": 10.35637,
-      "unguided_wall_sec": 0.0764,
-      "guided_wall_sec": 4.9199
+      "unguided_wall_sec": 0.0742,
+      "guided_wall_sec": 5.0052
     },
     {
       "seed": 2026,
@@ -91,8 +91,8 @@
       "guided_best_utr5_mrl": 6.71655,
       "guided_best_cds_stability": 0.0356,
       "guided_best_halflife": 11.08515,
-      "unguided_wall_sec": 0.0767,
-      "guided_wall_sec": 4.9886
+      "unguided_wall_sec": 0.0766,
+      "guided_wall_sec": 5.0116
     }
   ]
 }

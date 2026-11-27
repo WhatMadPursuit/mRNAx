@@ -95,6 +95,8 @@ def test_mcp_stdio_subprocess_full_commercial_clean_lifecycle_and_web_contract_p
     listed_tools = {t["name"]: t for t in by_id[2]["result"]["tools"]}
     assert len(listed_tools) == 9
     assert "random_seed" in listed_tools["design_constructs"]["inputSchema"]["properties"]
+    seed_prop = listed_tools["design_constructs"]["inputSchema"]["properties"]["random_seed"]
+    assert seed_prop["minimum"] == 0 and seed_prop["maximum"] == 2147483647
 
     d_res = json.loads(by_id[3]["result"]["content"][0]["text"])
     assert d_res["outcome_status"].startswith("COMPLETED")
@@ -187,6 +189,13 @@ def test_mcp_stdio_subprocess_full_commercial_clean_lifecycle_and_web_contract_p
         assert hr_body["report"]["outcome_status"] == d_res["outcome_status"]
         assert len(hr_body["candidates"]) == d_res["qualified_count"]
         assert len(hr_body["report"]["recommended_bundle_ids"]) == len(d_res["recommended_bundle_ids"])
+        mcp_v1_rep = sorted(
+            (json.loads(p.read_text(encoding="utf-8")) for p in (mcp_store_named / "reports").glob("rep_*.json")),
+            key=lambda r: r["intent_version"],
+        )[0]
+        assert [c["version_digest"] for c in hr_body["candidates"]] == [
+            e["version_digest"] for e in mcp_v1_rep["candidate_evaluations"]
+        ]
         mcp_v1_objs = [o["metric_id"] for o in st_json["intents"][0]["objectives"]]
         http_v1_objs = [o["metric_id"] for o in hr_body["intent"]["objectives"]]
         assert http_v1_objs == mcp_v1_objs == [
@@ -315,3 +324,101 @@ def test_mcp_stdio_subprocess_full_commercial_clean_lifecycle_and_web_contract_p
             assert [e["version_digest"] for e in m_rep["candidate_evaluations"]] == [
                 c["version_digest"] for c in h_body["candidates"]
             ]
+
+        # Seed bounds parity: -1 and 2147483648 rejected before writing any intent; 0 and 2147483647 accepted
+        for bad_seed in (-1, 2147483648):
+            bad_mcp_dir = tmp_path / f"bad_seed_{bad_seed}"
+            bad_rpc = json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 30,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "design_constructs",
+                        "arguments": {
+                            "user_utterance": "Seed check",
+                            "protein_sequence": "A",
+                            "random_seed": bad_seed,
+                        },
+                    },
+                }
+            )
+            bad_proc = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "mrnax.harness.cli",
+                    "mcp-serve",
+                    "--project-id",
+                    "proj_bad_seed",
+                    "--store-dir",
+                    str(bad_mcp_dir),
+                    "--seed-dir",
+                    str(SEED),
+                ],
+                input=bad_rpc + "\n",
+                capture_output=True,
+                text=True,
+                env=env,
+                check=True,
+                timeout=30.0,
+            )
+            bad_out = json.loads(bad_proc.stdout.strip())
+            assert bad_out["result"]["isError"] is True
+            assert list((bad_mcp_dir / "intents").glob("*.json")) == []
+
+            bad_http_id = f"proj_bad_http_{bad_seed}".replace("-", "neg")
+            bad_h = client.post(
+                f"/v1/projects/{bad_http_id}/turn",
+                json={"user_utterance": "Seed check", "protein_sequence": "A", "random_seed": bad_seed},
+            )
+            assert bad_h.status_code == 422
+            assert not (tmp_path / bad_http_id / "intents").exists() or list(
+                (tmp_path / bad_http_id / "intents").glob("*.json")
+            ) == []
+
+        for ok_seed in (0, 2147483647):
+            ok_mcp_dir = tmp_path / f"ok_seed_{ok_seed}"
+            ok_rpc = json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 31,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "design_constructs",
+                        "arguments": {
+                            "user_utterance": "Seed boundary ok",
+                            "protein_sequence": "A",
+                            "random_seed": ok_seed,
+                        },
+                    },
+                }
+            )
+            ok_proc = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "mrnax.harness.cli",
+                    "mcp-serve",
+                    "--project-id",
+                    "proj_ok_seed",
+                    "--store-dir",
+                    str(ok_mcp_dir),
+                    "--seed-dir",
+                    str(SEED),
+                ],
+                input=ok_rpc + "\n",
+                capture_output=True,
+                text=True,
+                env=env,
+                check=True,
+                timeout=30.0,
+            )
+            assert json.loads(ok_proc.stdout.strip())["result"]["isError"] is False
+            assert len(list((ok_mcp_dir / "intents").glob("intent_v*.json"))) == 1
+            ok_h = client.post(
+                f"/v1/projects/proj_ok_http_{ok_seed}/turn",
+                json={"user_utterance": "Seed boundary ok", "protein_sequence": "A", "random_seed": ok_seed},
+            )
+            assert ok_h.status_code == 200
+            assert ok_h.json()["intent"]["runtime_policy"]["random_seed"] == ok_seed

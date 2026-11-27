@@ -830,6 +830,14 @@ class ProjectHarnessSession:
         random_seed: int = 42,
     ) -> DesignIntent:
         """Single shared initial-turn adapter used identically by HTTP `/turn` and MCP `design_constructs`."""
+        if not isinstance(user_utterance, str) or not (1 <= len(user_utterance) <= 4000):
+            raise ValueError("user_utterance must be a non-empty string of at most 4000 characters")
+        if isinstance(random_seed, bool) or not isinstance(random_seed, int) or not (0 <= random_seed <= 2_147_483_647):
+            raise ValueError("random_seed must be an integer between 0 and 2147483647")
+        if compliance_track is not None and compliance_track not in ("research_max", "commercial_clean"):
+            raise ValueError(f"Invalid compliance_track: {compliance_track!r}")
+        if uridine_chemistry is not None and uridine_chemistry not in ("unmodified_u", "pseudouridine", "m1psi"):
+            raise ValueError(f"Invalid uridine_chemistry: {uridine_chemistry!r}")
         snap = json.loads((self.seed_dir / "egfp_reporter_snapshot.json").read_text(encoding="utf-8"))
         prot_seq = (protein_sequence or snap["mammalian_reporter_egfp"]["protein_sequence"]).strip()
         ref_bundle: ConstructBundle | None = None
@@ -888,6 +896,12 @@ class ProjectHarnessSession:
         use_commercial_surrogate: bool | None = None,
     ) -> DesignIntent:
         """Single shared refine-turn adapter used identically by HTTP `/turn` and MCP `refine_construct`."""
+        if not isinstance(user_utterance, str) or not (1 <= len(user_utterance) <= 4000):
+            raise ValueError("user_utterance must be a non-empty string of at most 4000 characters")
+        if compliance_track is not None and compliance_track not in ("research_max", "commercial_clean"):
+            raise ValueError(f"Invalid compliance_track: {compliance_track!r}")
+        if uridine_chemistry is not None and uridine_chemistry not in ("unmodified_u", "pseudouridine", "m1psi"):
+            raise ValueError(f"Invalid uridine_chemistry: {uridine_chemistry!r}")
         prev_intent = self.latest_intent()
         add_locks: dict[SegmentScope, str] | None = (
             {"five_prime_utr": locked_five_prime_utr} if locked_five_prime_utr else None

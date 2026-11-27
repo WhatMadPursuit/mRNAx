@@ -34,13 +34,13 @@
     },
     "G8": {
       "passed": true,
-      "evidence": "Packaged NVIDIA L4 GPU telemetry (`g8_cloud_gpu_and_eternafold_report.json`: Orthrus RC-003 0.0 drift & 98.1 MB VRAM, structRFM RC-002 USE_SPACED=False 0.0 drift) + BSD-3-Clause EternaFold v1.3.1 card (`RC-004-eternafold-v1.3.1.yaml` passing verify_replacement_card_strict) + fail-closed/mounted runtime dispatch in pareto_director.py. Sealed to Google Drive REST v3 (`SEALED.json` 1W4-eh3CqldUi8iweM32hxRl-18iu8BDG in folder 11XrbD_fOJIGdjIZyMUwRqbQh5n3W_yuT, md5 verified) with 0 idle Colab VMs."
+      "evidence": "Packaged NVIDIA L4 GPU telemetry (`g8_cloud_gpu_and_eternafold_report.json`: Orthrus RC-003 0.0 drift & 98.1 MB VRAM, structRFM RC-002 USE_SPACED=False 0.0 drift) + BSD-3-Clause EternaFold v1.3.1 card (`RC-004-eternafold-v1.3.1.yaml` passing verify_replacement_card_strict) + fail-closed/mounted runtime dispatch in pareto_director.py. Sealed to Google Drive REST v3 (`SEALED.json` 1i_-_Vda3zLlW4tJsCx-SA8QkYaLEXypI in folder 1t4OY2_pqpuPNEMJH6E1WA1VooovGi-jl, md5 verified) with 0 idle Colab VMs."
     },
     "G9": {
       "passed": false,
-      "evidence": "162/162 pytest GREEN, 3/3 Node UI PASS, 30/30 golden intent PASS, M2 B1/B2 PASS, MCP stdio E2E + ping + independent HTTP commercial_clean write-path parity PASS; awaiting unified final read-only gpt-6.2-astra ultra sign-off audit."
+      "evidence": "162/162 pytest GREEN, 3/3 Node UI PASS, 30/30 golden intent PASS, M2 B1/B2 PASS, permutation-invariant Pareto ordering + seed-bounds/HTTP/MCP wire parity PASS; awaiting unified final read-only gpt-6.2-astra ultra sign-off audit."
     }
   },
-  "last_commit_sha": "0222cba",
+  "last_commit_sha": "22861a8",
   "colab_idle_vms": 0
 }

@@ -98,7 +98,7 @@ class RuntimePolicySpec(FrozenSchemaModel):
     budget_tier: Literal["fast", "standard"] = "fast"
     max_wall_seconds: float = Field(default=60.0, gt=0.0)
     max_evaluations: int = Field(default=40, ge=1)
-    random_seed: int = 42
+    random_seed: int = Field(default=42, ge=0, le=2_147_483_647)
     allow_cached_candidates: bool = False
     enabled_generators: list[str] = Field(
         default_factory=lambda: ["stage0_random", "dnachisel_cds", "pareto_nsga2"]

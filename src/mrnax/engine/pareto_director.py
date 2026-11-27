@@ -307,16 +307,20 @@ def _rank_and_order_pareto_candidates(obj_vectors: list[list[float]]) -> tuple[l
                 crowding[idx] = mean_quantile[idx]
             continue
         for d in range(dims):
-            f_sorted = sorted(front, key=lambda i: quantiles[i][d])
-            span = quantiles[f_sorted[-1]][d] - quantiles[f_sorted[0]][d]
+            f_sorted = sorted(front, key=lambda i: (quantiles[i][d], tuple(quantiles[i]), i))
+            min_q = quantiles[f_sorted[0]][d]
+            max_q = quantiles[f_sorted[-1]][d]
+            span = max_q - min_q
             if span <= 1e-12:
                 continue
-            crowding[f_sorted[0]] += 2.0
-            crowding[f_sorted[-1]] += 2.0
-            for j in range(1, len(f_sorted) - 1):
-                crowding[f_sorted[j]] += (
-                    quantiles[f_sorted[j + 1]][d] - quantiles[f_sorted[j - 1]][d]
-                ) / span
+            for j, idx_f in enumerate(f_sorted):
+                q_val = quantiles[idx_f][d]
+                if abs(q_val - min_q) <= 1e-12 or abs(q_val - max_q) <= 1e-12:
+                    crowding[idx_f] += 2.0
+                else:
+                    crowding[idx_f] += (
+                        quantiles[f_sorted[j + 1]][d] - quantiles[f_sorted[j - 1]][d]
+                    ) / span
 
     ordered_indices = sorted(
         range(n),

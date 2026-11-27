@@ -273,6 +273,7 @@ class ProjectTurnRequest(BaseModel):
     compliance_track: ComplianceProfile | None = None
     uridine_chemistry: UridineChemistry | None = None
     restriction_enzymes: list[str] | None = None
+    updated_restriction_enzymes: list[str] | None = None
     locked_five_prime_utr: str | None = None
     lock_cds_from_bundle_id: str | None = None
     unlock_scopes: list[SegmentScope] | None = None
@@ -593,9 +594,14 @@ def create_control_plane_app(
                         status_code=400,
                         detail="Cannot run 'refine' before creating an initial DesignIntent in this project.",
                     )
+                eff_enz = (
+                    req.updated_restriction_enzymes
+                    if req.updated_restriction_enzymes is not None
+                    else req.restriction_enzymes
+                )
                 intent = session.refine_turn_intent_canonical(
                     user_utterance=req.user_utterance,
-                    restriction_enzymes=req.restriction_enzymes,
+                    restriction_enzymes=eff_enz,
                     locked_five_prime_utr=req.locked_five_prime_utr,
                     lock_cds_from_bundle_id=req.lock_cds_from_bundle_id,
                     unlock_scopes=req.unlock_scopes,

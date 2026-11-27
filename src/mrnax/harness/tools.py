@@ -308,7 +308,7 @@ class AtomicToolbox:
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "user_utterance": {"type": "string"},
+                            "user_utterance": {"type": "string", "minLength": 1, "maxLength": 4000},
                             "protein_sequence": {"type": "string"},
                             "accession_or_source": {"type": "string"},
                             "entry_version": {"type": "string"},
@@ -322,7 +322,7 @@ class AtomicToolbox:
                             "reference_bundle_id": {"type": "string"},
                             "use_preset_reference_r": {"type": "boolean"},
                             "use_commercial_surrogate": {"type": "boolean"},
-                            "random_seed": {"type": "integer", "default": 42},
+                            "random_seed": {"type": "integer", "default": 42, "minimum": 0, "maximum": 2147483647},
                         },
                         "required": ["user_utterance"],
                     },
@@ -336,7 +336,7 @@ class AtomicToolbox:
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "user_utterance": {"type": "string"},
+                            "user_utterance": {"type": "string", "minLength": 1, "maxLength": 4000},
                             "updated_restriction_enzymes": {"type": "array", "items": {"type": "string"}},
                             "restriction_enzymes": {"type": "array", "items": {"type": "string"}},
                             "locked_five_prime_utr": {"type": "string"},
