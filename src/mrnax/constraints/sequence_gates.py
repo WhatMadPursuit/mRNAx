@@ -46,15 +46,26 @@ def check_homopolymer(
 ) -> list[FailedCandidateDiagnostic]:
     max_run = int(spec.params.get("max_run", 7))
     pattern = re.compile(rf"(A{{{max_run + 1},}}|C{{{max_run + 1},}}|G{{{max_run + 1},}}|U{{{max_run + 1},}})")
+    exempt_circ_intervals: list[tuple[int, int]] = []
+    if mol.modality == "circrna":
+        for ann in mol.annotations:
+            if ann.feature_id.startswith(("circ_5prime_spacer", "circ_3prime_spacer", "viral_ires_")):
+                exempt_circ_intervals.extend(ann.intervals)
     out: list[FailedCandidateDiagnostic] = []
     for scope, offset, sub in _iter_scoped_slices(mol, spec.target_scopes):
         for m in pattern.finditer(sub):
+            g_lo = offset + m.start()
+            g_hi = offset + m.end()
+            if exempt_circ_intervals and scope != "cds" and any(
+                ex_lo <= g_lo and g_hi <= ex_hi for ex_lo, ex_hi in exempt_circ_intervals
+            ):
+                continue
             out.append(
                 FailedCandidateDiagnostic(
                     candidate_ref=candidate_ref,
                     violated_requirement_id=spec.requirement_id,
                     violated_scope=scope,
-                    transcript_coordinates=(offset + m.start(), offset + m.end()),
+                    transcript_coordinates=(g_lo, g_hi),
                     reason=f"Homopolymer '{m.group(0)}' (len={len(m.group(0))} > {max_run}) in {scope}",
                 )
             )
@@ -66,9 +77,34 @@ def check_uaug(
 ) -> list[FailedCandidateDiagnostic]:
     out: list[FailedCandidateDiagnostic] = []
     for scope, offset, sub in _iter_scoped_slices(mol, spec.target_scopes):
+        scan_offset = offset
+        scan_sub = sub
+        if scope == "five_prime_utr":
+            if mol.modality == "circrna":
+                ires_ann = next(
+                    (a for a in mol.annotations if a.feature_id.startswith("viral_ires_")),
+                    None,
+                )
+                if ires_ann is not None:
+                    ires_end = ires_ann.intervals[-1][1]
+                    rel = max(0, ires_end - offset)
+                    scan_offset = offset + rel
+                    scan_sub = sub[rel:]
+                else:
+                    continue
+            elif mol.modality == "sarna":
+                sgp_ann = next(
+                    (a for a in mol.annotations if a.feature_id == "subgenomic_26s_promoter"),
+                    None,
+                )
+                if sgp_ann is not None:
+                    sgp_end = sgp_ann.intervals[-1][1]
+                    rel = max(0, sgp_end - offset)
+                    scan_offset = offset + rel
+                    scan_sub = sub[rel:]
         start = 0
         while True:
-            idx = sub.find("AUG", start)
+            idx = scan_sub.find("AUG", start)
             if idx < 0:
                 break
             out.append(
@@ -76,8 +112,8 @@ def check_uaug(
                     candidate_ref=candidate_ref,
                     violated_requirement_id=spec.requirement_id,
                     violated_scope=scope,
-                    transcript_coordinates=(offset + idx, offset + idx + 3),
-                    reason=f"Unexpected upstream start codon uAUG in {scope} at {offset + idx}",
+                    transcript_coordinates=(scan_offset + idx, scan_offset + idx + 3),
+                    reason=f"Unexpected upstream start codon uAUG in {scope} at {scan_offset + idx}",
                 )
             )
             start = idx + 1

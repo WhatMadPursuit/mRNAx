@@ -921,6 +921,8 @@ def run_design_pipeline(
     structrfm_scorer: StructRFMNativeScorer | None = None,
     codontransformer_model: Any = None,
     legacy_pure_rerank_mode: bool = False,
+    modality: str | None = None,
+    use_lineardesign: bool | None = None,
 ) -> tuple[list[ConstructBundle], EvaluationReport, RunManifest]:
     """Execute Stage 0 + Sliding-Window CDS<->UTR Pareto Optimization with shared scoped constraints."""
     exec_id = f"exec_{uuid.uuid4().hex}"
@@ -929,6 +931,14 @@ def run_design_pipeline(
 
     if intent.status != "ready":
         raise ValueError(f"DesignIntent status is '{intent.status}' (must be 'ready' before engine run)")
+
+    effective_modality = modality or (
+        reference_bundle.molecules[0].modality
+        if (reference_bundle is not None and reference_bundle.molecules)
+        else "linear_mrna"
+    )
+    if effective_modality not in {"linear_mrna", "circrna", "sarna"}:
+        raise UnsupportedModalityError(f"Unsupported RNA modality '{effective_modality}'")
 
     # 1. Fail-closed check when generators are disabled and no valid cache is provided
     if not intent.runtime_policy.enabled_generators:
@@ -1085,6 +1095,10 @@ def run_design_pipeline(
     readiness = check_profile_readiness(intent)
     if not readiness.is_runnable:
         return unavailable(readiness.uncomparable_reason or "Profile is unavailable")
+    if use_lineardesign is True and intent.compliance_track == "commercial_clean":
+        return unavailable(
+            "无法比较：commercial_clean 档阻断未获纯商用产品放行的组件 [lineardesign_academic (needs_vendor_license)]"
+        )
 
     if active_method_fto_guard is not None:
         mfto_blocks = active_method_fto_guard.evaluate_pre_execution_intent(intent)
@@ -1407,7 +1421,7 @@ def run_design_pipeline(
 
     def origins_for(
         utr5_id: str | None, utr3_id: str | None, cds_source: str, annotations: list[FeatureAnnotation],
-        *, minimal: bool = False, secondary: bool = False,
+        *, minimal: bool = False, secondary: bool = False, cds_tier: LicenseTrack = "commercial_clean",
     ) -> dict[SegmentScope, _Origin]:
         u3 = inherited("three_prime_utr") if minimal or locked_utr3 else library_origins[utr3_id]
         if annotations:
@@ -1419,7 +1433,7 @@ def run_design_pipeline(
             "five_prime_utr": inherited("five_prime_utr") if minimal or locked_utr5 else library_origins[utr5_id],
             "three_prime_utr": u3,
             "cds": inherited("cds") if (minimal or locked_cds) and not secondary
-                   else _Origin(None, cds_source, "commercial_clean"),
+                   else _Origin(None, cds_source, cds_tier),
             "stop_cassette": inherited("stop_cassette", _Origin(None, "mrnax:standard", "commercial_clean")),
             "poly_a": inherited("poly_a", _Origin(f"polya_a{len(polya_seq)}", "mrnax:homopolymer_tail", "commercial_clean")),
         }
@@ -1653,8 +1667,64 @@ def run_design_pipeline(
                 )
             )
 
+    # Multi-Modality Branch (`circrna` and `sarna` driven by modality_scaffolds_v1.json)
+    if effective_modality in {"circrna", "sarna"} and intent.runtime_policy.enabled_generators:
+        from mrnax.engine.modalities import build_circrna_bundle, build_sarna_bundle
+
+        t0_mod = time.perf_counter()
+        use_ld_mod = (intent.compliance_track != "commercial_clean") and (use_lineardesign is not False) and (not legacy_pure_rerank_mode)
+        v20_mod = (use_lineardesign is False) or legacy_pure_rerank_mode
+        mod_calls = 0
+        if effective_modality == "circrna":
+            for c_idx, (ires_nm, lam_v) in enumerate((("HRV-B3", 1.0), ("EV-B107", 1.0), ("CVB3", 2.0)), start=1):
+                raw_candidates.append(
+                    build_circrna_bundle(
+                        intent.protein_targets[0],
+                        bundle_id=f"bnd_{exec_tag}_circ_{c_idx:02d}",
+                        ires_name=ires_nm,
+                        compliance_track=intent.compliance_track,
+                        use_lineardesign=use_ld_mod,
+                        lambda_val=lam_v,
+                        baseline_v20_mode=v20_mod,
+                        seed=intent.runtime_policy.random_seed + c_idx,
+                        seed_dir=seed_dir,
+                    )
+                )
+                mod_calls += 1
+        else:
+            for s_idx, (bb_nm, lam_v) in enumerate((("VEEV_TC83", 1.0), ("VEEV_TC83", 2.0), ("SINV", 1.0)), start=1):
+                raw_candidates.append(
+                    build_sarna_bundle(
+                        intent.protein_targets[0],
+                        bundle_id=f"bnd_{exec_tag}_sarna_{s_idx:02d}",
+                        replicon_backbone=bb_nm,
+                        compliance_track=intent.compliance_track,
+                        use_lineardesign=use_ld_mod,
+                        lambda_val=lam_v,
+                        baseline_v20_mode=v20_mod,
+                        seed=intent.runtime_policy.random_seed + s_idx,
+                        seed_dir=seed_dir,
+                    )
+                )
+                mod_calls += 1
+        spec_mod = COMPONENT_CATALOG["lineardesign_academic" if use_ld_mod else "dnachisel_cds"]
+        comp_records.append(
+            ComponentInvocationRecord(
+                name=spec_mod.display_name,
+                version=spec_mod.version,
+                role="generator",
+                code_license=spec_mod.code_license,
+                weights_license=spec_mod.weights_license,
+                data_license=spec_mod.data_license,
+                license_track=spec_mod.license_track,
+                wall_seconds=round(time.perf_counter() - t0_mod, 5),
+                attempt_count=mod_calls,
+                failure_count=0,
+            )
+        )
+
     # Generator 1: Stage 0 random synonymous baseline / computational reference
-    if "stage0_random" in intent.runtime_policy.enabled_generators:
+    if effective_modality == "linear_mrna" and "stage0_random" in intent.runtime_policy.enabled_generators:
         t0 = time.perf_counter()
         if locked_cds:
             cds_rand = locked_cds.locked_value
@@ -1717,7 +1787,7 @@ def run_design_pipeline(
 
     # Generator 2: DNA Chisel constraint/codon baseline
     dc_seed_cds = locked_cds.locked_value if locked_cds else ""
-    if "dnachisel_cds" in intent.runtime_policy.enabled_generators:
+    if effective_modality == "linear_mrna" and "dnachisel_cds" in intent.runtime_policy.enabled_generators:
         t0 = time.perf_counter()
         if not dc_seed_cds:
             dc_seed_cds = generate_dnachisel_cds(
@@ -1779,7 +1849,7 @@ def run_design_pipeline(
 
     # Generator 2B: Apache-2.0 CodonTransformer v1.0 Homo sapiens Synonymous CDS Baseline (RC-005)
     ct_seed_cds = ""
-    if active_codontransformer is not None:
+    if effective_modality == "linear_mrna" and active_codontransformer is not None:
         t0_ct = time.perf_counter()
         ct_calls = 0
         if locked_cds:
@@ -1864,8 +1934,157 @@ def run_design_pipeline(
             )
         )
 
+    # Generator 2C: LinearDesign Lattice-CFG + 5'-Opening Surgical Polisher (`research_max` / `sota_open` ONLY)
+    explicit_ld_requested = any(
+        g in {"lineardesign_academic", "sota_open", "lineardesign"}
+        for g in intent.runtime_policy.enabled_generators
+    ) or (use_lineardesign is True)
+    auto_ld_research = (
+        use_lineardesign is None
+        and intent.compliance_track == "research_max"
+        and "viennarna_thermo" in intent.runtime_policy.enabled_evaluators
+        and "pareto_nsga2" in intent.runtime_policy.enabled_generators
+        and not locked_cds
+        and not legacy_pure_rerank_mode
+        and os.environ.get("MRNAX_DISABLE_AUTO_LINEARDESIGN") != "1"
+    )
+    if (
+        effective_modality == "linear_mrna"
+        and intent.compliance_track != "commercial_clean"
+        and (explicit_ld_requested or auto_ld_research)
+    ):
+        from mrnax.engine.lineardesign_adapter import (
+            DEFAULT_LAMBDA_SWEEP,
+            is_lineardesign_available,
+            sweep_lineardesign_candidates,
+        )
+
+        if explicit_ld_requested or is_lineardesign_available():
+            t0_ld = time.perf_counter()
+            ld_calls = 0
+            u5_ld_row = next(
+                (u for u in clean_utr5s if _is_utr5_enzyme_clean(u["sequence"])),
+                clean_utr5s[0],
+            )
+            u3_ld_row = next(
+                (u for u in clean_utr3s if _is_utr3_enzyme_clean(_prepare_utr3(u["sequence"])[0])),
+                clean_utr3s[0],
+            )
+            u5_ld = locked_utr5.locked_value if locked_utr5 else u5_ld_row["sequence"]
+            u3_ld, anns_u3_ld = _prepare_utr3(u3_ld_row["sequence"])
+            u5_id_ld = None if locked_utr5 else u5_ld_row["component_id"]
+            u5_act_ld = "locked_verbatim" if locked_utr5 else "selected_from_library"
+            u3_id_ld = None if locked_utr3 else u3_ld_row["component_id"]
+            u3_act_ld = "locked_verbatim" if locked_utr3 else "selected_from_library"
+
+            ld_lambdas = DEFAULT_LAMBDA_SWEEP if explicit_ld_requested else (1.0, 2.0)
+            if locked_cds:
+                ld_primary_seqs = [(1.0, locked_cds.locked_value)]
+            else:
+                ld_cands = sweep_lineardesign_candidates(
+                    protein_seq,
+                    lambdas=ld_lambdas,
+                    utr5_rna=u5_ld,
+                    stop_rna=default_stop,
+                    utr3_rna=u3_ld,
+                    compliance_track=intent.compliance_track,
+                    transl_table=intent.protein_targets[0].transl_table,
+                    chemistry=intent.uridine_chemistry,
+                    eliminate_uuuu=True,
+                    constraints=intent.constraints,
+                    seed=intent.runtime_policy.random_seed,
+                )
+                ld_calls += len(ld_cands)
+                ld_primary_seqs = [(c.lambda_val, c.polished_cds_rna) for c in ld_cands]
+                if ld_primary_seqs and not dc_seed_cds:
+                    dc_seed_cds = ld_primary_seqs[min(2, len(ld_primary_seqs) - 1)][1]
+
+            sec_ld_mols: list[RNAMoleculeSpec] = []
+            for ch_idx, pt in enumerate(intent.protein_targets[1:], start=2):
+                sec_ld_res = sweep_lineardesign_candidates(
+                    pt.protein_sequence,
+                    lambdas=(1.0,),
+                    utr5_rna=u5_ld,
+                    stop_rna=default_stop,
+                    utr3_rna=u3_ld,
+                    compliance_track=intent.compliance_track,
+                    transl_table=pt.transl_table,
+                    chemistry=intent.uridine_chemistry,
+                    eliminate_uuuu=True,
+                    constraints=intent.constraints,
+                    seed=intent.runtime_policy.random_seed + ch_idx,
+                )
+                ld_calls += 1
+                sec_ld_cds = sec_ld_res[0].polished_cds_rna
+                sec_ld_mols.append(
+                    _build_molecule_spec(
+                        molecule_id=f"chain_{ch_idx:02d}",
+                        target=pt,
+                        intent=intent,
+                        origins=origins_for(
+                            u5_id_ld,
+                            u3_id_ld,
+                            "mrnax:lineardesign_polisher_v25",
+                            anns_u3_ld,
+                            secondary=True,
+                            cds_tier="needs_vendor_license",
+                        ),
+                        utr5_seq=u5_ld,
+                        utr5_action=u5_act_ld,
+                        cds_seq=sec_ld_cds,
+                        cds_action="generated_novo",
+                        stop_seq=default_stop,
+                        utr3_seq=u3_ld,
+                        utr3_action=u3_act_ld,
+                        polya_seq=polya_seq,
+                        extra_utr3_annotations=anns_u3_ld,
+                    )
+                )
+
+            for k_idx, (lam_v, ld_cds_seq) in enumerate(ld_primary_seqs, start=1):
+                raw_candidates.append(
+                    _build_single_molecule_bundle(
+                        bundle_id=f"bnd_{exec_tag}_lineardesign_{k_idx:02d}",
+                        parent=reference_bundle,
+                        derivation_action="de_novo_design" if not locked_cds else "locked_refinement",
+                        intent=intent,
+                        origins=origins_for(
+                            u5_id_ld,
+                            u3_id_ld,
+                            f"mrnax:lineardesign_polisher_lam{lam_v:g}",
+                            anns_u3_ld,
+                            cds_tier="needs_vendor_license",
+                        ),
+                        utr5_seq=u5_ld,
+                        utr5_action=u5_act_ld,
+                        cds_seq=ld_cds_seq,
+                        cds_action="locked_verbatim" if locked_cds else "generated_novo",
+                        stop_seq=default_stop,
+                        utr3_seq=u3_ld,
+                        utr3_action=u3_act_ld,
+                        polya_seq=polya_seq,
+                        extra_utr3_annotations=anns_u3_ld,
+                        secondary_molecules=sec_ld_mols or None,
+                    )
+                )
+            spec_ld = COMPONENT_CATALOG["lineardesign_academic"]
+            comp_records.append(
+                ComponentInvocationRecord(
+                    name=spec_ld.display_name,
+                    version=spec_ld.version,
+                    role="generator",
+                    code_license=spec_ld.code_license,
+                    weights_license=spec_ld.weights_license,
+                    data_license=spec_ld.data_license,
+                    license_track=spec_ld.license_track,
+                    wall_seconds=round(time.perf_counter() - t0_ld, 5),
+                    attempt_count=ld_calls,
+                    failure_count=0,
+                )
+            )
+
     # Generator 3: Non-Partitioned Full-Transcript CDS<->UTR Joint Pareto Search
-    if "pareto_nsga2" in intent.runtime_policy.enabled_generators:
+    if effective_modality == "linear_mrna" and "pareto_nsga2" in intent.runtime_policy.enabled_generators:
         t0 = time.perf_counter()
         if dc_seed_cds:
             base_cds = dc_seed_cds
@@ -2353,12 +2572,13 @@ def run_design_pipeline(
     ]
     eliminated_by_req: dict[str, int] = {c.requirement_id: 0 for c in intent.constraints}
 
+    expected_chem_gate = intent.uridine_chemistry if effective_modality == "linear_mrna" else "unmodified_u"
     for b in dedup_candidates:
         outcome = constraint_engine.evaluate_bundle(
             b,
             intent.constraints,
             compliance_track=intent.compliance_track,
-            expected_chemistry=intent.uridine_chemistry,
+            expected_chemistry=expected_chem_gate,
             locked_scopes=intent.locked_scopes,
             expected_protein_targets=intent.protein_targets,
             wildtype_cds_by_chain=wildtype_cds_by_chain,
@@ -2848,6 +3068,9 @@ def run_design_pipeline(
         executed_operators.append("stage0_random_synonymous_cds_constructive")
     if any(c.name == dc_spec_name and c.attempt_count > 0 for c in comp_records):
         executed_operators.append("dnachisel_scoped_constraint_cds")
+    ld_spec_name = COMPONENT_CATALOG["lineardesign_academic"].display_name
+    if any(c.name == ld_spec_name and c.attempt_count > 0 for c in comp_records):
+        executed_operators.append("lineardesign_lattice_cfg_plus_5prime_surgical_polisher")
     if active_codontransformer is not None and any(
         "CodonTransformer" in c.name and c.attempt_count > 0 for c in comp_records
     ):

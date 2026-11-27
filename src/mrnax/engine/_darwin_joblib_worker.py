@@ -56,13 +56,22 @@ class _IsolatedTransformProxy:
 
 
 class _IsolatedPredictProxy:
-    def __init__(self, client: _DarwinJoblibClient, key: str) -> None:
+    def __init__(self, client: _DarwinJoblibClient, key: str, attr_key: str = "model") -> None:
         self._client = client
         self._key = key
+        self._attr_key = attr_key
 
     def predict(self, X: Any, **_kwargs: Any) -> np.ndarray:
-        arr = np.asarray(X)
-        return np.asarray(self._client.call("predict", self._key, arr), dtype=np.float64)
+        if isinstance(X, list) and (not X or isinstance(X[0], str)):
+            payload: Any = X
+        else:
+            payload = np.asarray(X)
+        if self._attr_key == "model":
+            return np.asarray(self._client.call("predict", self._key, payload), dtype=np.float64)
+        return np.asarray(
+            self._client.call("predict_attr", self._key, self._attr_key, payload),
+            dtype=np.float64,
+        )
 
 
 class _DarwinJoblibClient:
@@ -112,7 +121,9 @@ class _DarwinJoblibClient:
         if meta.get("has_scaler"):
             out["scaler"] = _IsolatedTransformProxy(self, cache_key)
         if meta.get("has_model"):
-            out["model"] = _IsolatedPredictProxy(self, cache_key)
+            out["model"] = _IsolatedPredictProxy(self, cache_key, attr_key="model")
+        for sub_key in meta.get("sub_predictors", ()):
+            out[sub_key] = _IsolatedPredictProxy(self, cache_key, attr_key=sub_key)
         return out
 
     def close(self) -> None:
@@ -160,17 +171,30 @@ def _worker_main() -> None:
                 loaded = joblib.load(io.BytesIO(raw_bytes))
                 if not isinstance(loaded, dict):
                     raise TypeError(f"Expected dict joblib payload for '{key}', got {type(loaded).__name__}")
-                mdl = loaded.get("model")
-                if hasattr(mdl, "set_params"):
-                    try:
-                        mdl.set_params(n_jobs=1)
-                    except Exception:
-                        pass
+                for est_obj in loaded.values():
+                    if hasattr(est_obj, "set_params"):
+                        try:
+                            est_obj.set_params(n_jobs=1)
+                        except Exception:
+                            pass
+                    for sub_est in getattr(est_obj, "estimators_", ()):
+                        if hasattr(sub_est, "set_params"):
+                            try:
+                                sub_est.set_params(n_jobs=1)
+                            except Exception:
+                                pass
                 bundles[key] = loaded
+                sub_predictors = [
+                    k
+                    for k, v in loaded.items()
+                    if k not in {"model", "scaler"} and callable(getattr(v, "predict", None))
+                ]
+                excluded_keys = {"model", "scaler", *sub_predictors}
                 primitives = {
                     k: v
                     for k, v in loaded.items()
-                    if k not in {"model", "scaler"} and isinstance(v, (str, int, float, bool, list, tuple, dict, type(None)))
+                    if k not in excluded_keys
+                    and isinstance(v, (str, int, float, bool, list, tuple, dict, type(None)))
                 }
                 _write_frame(
                     stdout,
@@ -180,6 +204,7 @@ def _worker_main() -> None:
                             "primitives": primitives,
                             "has_model": "model" in loaded,
                             "has_scaler": "scaler" in loaded,
+                            "sub_predictors": sub_predictors,
                         },
                     ),
                 )
@@ -194,6 +219,14 @@ def _worker_main() -> None:
                     res = np.asarray(mdl.predict(arr, num_threads=1), dtype=np.float64)
                 except TypeError:
                     res = np.asarray(mdl.predict(arr), dtype=np.float64)
+                _write_frame(stdout, ("ok", res))
+            elif op == "predict_attr":
+                _, key, attr_key, payload = msg
+                est = bundles[key][attr_key]
+                try:
+                    res = np.asarray(est.predict(payload, num_threads=1), dtype=np.float64)
+                except TypeError:
+                    res = np.asarray(est.predict(payload), dtype=np.float64)
                 _write_frame(stdout, ("ok", res))
             else:
                 _write_frame(stdout, ("err", f"Unknown op {op!r}"))

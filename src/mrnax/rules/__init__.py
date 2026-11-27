@@ -15,7 +15,9 @@ from mrnax.rules.tribunal import (
     DeduplicatedVoteSummary,
     RuleRegistry,
     count_independent_dataset_votes,
+    load_scientific_rules_v2,
     normalize_dataset_id,
+    query_scientific_rules,
 )
 
 __all__ = [
@@ -31,5 +33,7 @@ __all__ = [
     "RuleRegistry",
     "count_independent_dataset_votes",
     "load_replacement_card_yaml",
+    "load_scientific_rules_v2",
     "normalize_dataset_id",
+    "query_scientific_rules",
 ]

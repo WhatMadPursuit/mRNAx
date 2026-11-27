@@ -1,0 +1,465 @@
+{
+  "schema_version": "2.5.0",
+  "generated_at_utc": "2026-11-27T19:06:02Z",
+  "engines_detected": {
+    "lineardesign_binary": "/Users/alex/.mrnax/bin/lineardesign",
+    "eternafold_binary": "/Users/alex/.mrnax/bin/contrafold",
+    "method_fto_ast_lint_status": "PASS"
+  },
+  "egfp_5lambda_polisher_sweep": [
+    {
+      "lambda": 0.0,
+      "raw_mfe_kcal_mol": -434.8,
+      "polished_mfe_kcal_mol": -412.6,
+      "raw_cai": 0.791,
+      "polished_cai": 0.7967,
+      "raw_kozak_unpaired_prob": 0.517506,
+      "polished_kozak_unpaired_prob": 0.622894,
+      "synonymous_codons_changed": 10,
+      "eliminated_motifs_before": 4,
+      "remaining_forbidden_motifs": 0,
+      "aa_exact_match": true
+    },
+    {
+      "lambda": 0.5,
+      "raw_mfe_kcal_mol": -434.5,
+      "polished_mfe_kcal_mol": -409.8,
+      "raw_cai": 0.812,
+      "polished_cai": 0.8182,
+      "raw_kozak_unpaired_prob": 0.517506,
+      "polished_kozak_unpaired_prob": 0.622894,
+      "synonymous_codons_changed": 10,
+      "eliminated_motifs_before": 4,
+      "remaining_forbidden_motifs": 0,
+      "aa_exact_match": true
+    },
+    {
+      "lambda": 1.0,
+      "raw_mfe_kcal_mol": -423.0,
+      "polished_mfe_kcal_mol": -403.0,
+      "raw_cai": 0.859,
+      "polished_cai": 0.8418,
+      "raw_kozak_unpaired_prob": 0.487056,
+      "polished_kozak_unpaired_prob": 0.641217,
+      "synonymous_codons_changed": 11,
+      "eliminated_motifs_before": 0,
+      "remaining_forbidden_motifs": 0,
+      "aa_exact_match": true
+    },
+    {
+      "lambda": 2.0,
+      "raw_mfe_kcal_mol": -413.9,
+      "polished_mfe_kcal_mol": -405.0,
+      "raw_cai": 0.88,
+      "polished_cai": 0.8732,
+      "raw_kozak_unpaired_prob": 0.450176,
+      "polished_kozak_unpaired_prob": 0.640082,
+      "synonymous_codons_changed": 9,
+      "eliminated_motifs_before": 1,
+      "remaining_forbidden_motifs": 0,
+      "aa_exact_match": true
+    },
+    {
+      "lambda": 4.0,
+      "raw_mfe_kcal_mol": -365.7,
+      "polished_mfe_kcal_mol": -327.8,
+      "raw_cai": 0.937,
+      "polished_cai": 0.9176,
+      "raw_kozak_unpaired_prob": 0.445543,
+      "polished_kozak_unpaired_prob": 0.665698,
+      "synonymous_codons_changed": 12,
+      "eliminated_motifs_before": 1,
+      "remaining_forbidden_motifs": 0,
+      "aa_exact_match": true
+    }
+  ],
+  "paired_benchmarks": {
+    "egfp_single_chain": {
+      "modality": "linear_mrna",
+      "protein_aa_length": 239,
+      "v20_baseline": {
+        "chain_count": 1,
+        "aa_exact_match": true,
+        "passed_all_hard_gates": true,
+        "cds_mfe_kcal_mol": -264.8,
+        "cai": 0.9983,
+        "kozak_unpaired_prob": 0.44044,
+        "cds_uuuu_count": 0,
+        "forbidden_motif_hits": 0,
+        "chains": [
+          {
+            "molecule_id": "mol_primary",
+            "aa_exact_match": true,
+            "length_nt": 1009,
+            "cds_mfe_kcal_mol": -264.8,
+            "full_mfe_kcal_mol": -354.5,
+            "cai": 0.9983,
+            "kozak_unpaired_prob": 0.440439,
+            "aup_mean": 0.44827,
+            "cds_uuuu_count": 0,
+            "mirna_interactions": []
+          }
+        ],
+        "wall_seconds": 0.019
+      },
+      "v25_lineardesign_polisher": {
+        "chain_count": 1,
+        "aa_exact_match": true,
+        "passed_all_hard_gates": true,
+        "cds_mfe_kcal_mol": -403.0,
+        "cai": 0.8418,
+        "kozak_unpaired_prob": 0.63053,
+        "cds_uuuu_count": 0,
+        "forbidden_motif_hits": 0,
+        "chains": [
+          {
+            "molecule_id": "mol_primary",
+            "aa_exact_match": true,
+            "length_nt": 1009,
+            "cds_mfe_kcal_mol": -403.0,
+            "full_mfe_kcal_mol": -487.2,
+            "cai": 0.8418,
+            "kozak_unpaired_prob": 0.630528,
+            "aup_mean": 0.34087,
+            "cds_uuuu_count": 0,
+            "mirna_interactions": []
+          }
+        ],
+        "wall_seconds": 6.2026
+      },
+      "paired_delta_v25_minus_v20": {
+        "cds_mfe_kcal_mol": -138.2,
+        "cai": -0.1565,
+        "kozak_unpaired_prob": 0.19009
+      }
+    },
+    "hepo_single_chain": {
+      "modality": "linear_mrna",
+      "protein_aa_length": 221,
+      "detarget_mirna": "hsa-miR-142-3p",
+      "v20_baseline": {
+        "chain_count": 1,
+        "aa_exact_match": true,
+        "passed_all_hard_gates": true,
+        "cds_mfe_kcal_mol": -313.2,
+        "cai": 0.9423,
+        "kozak_unpaired_prob": 0.66528,
+        "cds_uuuu_count": 0,
+        "forbidden_motif_hits": 0,
+        "chains": [
+          {
+            "molecule_id": "mol_primary",
+            "aa_exact_match": true,
+            "length_nt": 1021,
+            "cds_mfe_kcal_mol": -313.2,
+            "full_mfe_kcal_mol": -408.4,
+            "cai": 0.9423,
+            "kozak_unpaired_prob": 0.665276,
+            "aup_mean": 0.4258,
+            "cds_uuuu_count": 0,
+            "mirna_interactions": [
+              {
+                "mirna_id": "hsa-miR-142-3p",
+                "dg_total_kcal_mol": -31.3443,
+                "seed_8mer_unpaired_prob": 0.018412
+              },
+              {
+                "mirna_id": "hsa-miR-142-3p",
+                "dg_total_kcal_mol": -31.1042,
+                "seed_8mer_unpaired_prob": 0.174167
+              }
+            ]
+          }
+        ],
+        "wall_seconds": 0.0211
+      },
+      "v25_lineardesign_polisher": {
+        "chain_count": 1,
+        "aa_exact_match": true,
+        "passed_all_hard_gates": true,
+        "cds_mfe_kcal_mol": -485.0,
+        "cai": 0.7962,
+        "kozak_unpaired_prob": 0.78487,
+        "cds_uuuu_count": 0,
+        "forbidden_motif_hits": 0,
+        "chains": [
+          {
+            "molecule_id": "mol_primary",
+            "aa_exact_match": true,
+            "length_nt": 1021,
+            "cds_mfe_kcal_mol": -485.0,
+            "full_mfe_kcal_mol": -570.3,
+            "cai": 0.7962,
+            "kozak_unpaired_prob": 0.78487,
+            "aup_mean": 0.33154,
+            "cds_uuuu_count": 0,
+            "mirna_interactions": [
+              {
+                "mirna_id": "hsa-miR-142-3p",
+                "dg_total_kcal_mol": -31.2224,
+                "seed_8mer_unpaired_prob": 0.029571
+              },
+              {
+                "mirna_id": "hsa-miR-142-3p",
+                "dg_total_kcal_mol": -31.1042,
+                "seed_8mer_unpaired_prob": 0.174167
+              }
+            ]
+          }
+        ],
+        "wall_seconds": 11.9147
+      },
+      "paired_delta_v25_minus_v20": {
+        "cds_mfe_kcal_mol": -171.8,
+        "cai": -0.1461,
+        "kozak_unpaired_prob": 0.11959
+      }
+    },
+    "dll3_x_cd3_multi_chain": {
+      "modality": "linear_mrna",
+      "chain_aa_lengths": [
+        118,
+        118
+      ],
+      "detarget_mirna": "hsa-miR-122-5p",
+      "v20_baseline": {
+        "chain_count": 2,
+        "aa_exact_match": true,
+        "passed_all_hard_gates": true,
+        "cds_mfe_kcal_mol": -288.4,
+        "cai": 0.9883,
+        "kozak_unpaired_prob": 0.55513,
+        "cds_uuuu_count": 0,
+        "forbidden_motif_hits": 3,
+        "chains": [
+          {
+            "molecule_id": "chain_01",
+            "aa_exact_match": true,
+            "length_nt": 710,
+            "cds_mfe_kcal_mol": -157.1,
+            "full_mfe_kcal_mol": -257.5,
+            "cai": 0.9863,
+            "kozak_unpaired_prob": 0.55513,
+            "aup_mean": 0.46496,
+            "cds_uuuu_count": 0,
+            "mirna_interactions": [
+              {
+                "mirna_id": "hsa-miR-122-5p",
+                "dg_total_kcal_mol": -37.4388,
+                "seed_8mer_unpaired_prob": 0.299246
+              },
+              {
+                "mirna_id": "hsa-miR-122-5p",
+                "dg_total_kcal_mol": -36.4499,
+                "seed_8mer_unpaired_prob": 0.147518
+              }
+            ]
+          },
+          {
+            "molecule_id": "chain_02",
+            "aa_exact_match": true,
+            "length_nt": 710,
+            "cds_mfe_kcal_mol": -131.3,
+            "full_mfe_kcal_mol": -231.4,
+            "cai": 0.9904,
+            "kozak_unpaired_prob": 0.55513,
+            "aup_mean": 0.49119,
+            "cds_uuuu_count": 0,
+            "mirna_interactions": [
+              {
+                "mirna_id": "hsa-miR-122-5p",
+                "dg_total_kcal_mol": -37.5505,
+                "seed_8mer_unpaired_prob": 0.334898
+              },
+              {
+                "mirna_id": "hsa-miR-122-5p",
+                "dg_total_kcal_mol": -36.4499,
+                "seed_8mer_unpaired_prob": 0.147518
+              }
+            ]
+          }
+        ],
+        "wall_seconds": 0.0224
+      },
+      "v25_lineardesign_polisher": {
+        "chain_count": 2,
+        "aa_exact_match": true,
+        "passed_all_hard_gates": true,
+        "cds_mfe_kcal_mol": -420.6,
+        "cai": 0.8227,
+        "kozak_unpaired_prob": 0.65036,
+        "cds_uuuu_count": 0,
+        "forbidden_motif_hits": 0,
+        "chains": [
+          {
+            "molecule_id": "chain_01",
+            "aa_exact_match": true,
+            "length_nt": 710,
+            "cds_mfe_kcal_mol": -205.2,
+            "full_mfe_kcal_mol": -295.0,
+            "cai": 0.8513,
+            "kozak_unpaired_prob": 0.650357,
+            "aup_mean": 0.42672,
+            "cds_uuuu_count": 0,
+            "mirna_interactions": [
+              {
+                "mirna_id": "hsa-miR-122-5p",
+                "dg_total_kcal_mol": -37.1904,
+                "seed_8mer_unpaired_prob": 0.194151
+              },
+              {
+                "mirna_id": "hsa-miR-122-5p",
+                "dg_total_kcal_mol": -36.4499,
+                "seed_8mer_unpaired_prob": 0.147518
+              }
+            ]
+          },
+          {
+            "molecule_id": "chain_02",
+            "aa_exact_match": true,
+            "length_nt": 710,
+            "cds_mfe_kcal_mol": -215.4,
+            "full_mfe_kcal_mol": -301.4,
+            "cai": 0.7942,
+            "kozak_unpaired_prob": 0.688591,
+            "aup_mean": 0.42016,
+            "cds_uuuu_count": 0,
+            "mirna_interactions": [
+              {
+                "mirna_id": "hsa-miR-122-5p",
+                "dg_total_kcal_mol": -37.7128,
+                "seed_8mer_unpaired_prob": 0.431296
+              },
+              {
+                "mirna_id": "hsa-miR-122-5p",
+                "dg_total_kcal_mol": -36.4499,
+                "seed_8mer_unpaired_prob": 0.147518
+              }
+            ]
+          }
+        ],
+        "wall_seconds": 5.7074
+      },
+      "paired_delta_v25_minus_v20": {
+        "cds_mfe_kcal_mol": -132.2,
+        "cai": -0.1656,
+        "kozak_unpaired_prob": 0.09523
+      }
+    },
+    "circrna_fluc_reporter": {
+      "modality": "circrna",
+      "protein_aa_length": 550,
+      "ires": "HRV-B3",
+      "pie_backbone": "Anabaena",
+      "v20_baseline": {
+        "modality": "circrna",
+        "topology": "circular",
+        "length_nt": 2407,
+        "aa_exact_match": true,
+        "chemistry_unmodified_u_ok": true,
+        "no_poly_a_tail_ok": true,
+        "ires_short_id": "HRV-B3",
+        "ires_translation_rank": 2,
+        "ires_fold_vs_icvb3_geomean": 11.2771,
+        "max_ires_cds_complement_nt": 9,
+        "ires_cargo_uncoupled_ok": true,
+        "spacer_insulation_ok": true,
+        "backsplicing_junction_dg_kcal_mol": -11.4,
+        "cds_mfe_kcal_mol": -664.1,
+        "circ_mfe_kcal_mol": -912.4,
+        "cai": 0.981,
+        "initiation_unpaired_prob": 0.5236,
+        "cds_uuuu_count": 0,
+        "wall_seconds": 0.0435
+      },
+      "v25_lineardesign_polisher": {
+        "modality": "circrna",
+        "topology": "circular",
+        "length_nt": 2407,
+        "aa_exact_match": true,
+        "chemistry_unmodified_u_ok": true,
+        "no_poly_a_tail_ok": true,
+        "ires_short_id": "HRV-B3",
+        "ires_translation_rank": 2,
+        "ires_fold_vs_icvb3_geomean": 11.2771,
+        "max_ires_cds_complement_nt": 10,
+        "ires_cargo_uncoupled_ok": true,
+        "spacer_insulation_ok": true,
+        "backsplicing_junction_dg_kcal_mol": -11.4,
+        "cds_mfe_kcal_mol": -1031.1,
+        "circ_mfe_kcal_mol": -1271.7,
+        "cai": 0.8492,
+        "initiation_unpaired_prob": 0.70076,
+        "cds_uuuu_count": 0,
+        "wall_seconds": 42.8215
+      },
+      "paired_delta_v25_minus_v20": {
+        "cds_mfe_kcal_mol": -367.0,
+        "circ_mfe_kcal_mol": -359.3,
+        "cai": -0.1318,
+        "initiation_unpaired_prob": 0.17716
+      }
+    },
+    "sarna_veev_tc83": {
+      "modality": "sarna",
+      "protein_aa_length": 191,
+      "replicon_backbone": "VEEV_TC83",
+      "v20_baseline": {
+        "modality": "sarna",
+        "replicon_scaffold_id": "SCAF-SARNA-VEEV-TC83-CIS-REPLICON",
+        "backbone_species_strain": "VEEV strain TC-83 (attenuated G3A 5'UTR stem-loop variant)",
+        "aa_exact_match": true,
+        "starts_with_5prime_au": true,
+        "nsp1_51nt_cse_conserved": true,
+        "subgenomic_26s_sgp_conserved": true,
+        "three_prime_19nt_cse_conserved": true,
+        "chemistry_unmodified_u_ok": true,
+        "innate_sensing_metrics": {
+          "goi_cpg_dinuc_freq": 0.04545,
+          "goi_upa_dinuc_freq": 0.00874,
+          "max_intramolecular_dsrna_stem_bp": 9,
+          "goi_u_fraction": 0.1291
+        },
+        "goi_mfe_kcal_mol": -229.4,
+        "goi_cai": 0.9951,
+        "goi_kozak_unpaired_prob": 0.523624,
+        "subgenomic_cassette_length_nt": 956,
+        "estimated_full_replicon_length_nt": 8372,
+        "cds_mfe_kcal_mol": -229.4,
+        "cds_uuuu_count": 0,
+        "wall_seconds": 0.0307
+      },
+      "v25_lineardesign_polisher": {
+        "modality": "sarna",
+        "replicon_scaffold_id": "SCAF-SARNA-VEEV-TC83-CIS-REPLICON",
+        "backbone_species_strain": "VEEV strain TC-83 (attenuated G3A 5'UTR stem-loop variant)",
+        "aa_exact_match": true,
+        "starts_with_5prime_au": true,
+        "nsp1_51nt_cse_conserved": true,
+        "subgenomic_26s_sgp_conserved": true,
+        "three_prime_19nt_cse_conserved": true,
+        "chemistry_unmodified_u_ok": true,
+        "innate_sensing_metrics": {
+          "goi_cpg_dinuc_freq": 0.05594,
+          "goi_upa_dinuc_freq": 0.01923,
+          "max_intramolecular_dsrna_stem_bp": 14,
+          "goi_u_fraction": 0.1832
+        },
+        "goi_mfe_kcal_mol": -330.4,
+        "goi_cai": 0.8862,
+        "goi_kozak_unpaired_prob": 0.645201,
+        "subgenomic_cassette_length_nt": 956,
+        "estimated_full_replicon_length_nt": 8372,
+        "cds_mfe_kcal_mol": -330.4,
+        "cds_uuuu_count": 0,
+        "wall_seconds": 3.9697
+      },
+      "paired_delta_v25_minus_v20": {
+        "cds_mfe_kcal_mol": -101.0,
+        "cai": -0.1089,
+        "kozak_unpaired_prob": 0.12158
+      }
+    }
+  },
+  "total_wall_seconds": 101.557
+}

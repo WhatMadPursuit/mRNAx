@@ -35,9 +35,9 @@ import httpx
 from fastapi import FastAPI, Header, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.routing import APIRoute
-from pydantic import AfterValidator, BaseModel, Discriminator, Field, Tag, field_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Discriminator, Field, StrictBool, StrictStr, Tag, field_validator
 
 from mrnax.cloud.cas_store import (
     ExecutionCASStore,
@@ -69,8 +69,18 @@ from mrnax.harness.state_machine import (
     parse_json_float_token_bounded,
     project_lock,
 )
-from mrnax.harness.tools import AtomicToolbox
-from mrnax.federated.external_evidence_adapter import CleanRoomPolicyError
+from mrnax.harness.tools import (
+    AtomicToolbox,
+    compare_construct_against_clinical_benchmarks,
+    detect_available_engines,
+    load_registry_json,
+    query_scientific_rules,
+    render_ivt_synthesis_order,
+    render_qc_dossier_html,
+    resolve_registry_file,
+    run_structure_and_motif_analysis,
+)
+from mrnax.federated.external_evidence_adapter import CleanRoomPolicyError, ExternalEvidenceAdapterV2
 from mrnax.io_insdc.genbank_io import ExportConstraintViolationError, export_construct_package
 from mrnax.schemas.common import ComplianceProfile, SegmentScope, UridineChemistry
 from mrnax.schemas.construct_bundle import (
@@ -164,7 +174,57 @@ def _serialize_molecule_view(mol: Any) -> dict[str, Any]:
     }
 
 
-def _serialize_candidate_card(bundle: ConstructBundle, ev: BundleEvaluation | None) -> dict[str, Any]:
+_METRIC_DISPLAY_LABELS: dict[str, str] = {
+    "utr5_mrl_pred": "5'UTR Predicted Ribosome Load (MRL)",
+    "cds_stability_pred": "CDS Codon Stability Score",
+    "consensus_halflife_pred": "Predicted Transcript Half-Life",
+    "utr3_stability_pred": "3'UTR Stability Score",
+    "kozak_unpaired_prob": "5' Initiation Unpaired Probability",
+    "cds_mean_window_mfe": "CDS Sliding-Window MFE",
+    "junction_folding_mfe": "UTR-CDS Junction Folding MFE",
+    "full_transcript_mfe": "Full-Transcript MFE",
+    "mirna_detarget_dg_total": "miRNA Detargeting Net dG",
+    "cds_gc_fraction": "CDS GC Fraction",
+    "structrfm_cds_median_shape": "structRFM Median SHAPE Reactivity",
+    "orthrus_halflife_pred": "Orthrus Predicted Half-Life",
+    "codontransformer_syn_loglik": "CodonTransformer Synonymous Log-Likelihood",
+    "eternafold_kozak_unpaired_prob": "EternaFold Initiation Unpaired Probability",
+    "eternafold_aup": "EternaFold Mean Unpaired Probability (AUP)",
+}
+
+
+def _derive_candidate_display_meta(
+    bundle: ConstructBundle,
+    pareto_rank: int | None,
+) -> tuple[str, str]:
+    bid = bundle.bundle_id
+    low = bid.lower()
+    if bundle.derivation_action == "reference_import" or low.endswith("_ref_r"):
+        return "Reference Construct (R)", "reference_baseline"
+    if low.endswith("_mina") or bundle.derivation_action == "locked_refinement":
+        return "Conservative Refinement (Minimal Edit)", "conservative_refinement"
+    if low.endswith("_expb"):
+        return "Exploratory Re-Optimized Variant", "exploratory_reoptimization"
+    if len(bundle.molecules) > 1:
+        rank_prefix = f"Pareto #{pareto_rank} · " if pareto_rank is not None else ""
+        return f"{rank_prefix}Multi-Chain Co-Expression Candidate", "multi_chain_coexpression"
+    if "ld" in low or "lineardesign" in low:
+        rank_prefix = f"Pareto #{pareto_rank} · " if pareto_rank is not None else ""
+        return f"{rank_prefix}LinearDesign + 5' Polished Candidate", "lineardesign_5prime_polished"
+    if pareto_rank == 1:
+        return f"Pareto #1 Candidate ({bid[-6:]})", "pareto_frontier_top"
+    if pareto_rank is not None:
+        return f"Pareto #{pareto_rank} Candidate ({bid[-6:]})", "pareto_balanced"
+    return f"Candidate ({bid[-8:]})", "de_novo_candidate"
+
+
+def _serialize_candidate_card(
+    bundle: ConstructBundle,
+    ev: BundleEvaluation | None,
+    *,
+    hard_gate_total: int = 6,
+    fto_alerts: Iterable[Any] = (),
+) -> dict[str, Any]:
     mol_views = [_serialize_molecule_view(m) for m in bundle.molecules]
     primary = mol_views[0]
     metrics = ev.metrics if ev is not None else []
@@ -216,6 +276,49 @@ def _serialize_candidate_card(bundle: ConstructBundle, ev: BundleEvaluation | No
     for m in ranked_valid:
         assert m.value is not None
         metrics_summary[m.metric_id] = m.value
+
+    eff_rank = ev.pareto_rank if (ev is not None and not partial_ids and len(ranked_valid) > 0) else None
+    passed_gates = ev.passed_all_hard_gates if ev is not None else None
+    display_label, strategy_tag = _derive_candidate_display_meta(bundle, eff_rank)
+    total_gates = max(1, int(hard_gate_total))
+    passed_count = total_gates if passed_gates is not False else 0
+
+    bundle_alerts = [
+        a for a in fto_alerts
+        if getattr(a, "bundle_id", None) in (None, bundle.bundle_id)
+    ]
+    all_seg_clean = all(
+        s.license_track == "commercial_clean"
+        for m in bundle.molecules
+        for s in m.segments
+    )
+    if any(bool(getattr(a, "blocked", False)) for a in bundle_alerts):
+        fto_badge = "fto_blocked"
+    elif bundle_alerts:
+        fto_badge = "fto_advisory_review"
+    elif all_seg_clean:
+        fto_badge = "sequence_screen_clear"
+    else:
+        fto_badge = "research_track_only"
+
+    clean_summary_metrics: list[dict[str, Any]] = []
+    for d in details:
+        val = d.get("value")
+        if not isinstance(val, (int, float)) or not math.isfinite(val):
+            continue
+        mid = str(d.get("metric_id") or "")
+        human_lbl = _METRIC_DISPLAY_LABELS.get(
+            mid, mid.replace("_", " ").strip().title()
+        )
+        clean_summary_metrics.append(
+            {
+                "label": human_lbl,
+                "value": round(float(val), 4),
+                "unit": d.get("unit", ""),
+                "chemistry_mode": d.get("chemistry_evaluation_mode", ""),
+            }
+        )
+
     return {
         "bundle_id": bundle.bundle_id,
         "version_digest": bundle.version_digest,
@@ -230,10 +333,17 @@ def _serialize_candidate_card(bundle: ConstructBundle, ev: BundleEvaluation | No
         "uridine_chemistry": primary["uridine_chemistry"],
         "metrics": metrics_summary,
         "metric_details": details,
-        "pareto_rank": ev.pareto_rank if (ev is not None and not partial_ids and len(ranked_valid) > 0) else None,
-        "passed_all_hard_gates": ev.passed_all_hard_gates if ev is not None else None,
+        "pareto_rank": eff_rank,
+        "passed_all_hard_gates": passed_gates,
         "segments": primary["segments"],
         "full_sequence": primary["full_sequence"],
+        "display_label": display_label,
+        "strategy_tag": strategy_tag,
+        "short_digest": bundle.version_digest[:12],
+        "gate_passed_count": passed_count,
+        "gate_total_count": total_gates,
+        "fto_badge": fto_badge,
+        "summary_metrics": clean_summary_metrics,
     }
 
 
@@ -255,11 +365,21 @@ def _serialize_report_with_candidates(
         seed_dir=seed_dir,
         disallow_sandbox_override=disallow_sandbox_override,
     )
+    hard_gate_count = (
+        sum(1 for c in intent.constraints if c.severity == "hard_gate")
+        if intent is not None and intent.constraints
+        else 6
+    )
     cards: list[dict[str, Any]] = []
     for ev in projected.candidate_evaluations:
         bundle = bundles_by_id.get(ev.bundle_id)
         if bundle is not None:
-            card = _serialize_candidate_card(bundle, ev)
+            card = _serialize_candidate_card(
+                bundle,
+                ev,
+                hard_gate_total=hard_gate_count,
+                fto_alerts=projected.fto_alerts,
+            )
             if card["pareto_rank"] is not None:
                 cards.append(card)
     return projected.model_dump(mode="json"), cards
@@ -422,6 +542,47 @@ class AgentChatRequest(BaseModel):
         if _looks_like_credential_value(cleaned) or not _SAFE_ID_RE.fullmatch(cleaned):
             raise ValueError("Invalid client_request_id")
         return cleaned
+
+
+class StructureAnalyzeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    sequence: StrictStr = Field(min_length=3, max_length=20000)
+    five_prime_end: int | None = None
+    cds_start: int | None = None
+    cds_end: int | None = None
+    three_prime_start: int | None = None
+    three_prime_end: int | None = None
+    modality: Literal["linear_mrna", "circrna", "sarna"] = "linear_mrna"
+    include_eternafold: StrictBool = False
+
+    @field_validator("five_prime_end", "cds_start", "cds_end", "three_prime_start", "three_prime_end", mode="before")
+    @classmethod
+    def _validate_coord_int(cls, v: Any) -> int | None:
+        if v is None:
+            return None
+        return parse_bounded_json_int(v, field_name="coordinate", min_val=0, max_val=20000)
+
+
+class EvidenceResolveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    query: StrictStr = Field(min_length=1, max_length=300)
+    mode: Literal["protein", "literature", "both"] = "both"
+    max_results: int = Field(default=5, ge=1, le=20)
+    allow_network: StrictBool = True
+
+    @field_validator("max_results", mode="before")
+    @classmethod
+    def _validate_max_res_int(cls, v: Any) -> int:
+        return parse_bounded_json_int(v, field_name="max_results", min_val=1, max_val=20)
+
+
+class ClinicalBenchmarkCompareRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    sequence: StrictStr | None = Field(default=None, min_length=3, max_length=20000)
+    project_id: StrictStr | None = Field(default=None, max_length=80)
+    bundle_id: StrictStr | None = Field(default=None, max_length=80)
+    modality: Literal["linear_mrna", "circrna", "sarna"] | None = None
+    chemistry: Literal["m1psi", "pseudouridine", "unmodified_u"] | None = None
 
 
 MUTATING_AGENT_TOOLS = frozenset({"design_constructs", "refine_construct", "ingest_experiment"})
@@ -1131,6 +1292,7 @@ def create_control_plane_app(
         prov = vault.provider_status()
         configured_providers = [k for k, v in prov.items() if v.get("configured")]
         token_valid = _is_valid_admin_token(x_mrnax_access_token)
+        engines_status = detect_available_engines(resolved_seed)
         return {
             "status": "online",
             "hostname": socket.gethostname(),
@@ -1138,6 +1300,8 @@ def create_control_plane_app(
             "default_profile": "research_max",
             "viennarna_available": viennarna_ok,
             "viennarna_version": viennarna_ver,
+            "available_engines": engines_status,
+            "supported_modalities": ["linear_mrna", "circrna", "sarna"],
             "colab_bridge_present": Path("/opt/vps-connect/colab-run").is_file()
             or Path("/Users/alex/.local/bin/colab").is_file(),
             "drive_bridge_present": Path("/opt/vps-connect/batch2-drive").is_file(),
@@ -2440,6 +2604,329 @@ def create_control_plane_app(
                     "export_manifest": manifest,
                     "files": files_payload,
                 }
+
+    def _load_authorized_bundle_for_export(
+        project_id: str,
+        bundle_id: str,
+        request: Request,
+        header_project_key: str | None,
+        header_access_token: str | None,
+    ) -> tuple[ProjectHarnessSession, ConstructBundle, DesignIntent, BundleEvaluation | None]:
+        safe_pid, _ = _authorize_or_bind_project(
+            project_id,
+            request,
+            allow_bind_new=False,
+            header_project_key=header_project_key,
+            header_access_token=header_access_token,
+        )
+        with project_lock(resolved_projects / safe_pid):
+            session = _get_session(safe_pid)
+            safe_bid = _validate_safe_id(bundle_id, "bundle_id")
+            try:
+                bundle = session.get_bundle(safe_bid)
+                intent = session.intent_for_export(bundle)
+            except KeyError as exc:
+                raise HTTPException(status_code=404, detail=f"Unknown bundle '{safe_bid}'") from exc
+            except ValueError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+            constraint_engine = ScopedConstraintEngine.from_seed_dir(resolved_seed)
+            try:
+                if intent.compliance_track == "commercial_clean":
+                    ExternalEvidenceAdapterV2().filter_and_export_commercial_records(bundle.external_evidence)
+                outcome = constraint_engine.evaluate_bundle(
+                    bundle,
+                    intent.constraints,
+                    compliance_track=intent.compliance_track,
+                    expected_chemistry=intent.uridine_chemistry,
+                    locked_scopes=intent.locked_scopes,
+                    expected_protein_targets=intent.protein_targets,
+                )
+                if not outcome.passed_all_hard_gates:
+                    reasons = "; ".join(
+                        f"{v.violated_requirement_id}@{v.violated_scope}:{v.reason}" for v in outcome.violations
+                    )
+                    raise ExportConstraintViolationError(
+                        f"Export blocked by shared ScopedConstraintEngine: {reasons}"
+                    )
+            except (CleanRoomPolicyError, ExportConstraintViolationError) as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+            ev_match: BundleEvaluation | None = None
+            try:
+                rep = session.latest_report(intent.intent_id)
+                if rep is not None:
+                    ev_match = next((e for e in rep.candidate_evaluations if e.bundle_id == bundle.bundle_id), None)
+            except ValueError:
+                ev_match = None
+            return session, bundle, intent, ev_match
+
+    @app.get("/v1/projects/{project_id}/bundles/{bundle_id}/dossier")
+    def get_project_bundle_dossier(
+        project_id: str,
+        bundle_id: str,
+        request: Request,
+        format: Literal["json", "html"] = "json",
+        x_mrnax_project_key: str | None = Header(default=None),
+        x_mrnax_access_token: str | None = Header(default=None),
+    ) -> Response:
+        _enforce_rate_limit(request, max_per_min=45)
+        _, bundle, intent, ev_match = _load_authorized_bundle_for_export(
+            project_id, bundle_id, request, x_mrnax_project_key, x_mrnax_access_token
+        )
+        constraint_engine = ScopedConstraintEngine.from_seed_dir(resolved_seed)
+        html_doc = render_qc_dossier_html(
+            bundle,
+            intent=intent,
+            constraint_engine=constraint_engine,
+            evaluation=ev_match,
+            seed_dir=resolved_seed,
+        )
+        secrets_tuple = _collect_active_secrets(x_mrnax_access_token, x_mrnax_project_key)
+        safe_html = redact_secrets_in_text(html_doc, extra_secrets=secrets_tuple)
+        if format == "html":
+            return HTMLResponse(content=safe_html, status_code=200)
+        return JSONResponse(
+            content={
+                "bundle_id": bundle.bundle_id,
+                "version_digest": bundle.version_digest,
+                "compliance_track": intent.compliance_track,
+                "content_type": "text/html",
+                "qc_dossier_html": safe_html,
+            }
+        )
+
+    @app.get("/v1/projects/{project_id}/bundles/{bundle_id}/ivt-order")
+    def get_project_bundle_ivt_order(
+        project_id: str,
+        bundle_id: str,
+        request: Request,
+        format: Literal["json", "csv"] = "json",
+        x_mrnax_project_key: str | None = Header(default=None),
+        x_mrnax_access_token: str | None = Header(default=None),
+    ) -> Response:
+        _enforce_rate_limit(request, max_per_min=45)
+        _, bundle, intent, _ = _load_authorized_bundle_for_export(
+            project_id, bundle_id, request, x_mrnax_project_key, x_mrnax_access_token
+        )
+        csv_text, rows = render_ivt_synthesis_order(bundle, intent=intent)
+        secrets_tuple = _collect_active_secrets(x_mrnax_access_token, x_mrnax_project_key)
+        safe_csv = redact_secrets_in_text(csv_text, extra_secrets=secrets_tuple)
+        if format == "csv":
+            return Response(content=safe_csv, media_type="text/csv; charset=utf-8", status_code=200)
+        return JSONResponse(
+            content={
+                "bundle_id": bundle.bundle_id,
+                "version_digest": bundle.version_digest,
+                "content_type": "text/csv",
+                "ivt_synthesis_order_csv": safe_csv,
+                "rows": redact_secrets_in_obj(rows, extra_secrets=secrets_tuple),
+            }
+        )
+
+    # --- Wave 2B Scientific Knowledge, Structure, Evidence & Clinical Benchmark Endpoints ---
+    @app.get("/api/v1/rules")
+    def api_get_rules(
+        request: Request,
+        modality: str | None = None,
+        region: str | None = None,
+        grade: str | None = None,
+        q: str | None = None,
+        include_debunked: bool = True,
+    ) -> dict[str, Any]:
+        _enforce_rate_limit(request, max_per_min=90)
+        secrets_tuple = _collect_active_secrets()
+        res = query_scientific_rules(
+            seed_dir=resolved_seed,
+            modality=modality,
+            region=region,
+            grade=grade,
+            query=q,
+            include_debunked=include_debunked,
+        )
+        return redact_secrets_in_obj(res, extra_secrets=secrets_tuple)
+
+    @app.get("/api/v1/data-hub")
+    def api_get_data_hub(request: Request) -> dict[str, Any]:
+        _enforce_rate_limit(request, max_per_min=60)
+        secrets_tuple = _collect_active_secrets()
+        catalog = load_registry_json(resolved_seed, "data_hub_catalog_v2.json")
+        if catalog is None:
+            v9_inv = load_registry_json(resolved_seed, "v9_wetlab_benchmarks_inventory.json") or {}
+            catalog = {
+                "catalog_id": "v9_fallback_inventory",
+                "datasets": v9_inv.get("benchmarks", []),
+                "external_apis": [],
+                "engines_and_models": [],
+            }
+        clin_doc = load_registry_json(resolved_seed, "clinical_mrna_benchmarks_v1.json") or {"benchmarks": []}
+        mirna_doc = load_registry_json(resolved_seed, "tissue_mirna_atlas_v1.json")
+        if mirna_doc is None:
+            mirna_doc = load_registry_json(resolved_seed, "mirna_rbp_commercial_v2.json") or {}
+        scaffolds_doc = load_registry_json(resolved_seed, "modality_scaffolds_v1.json") or {}
+
+        scorecard: dict[str, Any] | None = None
+        for sc_candidate in (
+            resolved_seed / "surrogate_v2" / "surrogate_v2_ood_scorecard.json",
+            resolved_seed / "surrogate_v2_ood_scorecard.json",
+            Path("/Users/alex/.gemini/antigravity/brain/4db4d24c-55e0-4968-869d-a93a1c9c7b7b/scratch/wave1_sota_models/surrogate_v2_ood_scorecard.json"),
+            Path("/Users/alex/.gemini/antigravity/brain/4db4d24c-55e0-4968-869d-a93a1c9c7b7b/scratch/wave1_sota_models/surrogate_v2/surrogate_v2_ood_scorecard.json"),
+        ):
+            if sc_candidate.is_file():
+                try:
+                    scorecard = json.loads(sc_candidate.read_text(encoding="utf-8"))
+                    break
+                except ValueError:
+                    pass
+
+        compact_benchmarks = [
+            {
+                "benchmark_id": b.get("benchmark_id"),
+                "construct_name": b.get("construct_name"),
+                "who_inn_name": b.get("who_inn_name"),
+                "developer": b.get("developer"),
+                "modality": b.get("modality"),
+                "chemistry": b.get("chemistry"),
+                "clinical_or_reference_status": b.get("clinical_or_reference_status"),
+                "license_track": b.get("license_track"),
+                "architecture_summary": b.get("architecture_summary"),
+                "quantitative_sequence_stats": b.get("quantitative_sequence_stats"),
+                "fto_and_governance_notice": b.get("fto_and_governance_notice"),
+            }
+            for b in (clin_doc.get("benchmarks") or [])
+            if isinstance(b, dict)
+        ]
+
+        payload = {
+            "catalog_id": catalog.get("catalog_id", "mRNAx_Data_Hub_Catalog_v2"),
+            "summary_counts": catalog.get("summary_counts", {}),
+            "datasets": catalog.get("datasets", []),
+            "external_apis": catalog.get("external_apis", []),
+            "engines_and_models": catalog.get("engines_and_models", []),
+            "clinical_benchmarks": compact_benchmarks,
+            "tissue_mirna_atlas": {
+                "atlas_id": mirna_doc.get("atlas_id", "tissue_mirna_atlas_v1"),
+                "summary_counts": mirna_doc.get("summary_counts", {}),
+                "tissue_groups": mirna_doc.get("tissue_groups", {}),
+                "mirna_entries": mirna_doc.get("mirna_entries", []),
+            },
+            "modality_scaffolds_summary": {
+                "registry_id": scaffolds_doc.get("registry_id"),
+                "summary_counts": scaffolds_doc.get("summary_counts", {}),
+                "modality_architectures": scaffolds_doc.get("modality_architectures", {}),
+            },
+            "surrogate_scorecard": scorecard,
+        }
+        return redact_secrets_in_obj(payload, extra_secrets=secrets_tuple)
+
+    @app.post("/api/v1/structure/analyze")
+    def api_analyze_structure(
+        req: StructureAnalyzeRequest,
+        request: Request,
+    ) -> dict[str, Any]:
+        _enforce_rate_limit(request, max_per_min=30)
+        secrets_tuple = _collect_active_secrets()
+        try:
+            res = run_structure_and_motif_analysis(
+                req.sequence,
+                five_prime_end=req.five_prime_end,
+                cds_start=req.cds_start,
+                cds_end=req.cds_end,
+                three_prime_start=req.three_prime_start,
+                three_prime_end=req.three_prime_end,
+                modality=req.modality,
+                include_eternafold=req.include_eternafold,
+                seed_dir=resolved_seed,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=redact_secrets_in_text(str(exc), extra_secrets=secrets_tuple),
+            ) from exc
+        return redact_secrets_in_obj(res, extra_secrets=secrets_tuple)
+
+    @app.post("/api/v1/evidence/resolve")
+    def api_resolve_evidence(
+        req: EvidenceResolveRequest,
+        request: Request,
+    ) -> dict[str, Any]:
+        _enforce_rate_limit(request, max_per_min=30)
+        secrets_tuple = _collect_active_secrets()
+        adapter = ExternalEvidenceAdapterV2(license_track="commercial_clean")
+        out: dict[str, Any] = {"query": req.query, "mode": req.mode}
+        try:
+            if req.mode in ("protein", "both"):
+                out["protein"] = adapter.resolve_target_protein(
+                    req.query, allow_network=req.allow_network
+                )
+            if req.mode in ("literature", "both"):
+                out["literature_and_trials"] = adapter.search_literature_and_trials(
+                    req.query, max_results=req.max_results, allow_network=req.allow_network
+                )
+        except CleanRoomPolicyError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=redact_secrets_in_text(str(exc), extra_secrets=secrets_tuple),
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=redact_secrets_in_text(str(exc), extra_secrets=secrets_tuple),
+            ) from exc
+        return redact_secrets_in_obj(out, extra_secrets=secrets_tuple)
+
+    @app.post("/api/v1/benchmarks/clinical")
+    def api_compare_clinical_benchmarks(
+        req: ClinicalBenchmarkCompareRequest,
+        request: Request,
+        x_mrnax_project_key: str | None = Header(default=None),
+        x_mrnax_access_token: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        _enforce_rate_limit(request, max_per_min=45)
+        secrets_tuple = _collect_active_secrets(x_mrnax_access_token, x_mrnax_project_key)
+        target_bundle: ConstructBundle | None = None
+        if req.bundle_id is not None or req.project_id is not None:
+            if not req.project_id or not req.bundle_id:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Both project_id and bundle_id are required when comparing a stored project bundle.",
+                )
+            safe_pid, _ = _authorize_or_bind_project(
+                req.project_id,
+                request,
+                allow_bind_new=False,
+                header_project_key=x_mrnax_project_key,
+                header_access_token=x_mrnax_access_token,
+            )
+            with project_lock(resolved_projects / safe_pid):
+                session = _get_session(safe_pid)
+                safe_bid = _validate_safe_id(req.bundle_id, "bundle_id")
+                try:
+                    target_bundle = session.get_bundle(safe_bid)
+                except KeyError as exc:
+                    raise HTTPException(status_code=404, detail=f"Unknown bundle '{safe_bid}'") from exc
+                except ValueError as exc:
+                    raise HTTPException(status_code=409, detail=str(exc)) from exc
+        elif not req.sequence:
+            raise HTTPException(
+                status_code=422,
+                detail="Provide either sequence or (project_id, bundle_id).",
+            )
+
+        try:
+            res = compare_construct_against_clinical_benchmarks(
+                seed_dir=resolved_seed,
+                bundle=target_bundle,
+                sequence=req.sequence,
+                modality=req.modality,
+                chemistry=req.chemistry,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=redact_secrets_in_text(str(exc), extra_secrets=secrets_tuple),
+            ) from exc
+        return redact_secrets_in_obj(res, extra_secrets=secrets_tuple)
 
     # --- Persistent CAS Lease & Execution Endpoints (Authenticated) ---
     @app.post("/v1/executions")

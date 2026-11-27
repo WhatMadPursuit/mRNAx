@@ -1,0 +1,23 @@
+{
+  "schema": "mrnax.surrogate_training_provenance.v2.0",
+  "generated_at_utc": "2026-11-27T21:22:35Z",
+  "compliance_track": "commercial_clearance_pending",
+  "zero_viennarna_features_or_distilled_labels": true,
+  "zero_gpl_or_noncommercial_weights": false,
+  "artifacts": [
+    {
+      "filename": "utr5_mrl_chem_gse114002_v2.joblib",
+      "bytes": 1932232,
+      "sha256": "aca8988600648ff290f94ad64ad82cded0a262c82c888a0ca6fff34c1f362922",
+      "model_name": "utr5_mrl_chem_gse114002_v2",
+      "model_class": "VotingRegressor(LGBM+HistGB+MLP)+TfidfRidge",
+      "axis": "5utr_mrl_chemistry_resolved",
+      "license_track": "commercial_clearance_pending",
+      "dataset_id": "GSE114002_U_Psi_m1Psi",
+      "citation": "Sample et al. 2019 Nature Biotechnology GSE114002 multi-chemistry 5UTR MPRA (held pending patent/commercial clearance)",
+      "feature_extractor_id": "extract_utr5_v2_plus_chem",
+      "n_features": 174,
+      "uses_viennarna_features_or_labels": false
+    }
+  ]
+}

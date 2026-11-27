@@ -1,0 +1,633 @@
+{
+  "schema_version": "1.0.0",
+  "atlas_id": "tissue_mirna_atlas_v1",
+  "generated_at_utc": "2026-11-27T18:03:47Z",
+  "license_track": "commercial_clean",
+  "upstream_provenance": [
+    {
+      "source": "RNAcentral REST API v1 + miRBase CC0 Mature Registry",
+      "license_spdx": "CC0-1.0",
+      "note": "All 15 mature miRNA sequences, lengths, URS accessions, and MD5 digests live-verified against https://rnacentral.org/api/v1/rna/."
+    },
+    {
+      "source": "RIKEN FANTOM5 Human sRNA/miRNA Expression Atlas (de Rie et al. 2017 Nat Biotechnol, PMID:28829439 / PMC5767576)",
+      "license_spdx": "CC-BY-4.0",
+      "local_seed": "/Users/alex/.gemini/antigravity/scratch/mrnax-v2/registry_seed/mirna_rbp_commercial_v2.json"
+    }
+  ],
+  "cassette_design_rules": {
+    "recommended_copies": [
+      2,
+      3,
+      4
+    ],
+    "min_nt_downstream_of_stop_codon": 15,
+    "clean_unstructured_spacers_rna": [
+      "CAAACAAACA",
+      "CUAACUAACU",
+      "CAACCAAUCA"
+    ],
+    "protected_on_target_tissue_max_cpm": 500.0,
+    "mechanism_note": "Full 21-23 nt Watson-Crick complementarity triggers catalytic Ago2 endonucleolytic slicing of the mRNA (superior to seed-only deadenylation for synthetic mRNA detargeting), while protected target tissues must ALSO be scanned against accidental 8mer seed collisions."
+  },
+  "summary_counts": {
+    "total_verified_mirnas": 15,
+    "tissue_groups_covered": 7,
+    "mirnas_by_tissue_group": {
+      "liver": 3,
+      "myeloid_apc": 3,
+      "muscle": 3,
+      "cns": 2,
+      "endothelial": 2,
+      "lymphoid_t_cell": 1,
+      "lung_epithelial": 1
+    }
+  },
+  "tissue_groups": {
+    "liver": [
+      "hsa-miR-122-5p",
+      "hsa-miR-122-3p",
+      "hsa-miR-192-5p"
+    ],
+    "myeloid_apc": [
+      "hsa-miR-142-3p",
+      "hsa-miR-223-3p",
+      "hsa-miR-142-5p"
+    ],
+    "muscle": [
+      "hsa-miR-1-3p",
+      "hsa-miR-206",
+      "hsa-miR-133a-3p"
+    ],
+    "cns": [
+      "hsa-miR-124-3p",
+      "hsa-miR-9-5p"
+    ],
+    "endothelial": [
+      "hsa-miR-126-3p",
+      "hsa-miR-126-5p"
+    ],
+    "lymphoid_t_cell": [
+      "hsa-miR-150-5p"
+    ],
+    "lung_epithelial": [
+      "hsa-miR-205-5p"
+    ]
+  },
+  "mirna_entries": [
+    {
+      "tissue_group": "liver",
+      "fantom5_compartment": "liver_hepatocyte",
+      "mirna_id": "hsa-miR-122-5p",
+      "mirbase_accession": "MIMAT0000421",
+      "rnacentral_urs_id": "URS00003380CC",
+      "rnacentral_md5": "84ac0e9bb171d4eb79180f4a72a5ae10",
+      "role_tier": "primary_detarget",
+      "mature_sequence_rna": "UGGAGUGUGACAAUGGUGUUUG",
+      "length_nt": 22,
+      "seed_positions_2_to_8_rna": "GGAGUGU",
+      "mrna_target_site_7mer_m8_rna": "ACACUCC",
+      "mrna_target_site_7mer_a1_rna": "CACUCCA",
+      "mrna_target_site_8mer_rna": "ACACUCCA",
+      "mrna_full_complementary_ago2_cleavage_site_rna": "CAAACACCAUUGUCACACUCCA",
+      "fantom5_expression": {
+        "in_top100_fantom5_registry": true,
+        "top_enriched_tissue": "liver_hepatocyte",
+        "top_tissue_cpm": 117673.43,
+        "specificity_tau": 0.934,
+        "mean_cpm_by_tissue": {
+          "liver_hepatocyte": 117673.43,
+          "myeloid_monocyte_macrophage": 4.51,
+          "t_cell": 0.13,
+          "endothelial": 0.61,
+          "skeletal_muscle": 2.27,
+          "cardiac_heart": 0.49,
+          "brain_neural": 1.96,
+          "lung_epithelial": 0.61,
+          "kidney_renal": 1.04
+        }
+      },
+      "isomir_and_version_reconciliation": null,
+      "engineering_rationale": "Dominant hepatocyte-specific miRNA (>70% of hepatic miRNA pool); gold-standard 3'UTR detargeting switch to abolish liver off-target expression after systemic LNP or intratumoral leakage.",
+      "verification_url": "https://rnacentral.org/api/v1/rna/?external_id=MIMAT0000421&format=json",
+      "license_spdx": "CC0-1.0 AND CC-BY-4.0",
+      "license_track": "commercial_clean"
+    },
+    {
+      "tissue_group": "liver",
+      "fantom5_compartment": "liver_hepatocyte",
+      "mirna_id": "hsa-miR-122-3p",
+      "mirbase_accession": "MIMAT0004590",
+      "rnacentral_urs_id": "URS000075BAE6",
+      "rnacentral_md5": "c4a1c2222b6b8010dfe0a235e2f320c1",
+      "role_tier": "secondary_passenger_strand",
+      "mature_sequence_rna": "AACGCCAUUAUCACACUAAAUA",
+      "length_nt": 22,
+      "seed_positions_2_to_8_rna": "ACGCCAU",
+      "mrna_target_site_7mer_m8_rna": "AUGGCGU",
+      "mrna_target_site_7mer_a1_rna": "UGGCGUA",
+      "mrna_target_site_8mer_rna": "AUGGCGUA",
+      "mrna_full_complementary_ago2_cleavage_site_rna": "UAUUUAGUGUGAUAAUGGCGUU",
+      "fantom5_expression": {
+        "in_top100_fantom5_registry": true,
+        "top_enriched_tissue": "liver_hepatocyte",
+        "top_tissue_cpm": 1012.06,
+        "specificity_tau": 0.9966,
+        "mean_cpm_by_tissue": {
+          "liver_hepatocyte": 1012.06,
+          "myeloid_monocyte_macrophage": 0.08,
+          "t_cell": 0.0,
+          "endothelial": 0.0,
+          "skeletal_muscle": 0.0,
+          "cardiac_heart": 0.0,
+          "brain_neural": 0.0,
+          "lung_epithelial": 0.12,
+          "kidney_renal": 0.0
+        }
+      },
+      "isomir_and_version_reconciliation": null,
+      "engineering_rationale": "Highly specific passenger strand of pre-miR-122 (tau=0.997) with near-zero extrahepatic expression.",
+      "verification_url": "https://rnacentral.org/api/v1/rna/?external_id=MIMAT0004590&format=json",
+      "license_spdx": "CC0-1.0 AND CC-BY-4.0",
+      "license_track": "commercial_clean"
+    },
+    {
+      "tissue_group": "liver",
+      "fantom5_compartment": "liver_hepatocyte",
+      "mirna_id": "hsa-miR-192-5p",
+      "mirbase_accession": "MIMAT0000222",
+      "rnacentral_urs_id": "URS0000155642",
+      "rnacentral_md5": "339838a539b68973537d3ef02fcfa957",
+      "role_tier": "backup_detarget",
+      "mature_sequence_rna": "CUGACCUAUGAAUUGACAGCC",
+      "length_nt": 21,
+      "seed_positions_2_to_8_rna": "UGACCUA",
+      "mrna_target_site_7mer_m8_rna": "UAGGUCA",
+      "mrna_target_site_7mer_a1_rna": "AGGUCAA",
+      "mrna_target_site_8mer_rna": "UAGGUCAA",
+      "mrna_full_complementary_ago2_cleavage_site_rna": "GGCUGUCAAUUCAUAGGUCAG",
+      "fantom5_expression": {
+        "in_top100_fantom5_registry": true,
+        "top_enriched_tissue": "liver_hepatocyte",
+        "top_tissue_cpm": 233613.33,
+        "specificity_tau": 0.4483,
+        "mean_cpm_by_tissue": {
+          "liver_hepatocyte": 233613.33,
+          "myeloid_monocyte_macrophage": 924.22,
+          "t_cell": 7186.95,
+          "endothelial": 416.67,
+          "skeletal_muscle": 373.37,
+          "cardiac_heart": 669.92,
+          "brain_neural": 645.98,
+          "lung_epithelial": 707.5,
+          "kidney_renal": 1539.6
+        }
+      },
+      "isomir_and_version_reconciliation": "miRBase v23.1 / FANTOM5 records 22-nt sequence 'CUGACCUAUGAAUUGACAGCCA' (full RC 'UGGCUGUCAAUUCAUAGGUCAG'), whereas RNAcentral canonical URS0000155642 is 21-nt 'CUGACCUAUGAAUUGACAGCC'.",
+      "engineering_rationale": "High-abundance hepatocyte/ gastrointestinal epithelial backup detargeting miRNA (233,613 CPM in liver; guard against GI/kidney if systemic).",
+      "verification_url": "https://rnacentral.org/api/v1/rna/?external_id=MIMAT0000222&format=json",
+      "license_spdx": "CC0-1.0 AND CC-BY-4.0",
+      "license_track": "commercial_clean"
+    },
+    {
+      "tissue_group": "myeloid_apc",
+      "fantom5_compartment": "myeloid_monocyte_macrophage",
+      "mirna_id": "hsa-miR-142-3p",
+      "mirbase_accession": "MIMAT0000434",
+      "rnacentral_urs_id": "URS00002620A7",
+      "rnacentral_md5": "8312b4f8a5c1cca5320777a4290bf0ec",
+      "role_tier": "primary_detarget",
+      "mature_sequence_rna": "UGUAGUGUUUCCUACUUUAUGGA",
+      "length_nt": 23,
+      "seed_positions_2_to_8_rna": "GUAGUGU",
+      "mrna_target_site_7mer_m8_rna": "ACACUAC",
+      "mrna_target_site_7mer_a1_rna": "CACUACA",
+      "mrna_target_site_8mer_rna": "ACACUACA",
+      "mrna_full_complementary_ago2_cleavage_site_rna": "UCCAUAAAGUAGGAAACACUACA",
+      "fantom5_expression": {
+        "in_top100_fantom5_registry": true,
+        "top_enriched_tissue": "t_cell",
+        "top_tissue_cpm": 7850.55,
+        "specificity_tau": 0.6698,
+        "mean_cpm_by_tissue": {
+          "liver_hepatocyte": 27.25,
+          "myeloid_monocyte_macrophage": 3851.62,
+          "t_cell": 7850.55,
+          "endothelial": 108.31,
+          "skeletal_muscle": 9.25,
+          "cardiac_heart": 9.33,
+          "brain_neural": 1.33,
+          "lung_epithelial": 0.73,
+          "kidney_renal": 2.84
+        }
+      },
+      "isomir_and_version_reconciliation": null,
+      "engineering_rationale": "Canonical pan-hematopoietic myeloid/APC/lymphoid detargeting miRNA (Brown & Naldini 2006 Nat Med; clinically validated via 3x sites in Moderna mRNA-3705 & mRNA-3927 to prevent APC antigen presentation and anti-drug antibodies).",
+      "verification_url": "https://rnacentral.org/api/v1/rna/?external_id=MIMAT0000434&format=json",
+      "license_spdx": "CC0-1.0 AND CC-BY-4.0",
+      "license_track": "commercial_clean"
+    },
+    {
+      "tissue_group": "myeloid_apc",
+      "fantom5_compartment": "myeloid_monocyte_macrophage",
+      "mirna_id": "hsa-miR-223-3p",
+      "mirbase_accession": "MIMAT0000280",
+      "rnacentral_urs_id": "URS00000B7E30",
+      "rnacentral_md5": "b1b76f4a687701ff0dfd093a9ae832ad",
+      "role_tier": "myeloid_selective_detarget",
+      "mature_sequence_rna": "UGUCAGUUUGUCAAAUACCCCA",
+      "length_nt": 22,
+      "seed_positions_2_to_8_rna": "GUCAGUU",
+      "mrna_target_site_7mer_m8_rna": "AACUGAC",
+      "mrna_target_site_7mer_a1_rna": "ACUGACA",
+      "mrna_target_site_8mer_rna": "AACUGACA",
+      "mrna_full_complementary_ago2_cleavage_site_rna": "UGGGGUAUUUGACAAACUGACA",
+      "fantom5_expression": {
+        "in_top100_fantom5_registry": true,
+        "top_enriched_tissue": "myeloid_monocyte_macrophage",
+        "top_tissue_cpm": 7361.87,
+        "specificity_tau": 0.681,
+        "mean_cpm_by_tissue": {
+          "liver_hepatocyte": 97.32,
+          "myeloid_monocyte_macrophage": 7361.87,
+          "t_cell": 78.04,
+          "endothelial": 167.38,
+          "skeletal_muscle": 2.29,
+          "cardiac_heart": 76.32,
+          "brain_neural": 0.7,
+          "lung_epithelial": 2.01,
+          "kidney_renal": 3.33
+        }
+      },
+      "isomir_and_version_reconciliation": null,
+      "engineering_rationale": "Myeloid/granulocyte/monocyte-enriched miRNA (7,362 CPM in myeloid vs 78 CPM in T cells; useful when T-cell expression must be spared while detargeting myeloid APCs).",
+      "verification_url": "https://rnacentral.org/api/v1/rna/?external_id=MIMAT0000280&format=json",
+      "license_spdx": "CC0-1.0 AND CC-BY-4.0",
+      "license_track": "commercial_clean"
+    },
+    {
+      "tissue_group": "myeloid_apc",
+      "fantom5_compartment": "myeloid_monocyte_macrophage",
+      "mirna_id": "hsa-miR-142-5p",
+      "mirbase_accession": "MIMAT0000433",
+      "rnacentral_urs_id": "URS00001E0AEA",
+      "rnacentral_md5": "48f66a81666c478f3fdb862fdce2258d",
+      "role_tier": "isomir_caution_backup",
+      "mature_sequence_rna": "CAUAAAGUAGAAAGCACUACU",
+      "length_nt": 21,
+      "seed_positions_2_to_8_rna": "AUAAAGU",
+      "mrna_target_site_7mer_m8_rna": "ACUUUAU",
+      "mrna_target_site_7mer_a1_rna": "CUUUAUA",
+      "mrna_target_site_8mer_rna": "ACUUUAUA",
+      "mrna_full_complementary_ago2_cleavage_site_rna": "AGUAGUGCUUUCUACUUUAUG",
+      "fantom5_expression": {
+        "in_top100_fantom5_registry": true,
+        "top_enriched_tissue": "t_cell",
+        "top_tissue_cpm": 76895.08,
+        "specificity_tau": 0.583,
+        "mean_cpm_by_tissue": {
+          "liver_hepatocyte": 834.23,
+          "myeloid_monocyte_macrophage": 27518.44,
+          "t_cell": 76895.08,
+          "endothelial": 1675.32,
+          "skeletal_muscle": 37.52,
+          "cardiac_heart": 18.78,
+          "brain_neural": 4.34,
+          "lung_epithelial": 7.98,
+          "kidney_renal": 13.16
+        }
+      },
+      "isomir_and_version_reconciliation": "miRBase v23.1 / FANTOM5 records 23-nt sequence 'CCCAUAAAGUAGAAAGCACUACU' (full RC 'AGUAGUGCUUUCUACUUUAUGGG'), whereas RNAcentral canonical URS00001E0AEA is 21-nt 'CAUAAAGUAGAAAGCACUACU'.",
+      "engineering_rationale": "5p arm of pre-miR-142; CAUTION: FANTOM5/miRBase v23.1 dominant 23-nt 5'-isomiR (CCCAUAAAG...) shifts the seed by 2 nt relative to canonical 21-nt miRBase v22 (CAUAAAG...); prefer miR-142-3p or use full 23-nt complement covering both seeds.",
+      "verification_url": "https://rnacentral.org/api/v1/rna/?external_id=MIMAT0000433&format=json",
+      "license_spdx": "CC0-1.0 AND CC-BY-4.0",
+      "license_track": "commercial_clean"
+    },
+    {
+      "tissue_group": "muscle",
+      "fantom5_compartment": "skeletal_muscle",
+      "mirna_id": "hsa-miR-1-3p",
+      "mirbase_accession": "MIMAT0000416",
+      "rnacentral_urs_id": "URS00001DC04F",
+      "rnacentral_md5": "4ea37f8f4324b53d80e9f9dafcd6634c",
+      "role_tier": "primary_cardioskeletal_detarget",
+      "mature_sequence_rna": "UGGAAUGUAAAGAAGUAUGUAU",
+      "length_nt": 22,
+      "seed_positions_2_to_8_rna": "GGAAUGU",
+      "mrna_target_site_7mer_m8_rna": "ACAUUCC",
+      "mrna_target_site_7mer_a1_rna": "CAUUCCA",
+      "mrna_target_site_8mer_rna": "ACAUUCCA",
+      "mrna_full_complementary_ago2_cleavage_site_rna": "AUACAUACUUCUUUACAUUCCA",
+      "fantom5_expression": {
+        "in_top100_fantom5_registry": false,
+        "top_enriched_tissue": "skeletal_muscle",
+        "top_tissue_cpm": null,
+        "specificity_tau": null,
+        "mean_cpm_by_tissue": {
+          "note": "Canonical myomiR verified via RNAcentral/miRBase (Lagos-Quintana et al. 2002 / McCarthy 2008); adult myofiber enrichment exceeds cultured myoblast FANTOM5 rank."
+        }
+      },
+      "isomir_and_version_reconciliation": null,
+      "engineering_rationale": "Canonical conserved myomiR abundant in both adult skeletal myofibers and cardiomyocytes (shares identical 5' seed GGAAUGU with hsa-miR-206); silences muscle off-target expression after IM/systemic delivery.",
+      "verification_url": "https://rnacentral.org/api/v1/rna/?external_id=MIMAT0000416&format=json",
+      "license_spdx": "CC0-1.0 AND CC-BY-4.0",
+      "license_track": "commercial_clean"
+    },
+    {
+      "tissue_group": "muscle",
+      "fantom5_compartment": "skeletal_muscle",
+      "mirna_id": "hsa-miR-206",
+      "mirbase_accession": "MIMAT0000462",
+      "rnacentral_urs_id": "URS000034B6F5",
+      "rnacentral_md5": "dfc64273efa0793af96873b64bf72a42",
+      "role_tier": "primary_skeletal_specific_detarget",
+      "mature_sequence_rna": "UGGAAUGUAAGGAAGUGUGUGG",
+      "length_nt": 22,
+      "seed_positions_2_to_8_rna": "GGAAUGU",
+      "mrna_target_site_7mer_m8_rna": "ACAUUCC",
+      "mrna_target_site_7mer_a1_rna": "CAUUCCA",
+      "mrna_target_site_8mer_rna": "ACAUUCCA",
+      "mrna_full_complementary_ago2_cleavage_site_rna": "CCACACACUUCCUUACAUUCCA",
+      "fantom5_expression": {
+        "in_top100_fantom5_registry": false,
+        "top_enriched_tissue": "skeletal_muscle",
+        "top_tissue_cpm": null,
+        "specificity_tau": null,
+        "mean_cpm_by_tissue": {
+          "note": "Canonical myomiR verified via RNAcentral/miRBase (Lagos-Quintana et al. 2002 / McCarthy 2008); adult myofiber enrichment exceeds cultured myoblast FANTOM5 rank."
+        }
+      },
+      "isomir_and_version_reconciliation": null,
+      "engineering_rationale": "Skeletal-muscle-specific myomiR (absent/minimal in cardiomyocytes, shares GGAAUGU seed with miR-1-3p; full 22-nt complement differentiates 3' supplemental pairing from miR-1-3p).",
+      "verification_url": "https://rnacentral.org/api/v1/rna/?external_id=MIMAT0000462&format=json",
+      "license_spdx": "CC0-1.0 AND CC-BY-4.0",
+      "license_track": "commercial_clean"
+    },
+    {
+      "tissue_group": "muscle",
+      "fantom5_compartment": "skeletal_muscle",
+      "mirna_id": "hsa-miR-133a-3p",
+      "mirbase_accession": "MIMAT0000427",
+      "rnacentral_urs_id": "URS00004C9052",
+      "rnacentral_md5": "1a6def4ce92d506e3e82bcd313feae8f",
+      "role_tier": "orthogonal_seed_myomir",
+      "mature_sequence_rna": "UUUGGUCCCCUUCAACCAGCUG",
+      "length_nt": 22,
+      "seed_positions_2_to_8_rna": "UUGGUCC",
+      "mrna_target_site_7mer_m8_rna": "GGACCAA",
+      "mrna_target_site_7mer_a1_rna": "GACCAAA",
+      "mrna_target_site_8mer_rna": "GGACCAAA",
+      "mrna_full_complementary_ago2_cleavage_site_rna": "CAGCUGGUUGAAGGGGACCAAA",
+      "fantom5_expression": {
+        "in_top100_fantom5_registry": true,
+        "top_enriched_tissue": "skeletal_muscle",
+        "top_tissue_cpm": 3852.99,
+        "specificity_tau": 0.8171,
+        "mean_cpm_by_tissue": {
+          "liver_hepatocyte": 3.9,
+          "myeloid_monocyte_macrophage": 11.52,
+          "t_cell": 0.77,
+          "endothelial": 1.45,
+          "skeletal_muscle": 3852.99,
+          "cardiac_heart": 5.78,
+          "brain_neural": 7.07,
+          "lung_epithelial": 4.76,
+          "kidney_renal": 1.1
+        }
+      },
+      "isomir_and_version_reconciliation": null,
+      "engineering_rationale": "Bicystronic partner of miR-1/206 with an independent seed (UUGGUCC -> target GGACCAA; 3,853 CPM in FANTOM5 skeletal muscle, tau=0.817) enabling dual-seed muscle detargeting.",
+      "verification_url": "https://rnacentral.org/api/v1/rna/?external_id=MIMAT0000427&format=json",
+      "license_spdx": "CC0-1.0 AND CC-BY-4.0",
+      "license_track": "commercial_clean"
+    },
+    {
+      "tissue_group": "cns",
+      "fantom5_compartment": "brain_neural",
+      "mirna_id": "hsa-miR-124-3p",
+      "mirbase_accession": "MIMAT0000422",
+      "rnacentral_urs_id": "URS000020BE6A",
+      "rnacentral_md5": "9c386cefe7880d29c047c7c6d1fab184",
+      "role_tier": "primary_detarget",
+      "mature_sequence_rna": "UAAGGCACGCGGUGAAUGCC",
+      "length_nt": 20,
+      "seed_positions_2_to_8_rna": "AAGGCAC",
+      "mrna_target_site_7mer_m8_rna": "GUGCCUU",
+      "mrna_target_site_7mer_a1_rna": "UGCCUUA",
+      "mrna_target_site_8mer_rna": "GUGCCUUA",
+      "mrna_full_complementary_ago2_cleavage_site_rna": "GGCAUUCACCGCGUGCCUUA",
+      "fantom5_expression": {
+        "in_top100_fantom5_registry": true,
+        "top_enriched_tissue": "brain_neural",
+        "top_tissue_cpm": 989.56,
+        "specificity_tau": 0.9705,
+        "mean_cpm_by_tissue": {
+          "liver_hepatocyte": 0.1,
+          "myeloid_monocyte_macrophage": 1.27,
+          "t_cell": 0.1,
+          "endothelial": 0.13,
+          "skeletal_muscle": 0.27,
+          "cardiac_heart": 0.0,
+          "brain_neural": 989.56,
+          "lung_epithelial": 0.05,
+          "kidney_renal": 0.23
+        }
+      },
+      "isomir_and_version_reconciliation": "miRBase v23.1 / FANTOM5 records 22-nt sequence 'UAAGGCACGCGGUGAAUGCCAA' (full RC 'UUGGCAUUCACCGCGUGCCUUA'), whereas RNAcentral canonical URS000020BE6A is 20-nt 'UAAGGCACGCGGUGAAUGCC'.",
+      "engineering_rationale": "Master neuron-specific miRNA (tau=0.971 in FANTOM5 brain_neural, <=1.3 CPM across all non-neural organs); primary switch to prevent neurotoxicity in CNS-exposed therapies.",
+      "verification_url": "https://rnacentral.org/api/v1/rna/?external_id=MIMAT0000422&format=json",
+      "license_spdx": "CC0-1.0 AND CC-BY-4.0",
+      "license_track": "commercial_clean"
+    },
+    {
+      "tissue_group": "cns",
+      "fantom5_compartment": "brain_neural",
+      "mirna_id": "hsa-miR-9-5p",
+      "mirbase_accession": "MIMAT0000441",
+      "rnacentral_urs_id": "URS00004208C5",
+      "rnacentral_md5": "aa4234560d4b9423a7736cbde7966053",
+      "role_tier": "secondary_neural_detarget",
+      "mature_sequence_rna": "UCUUUGGUUAUCUAGCUGUAUGA",
+      "length_nt": 23,
+      "seed_positions_2_to_8_rna": "CUUUGGU",
+      "mrna_target_site_7mer_m8_rna": "ACCAAAG",
+      "mrna_target_site_7mer_a1_rna": "CCAAAGA",
+      "mrna_target_site_8mer_rna": "ACCAAAGA",
+      "mrna_full_complementary_ago2_cleavage_site_rna": "UCAUACAGCUAGAUAACCAAAGA",
+      "fantom5_expression": {
+        "in_top100_fantom5_registry": true,
+        "top_enriched_tissue": "brain_neural",
+        "top_tissue_cpm": 18550.93,
+        "specificity_tau": 0.773,
+        "mean_cpm_by_tissue": {
+          "liver_hepatocyte": 7.1,
+          "myeloid_monocyte_macrophage": 71.0,
+          "t_cell": 23.51,
+          "endothelial": 11.71,
+          "skeletal_muscle": 1.21,
+          "cardiac_heart": 0.98,
+          "brain_neural": 18550.93,
+          "lung_epithelial": 5.2,
+          "kidney_renal": 10.43
+        }
+      },
+      "isomir_and_version_reconciliation": null,
+      "engineering_rationale": "Highly abundant pan-neural miRNA (18,551 CPM in FANTOM5 brain_neural, 1,900x enrichment over median) for combinatorial miR-124 + miR-9 CNS silencing.",
+      "verification_url": "https://rnacentral.org/api/v1/rna/?external_id=MIMAT0000441&format=json",
+      "license_spdx": "CC0-1.0 AND CC-BY-4.0",
+      "license_track": "commercial_clean"
+    },
+    {
+      "tissue_group": "endothelial",
+      "fantom5_compartment": "endothelial",
+      "mirna_id": "hsa-miR-126-3p",
+      "mirbase_accession": "MIMAT0000445",
+      "rnacentral_urs_id": "URS00001F1DA8",
+      "rnacentral_md5": "99f38356cd8ea4703340d455d45a4c01",
+      "role_tier": "primary_detarget",
+      "mature_sequence_rna": "UCGUACCGUGAGUAAUAAUGCG",
+      "length_nt": 22,
+      "seed_positions_2_to_8_rna": "CGUACCG",
+      "mrna_target_site_7mer_m8_rna": "CGGUACG",
+      "mrna_target_site_7mer_a1_rna": "GGUACGA",
+      "mrna_target_site_8mer_rna": "CGGUACGA",
+      "mrna_full_complementary_ago2_cleavage_site_rna": "CGCAUUAUUACUCACGGUACGA",
+      "fantom5_expression": {
+        "in_top100_fantom5_registry": true,
+        "top_enriched_tissue": "endothelial",
+        "top_tissue_cpm": 17373.85,
+        "specificity_tau": 0.4929,
+        "mean_cpm_by_tissue": {
+          "liver_hepatocyte": 1934.07,
+          "myeloid_monocyte_macrophage": 57.19,
+          "t_cell": 12.18,
+          "endothelial": 17373.85,
+          "skeletal_muscle": 14.27,
+          "cardiac_heart": 481.3,
+          "brain_neural": 50.69,
+          "lung_epithelial": 76.17,
+          "kidney_renal": 3651.01
+        }
+      },
+      "isomir_and_version_reconciliation": null,
+      "engineering_rationale": "Endothelial-lineage master miRNA (miR-126-3p / angiomiR, 17,374 CPM in endothelial cells) for vascular detargeting of systemic LNP payloads.",
+      "verification_url": "https://rnacentral.org/api/v1/rna/?external_id=MIMAT0000445&format=json",
+      "license_spdx": "CC0-1.0 AND CC-BY-4.0",
+      "license_track": "commercial_clean"
+    },
+    {
+      "tissue_group": "endothelial",
+      "fantom5_compartment": "endothelial",
+      "mirna_id": "hsa-miR-126-5p",
+      "mirbase_accession": "MIMAT0000444",
+      "rnacentral_urs_id": "URS00001D69F6",
+      "rnacentral_md5": "ca841f3024d612b6d0f7786dc18c324e",
+      "role_tier": "secondary_endothelial_detarget",
+      "mature_sequence_rna": "CAUUAUUACUUUUGGUACGCG",
+      "length_nt": 21,
+      "seed_positions_2_to_8_rna": "AUUAUUA",
+      "mrna_target_site_7mer_m8_rna": "UAAUAAU",
+      "mrna_target_site_7mer_a1_rna": "AAUAAUA",
+      "mrna_target_site_8mer_rna": "UAAUAAUA",
+      "mrna_full_complementary_ago2_cleavage_site_rna": "CGCGUACCAAAAGUAAUAAUG",
+      "fantom5_expression": {
+        "in_top100_fantom5_registry": true,
+        "top_enriched_tissue": "endothelial",
+        "top_tissue_cpm": 65250.11,
+        "specificity_tau": 0.4512,
+        "mean_cpm_by_tissue": {
+          "liver_hepatocyte": 11457.23,
+          "myeloid_monocyte_macrophage": 146.11,
+          "t_cell": 50.63,
+          "endothelial": 65250.11,
+          "skeletal_muscle": 41.06,
+          "cardiac_heart": 1362.6,
+          "brain_neural": 115.1,
+          "lung_epithelial": 223.04,
+          "kidney_renal": 10564.53
+        }
+      },
+      "isomir_and_version_reconciliation": null,
+      "engineering_rationale": "Co-expressed 5p strand from EGFL7 intronic pre-miR-126 (65,250 CPM in FANTOM5 endothelial cells; note moderate sinusoidal liver endothelial presence).",
+      "verification_url": "https://rnacentral.org/api/v1/rna/?external_id=MIMAT0000444&format=json",
+      "license_spdx": "CC0-1.0 AND CC-BY-4.0",
+      "license_track": "commercial_clean"
+    },
+    {
+      "tissue_group": "lymphoid_t_cell",
+      "fantom5_compartment": "t_cell",
+      "mirna_id": "hsa-miR-150-5p",
+      "mirbase_accession": "MIMAT0000451",
+      "rnacentral_urs_id": "URS000016FD1A",
+      "rnacentral_md5": "c3e95095e460a10ee6b8866ea267ff99",
+      "role_tier": "lymphoid_detarget",
+      "mature_sequence_rna": "UCUCCCAACCCUUGUACCAGUG",
+      "length_nt": 22,
+      "seed_positions_2_to_8_rna": "CUCCCAA",
+      "mrna_target_site_7mer_m8_rna": "UUGGGAG",
+      "mrna_target_site_7mer_a1_rna": "UGGGAGA",
+      "mrna_target_site_8mer_rna": "UUGGGAGA",
+      "mrna_full_complementary_ago2_cleavage_site_rna": "CACUGGUACAAGGGUUGGGAGA",
+      "fantom5_expression": {
+        "in_top100_fantom5_registry": true,
+        "top_enriched_tissue": "t_cell",
+        "top_tissue_cpm": 319166.83,
+        "specificity_tau": 0.7006,
+        "mean_cpm_by_tissue": {
+          "liver_hepatocyte": 46.83,
+          "myeloid_monocyte_macrophage": 19971.92,
+          "t_cell": 319166.83,
+          "endothelial": 1666.22,
+          "skeletal_muscle": 5.94,
+          "cardiac_heart": 2.48,
+          "brain_neural": 6.92,
+          "lung_epithelial": 4.95,
+          "kidney_renal": 7.41
+        }
+      },
+      "isomir_and_version_reconciliation": null,
+      "engineering_rationale": "Mature T/B lymphocyte-enriched miRNA (319,167 CPM in FANTOM5 T cells) for sparing APCs while silencing lymphocytes.",
+      "verification_url": "https://rnacentral.org/api/v1/rna/?external_id=MIMAT0000451&format=json",
+      "license_spdx": "CC0-1.0 AND CC-BY-4.0",
+      "license_track": "commercial_clean"
+    },
+    {
+      "tissue_group": "lung_epithelial",
+      "fantom5_compartment": "lung_epithelial",
+      "mirna_id": "hsa-miR-205-5p",
+      "mirbase_accession": "MIMAT0000266",
+      "rnacentral_urs_id": "URS0000446722",
+      "rnacentral_md5": "373a7ca1314a5c9386cccf24570837db",
+      "role_tier": "epithelial_detarget",
+      "mature_sequence_rna": "UCCUUCAUUCCACCGGAGUCUG",
+      "length_nt": 22,
+      "seed_positions_2_to_8_rna": "CCUUCAU",
+      "mrna_target_site_7mer_m8_rna": "AUGAAGG",
+      "mrna_target_site_7mer_a1_rna": "UGAAGGA",
+      "mrna_target_site_8mer_rna": "AUGAAGGA",
+      "mrna_full_complementary_ago2_cleavage_site_rna": "CAGACUCCGGUGGAAUGAAGGA",
+      "fantom5_expression": {
+        "in_top100_fantom5_registry": true,
+        "top_enriched_tissue": "lung_epithelial",
+        "top_tissue_cpm": 35010.71,
+        "specificity_tau": 0.8009,
+        "mean_cpm_by_tissue": {
+          "liver_hepatocyte": 0.0,
+          "myeloid_monocyte_macrophage": 1.78,
+          "t_cell": 2.57,
+          "endothelial": 2.36,
+          "skeletal_muscle": 1.61,
+          "cardiac_heart": 86.48,
+          "brain_neural": 2.16,
+          "lung_epithelial": 35010.71,
+          "kidney_renal": 718.99
+        }
+      },
+      "isomir_and_version_reconciliation": "miRBase v23.1 / FANTOM5 records 23-nt sequence 'UCCUUCAUUCCACCGGAGUCUGU' (full RC 'ACAGACUCCGGUGGAAUGAAGGA'), whereas RNAcentral canonical URS0000446722 is 22-nt 'UCCUUCAUUCCACCGGAGUCUG'.",
+      "engineering_rationale": "Squamous/respiratory epithelial-specific miRNA (35,011 CPM in lung epithelial, 0.0 CPM in hepatocytes, tau=0.801).",
+      "verification_url": "https://rnacentral.org/api/v1/rna/?external_id=MIMAT0000266&format=json",
+      "license_spdx": "CC0-1.0 AND CC-BY-4.0",
+      "license_track": "commercial_clean"
+    }
+  ]
+}

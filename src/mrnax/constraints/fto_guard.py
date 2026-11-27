@@ -665,6 +665,8 @@ def _receipt_asset(component_id: str, seed_dir: Path | None) -> Path | None:
         return Path(importlib.metadata.distribution("dnachisel").locate_file(
             "dnachisel/DnaOptimizationProblem/DnaOptimizationProblem.py"
         ))
+    if component_id == "lineardesign_academic":
+        return engine_dir / "lineardesign_adapter.py"
     return None
 
 

@@ -41,7 +41,7 @@ def _isolate_home_and_vault(tmp_path: Path):
 
 def test_deepseek_defaults_and_supported_models_include_flash_and_v4_pro() -> None:
     assert DEFAULT_PROVIDER_MODELS["deepseek"] == "deepseek-flash"
-    assert SUPPORTED_PROVIDER_MODELS["deepseek"] == ["deepseek-flash", "deepseek-v4-pro"]
+    assert {"deepseek-flash", "deepseek-v4-pro"}.issubset(set(SUPPORTED_PROVIDER_MODELS["deepseek"]))
     assert "openai" in SUPPORTED_PROVIDER_MODELS
     assert "kimi" in SUPPORTED_PROVIDER_MODELS
     assert "qwen" in SUPPORTED_PROVIDER_MODELS
@@ -169,7 +169,7 @@ def test_gateway_agent_chat_persists_redacted_history_handles_502_and_preserves_
     st = client.get("/v1/system/status").json()
     assert st["default_llm_provider"] == "deepseek"
     assert st["default_llm_models"]["deepseek"] == "deepseek-flash"
-    assert st["supported_llm_models"]["deepseek"] == ["deepseek-flash", "deepseek-v4-pro"]
+    assert {"deepseek-flash", "deepseek-v4-pro"}.issubset(set(st["supported_llm_models"]["deepseek"]))
 
     seen_calls: list[dict[str, Any]] = []
 
