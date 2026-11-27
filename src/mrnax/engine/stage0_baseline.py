@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import functools
+import json
 import logging
 import random
+from pathlib import Path
 
 from dnachisel import (
     AvoidPattern,
@@ -68,6 +71,17 @@ def generate_random_synonymous_cds(
     return cds_rna
 
 
+@functools.lru_cache(maxsize=2)
+def _load_bicodon_atlas() -> tuple[dict[str, float], dict[str, float]]:
+    from mrnax.engine.profiles import resolve_default_seed_dir
+
+    atlas_path = resolve_default_seed_dir() / "human_codon_bicodon_stability_atlas_v1.json"
+    doc = json.loads(atlas_path.read_text(encoding="utf-8"))
+    csc = {k: float(v["csc_spearman"]) for k, v in doc["codon_stabilization_coefficients"].items()}
+    bic = {k: float(v["stability_top10_vs_bot10_log2"]) for k, v in doc["bicodon_scores"].items()}
+    return csc, bic
+
+
 def mutate_cds_region_synonymously(
     cds_rna: str,
     protein_seq: str,
@@ -81,6 +95,7 @@ def mutate_cds_region_synonymously(
     codons = [cds_rna[i : i + 3] for i in range(0, len(cds_rna), 3)]
     lo = max(0, codon_start)
     hi = min(len(protein_seq), codon_end)
+    csc_map, bic_map = _load_bicodon_atlas()
     for idx in range(lo, hi):
         aa = protein_seq[idx]
         choices = AA_TO_SYNONYMOUS_RNA_CODONS[aa]
@@ -91,8 +106,18 @@ def mutate_cds_region_synonymously(
             ranked = sorted(choices, key=lambda c: (c.count("G"), c.count("C")))
             codons[idx] = ranked[0] if rng.random() < 0.7 else rng.choice(ranked[:2])
         else:
-            # Prefer GC-rich third-position C/G codons inside body for stem stability
-            ranked = sorted(choices, key=lambda c: -(c.count("G") + c.count("C")))
+            prev_c = codons[idx - 1] if idx > 0 else ""
+            if csc_map:
+                ranked = sorted(
+                    choices,
+                    key=lambda c: -(
+                        csc_map.get(c, 0.0)
+                        + 0.08 * bic_map.get(f"{prev_c}-{c}", 0.0)
+                        + 0.02 * (c.count("G") + c.count("C"))
+                    ),
+                )
+            else:
+                ranked = sorted(choices, key=lambda c: -(c.count("G") + c.count("C")))
             codons[idx] = ranked[0] if rng.random() < 0.75 else rng.choice(choices)
     out = "".join(codons)
     if chemistry in {"m1psi", "pseudouridine"}:

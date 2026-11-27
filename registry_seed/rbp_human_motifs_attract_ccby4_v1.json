@@ -1,0 +1,1333 @@
+{
+  "registry_id": "rbp_human_motifs_attract_ccby4_v1",
+  "version": "1.0.0",
+  "upstream_source": "ATtRACT (Giudice et al., Database 2016, PMID 27055826, PMC4823821, CC-BY-4.0)",
+  "license_spdx": "CC-BY-4.0 (article license; retain Giudice et al. 2016 attribution)",
+  "license_tier": "commercial_clean_with_attribution",
+  "total_human_attract_rows": 3256,
+  "total_unique_human_rbps": 160,
+  "curated_mrna_engineering_rbps": {
+    "ELAVL1": {
+      "mrna_role": "stabilizing_are_competitor_HuR",
+      "n_unique_motifs": 21,
+      "top_motifs": [
+        {
+          "motif_rna": "AUUU",
+          "length_nt": 4,
+          "matrix_id": "512",
+          "experiment_description": "X-RAY DIFFRACTION",
+          "score": "1.000000**",
+          "pubmed": "23519412"
+        },
+        {
+          "motif_rna": "AUUUA",
+          "length_nt": 5,
+          "matrix_id": "1103",
+          "experiment_description": "UV cross-linking;EMSA",
+          "score": "1.000000**",
+          "pubmed": "9882309"
+        },
+        {
+          "motif_rna": "AUUUAUUUAUUU",
+          "length_nt": 12,
+          "matrix_id": "164",
+          "experiment_description": "EMSA",
+          "score": "1.000000**",
+          "pubmed": "12900401"
+        },
+        {
+          "motif_rna": "AUUUU",
+          "length_nt": 5,
+          "matrix_id": "476",
+          "experiment_description": "X-RAY DIFFRACTION",
+          "score": "1.000000**",
+          "pubmed": "23519412"
+        },
+        {
+          "motif_rna": "CCCCCCC",
+          "length_nt": 7,
+          "matrix_id": "1107",
+          "experiment_description": "KH",
+          "score": "1.000000**",
+          "pubmed": "12011088"
+        },
+        {
+          "motif_rna": "UUAUUUAUU",
+          "length_nt": 9,
+          "matrix_id": "1105",
+          "experiment_description": "EMSA;other",
+          "score": "1.000000**",
+          "pubmed": "10075998"
+        },
+        {
+          "motif_rna": "UUAUUUU",
+          "length_nt": 7,
+          "matrix_id": "s101",
+          "experiment_description": "RNAcompete",
+          "score": "0.119681",
+          "pubmed": "19561594"
+        },
+        {
+          "motif_rna": "UUUUUUU",
+          "length_nt": 7,
+          "matrix_id": "M031_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.132086",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "UUGUUUU",
+          "length_nt": 7,
+          "matrix_id": "M031_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.08368",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "UUGAUUU",
+          "length_nt": 7,
+          "matrix_id": "M127_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.098815",
+          "pubmed": "23846655"
+        }
+      ]
+    },
+    "PCBP2": {
+      "mrna_role": "stabilizing_c_rich_alpha_globin",
+      "n_unique_motifs": 33,
+      "top_motifs": [
+        {
+          "motif_rna": "AAACCAAA",
+          "length_nt": 8,
+          "matrix_id": "786",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "17609276"
+        },
+        {
+          "motif_rna": "AAAUUACC",
+          "length_nt": 8,
+          "matrix_id": "788",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "17609276"
+        },
+        {
+          "motif_rna": "AAAUUCAC",
+          "length_nt": 8,
+          "matrix_id": "789",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "17609276"
+        },
+        {
+          "motif_rna": "AAAUUCCA",
+          "length_nt": 8,
+          "matrix_id": "787",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "17609276"
+        },
+        {
+          "motif_rna": "AAAUUCCC",
+          "length_nt": 8,
+          "matrix_id": "780",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "17609276"
+        },
+        {
+          "motif_rna": "ACAUUAAA",
+          "length_nt": 8,
+          "matrix_id": "782",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "17609276"
+        },
+        {
+          "motif_rna": "ACCUUAAA",
+          "length_nt": 8,
+          "matrix_id": "785",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "17609276"
+        },
+        {
+          "motif_rna": "CAAUUAAA",
+          "length_nt": 8,
+          "matrix_id": "783",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "17609276"
+        },
+        {
+          "motif_rna": "CCAUUAAA",
+          "length_nt": 8,
+          "matrix_id": "784",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "17609276"
+        },
+        {
+          "motif_rna": "CCAUUC",
+          "length_nt": 6,
+          "matrix_id": "777",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "17451601"
+        }
+      ]
+    },
+    "PCBP1": {
+      "mrna_role": "stabilizing_c_rich",
+      "n_unique_motifs": 33,
+      "top_motifs": [
+        {
+          "motif_rna": "AAAAAAA",
+          "length_nt": 7,
+          "matrix_id": "771",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "8917439"
+        },
+        {
+          "motif_rna": "AAACCAAA",
+          "length_nt": 8,
+          "matrix_id": "756",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "17609276"
+        },
+        {
+          "motif_rna": "AAAUUACC",
+          "length_nt": 8,
+          "matrix_id": "758",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "17609276"
+        },
+        {
+          "motif_rna": "AAAUUCAC",
+          "length_nt": 8,
+          "matrix_id": "759",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "17609276"
+        },
+        {
+          "motif_rna": "AAAUUCCA",
+          "length_nt": 8,
+          "matrix_id": "757",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "17609276"
+        },
+        {
+          "motif_rna": "AAAUUCCC",
+          "length_nt": 8,
+          "matrix_id": "750",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "17609276"
+        },
+        {
+          "motif_rna": "ACAUUAAA",
+          "length_nt": 8,
+          "matrix_id": "752",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "17609276"
+        },
+        {
+          "motif_rna": "ACCUUAAA",
+          "length_nt": 8,
+          "matrix_id": "755",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "17609276"
+        },
+        {
+          "motif_rna": "CAAUUAAA",
+          "length_nt": 8,
+          "matrix_id": "753",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "17609276"
+        },
+        {
+          "motif_rna": "CCAUUAAA",
+          "length_nt": 8,
+          "matrix_id": "754",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "17609276"
+        }
+      ]
+    },
+    "PABPC1": {
+      "mrna_role": "stabilizing_polya_binding",
+      "n_unique_motifs": 18,
+      "top_motifs": [
+        {
+          "motif_rna": "AAAAA",
+          "length_nt": 5,
+          "matrix_id": "M275_0.6",
+          "experiment_description": "SELEX",
+          "score": "1.000000**",
+          "pubmed": "7908267"
+        },
+        {
+          "motif_rna": "AAAAAAA",
+          "length_nt": 7,
+          "matrix_id": "452",
+          "experiment_description": "X-RAY DIFFRACTION",
+          "score": "1.000000**",
+          "pubmed": "10499800"
+        },
+        {
+          "motif_rna": "AAAAAAAA",
+          "length_nt": 8,
+          "matrix_id": "416",
+          "experiment_description": "X-RAY DIFFRACTION",
+          "score": "1.000000**",
+          "pubmed": "10499800"
+        },
+        {
+          "motif_rna": "ACAAACA",
+          "length_nt": 7,
+          "matrix_id": "M349_0.6",
+          "experiment_description": "SELEX",
+          "score": "0.023946",
+          "pubmed": "7908267"
+        },
+        {
+          "motif_rna": "ACUAACA",
+          "length_nt": 7,
+          "matrix_id": "M349_0.6",
+          "experiment_description": "SELEX",
+          "score": "0.035081",
+          "pubmed": "7908267"
+        },
+        {
+          "motif_rna": "ACGAACA",
+          "length_nt": 7,
+          "matrix_id": "M349_0.6",
+          "experiment_description": "SELEX",
+          "score": "0.023946",
+          "pubmed": "7908267"
+        },
+        {
+          "motif_rna": "ACAAAUA",
+          "length_nt": 7,
+          "matrix_id": "M349_0.6",
+          "experiment_description": "SELEX",
+          "score": "0.047054",
+          "pubmed": "7908267"
+        },
+        {
+          "motif_rna": "ACUAAUA",
+          "length_nt": 7,
+          "matrix_id": "M349_0.6",
+          "experiment_description": "SELEX",
+          "score": "0.068934**",
+          "pubmed": "7908267"
+        },
+        {
+          "motif_rna": "ACGAAUA",
+          "length_nt": 7,
+          "matrix_id": "M349_0.6",
+          "experiment_description": "SELEX",
+          "score": "0.047054",
+          "pubmed": "7908267"
+        },
+        {
+          "motif_rna": "ACAAACC",
+          "length_nt": 7,
+          "matrix_id": "M349_0.6",
+          "experiment_description": "SELEX",
+          "score": "0.023946",
+          "pubmed": "7908267"
+        }
+      ]
+    },
+    "PABPC4": {
+      "mrna_role": "stabilizing_polya_binding",
+      "n_unique_motifs": 2,
+      "top_motifs": [
+        {
+          "motif_rna": "AAAAAAA",
+          "length_nt": 7,
+          "matrix_id": "M042_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.287831**",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "AAAAAAG",
+          "length_nt": 7,
+          "matrix_id": "M042_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.086233",
+          "pubmed": "23846655"
+        }
+      ]
+    },
+    "YBX1": {
+      "mrna_role": "stabilizing_general_mrnp",
+      "n_unique_motifs": 22,
+      "top_motifs": [
+        {
+          "motif_rna": "AACAUC",
+          "length_nt": 6,
+          "matrix_id": "M081_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.649623**",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "AACAUCA",
+          "length_nt": 7,
+          "matrix_id": "M111_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.295457**",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "AACAUCU",
+          "length_nt": 7,
+          "matrix_id": "M111_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.089415",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "AACAUCG",
+          "length_nt": 7,
+          "matrix_id": "M111_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.124748",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "ACAAC",
+          "length_nt": 5,
+          "matrix_id": "1293",
+          "experiment_description": "UV cross-linking;EMSA",
+          "score": "1.000000**",
+          "pubmed": "18503770"
+        },
+        {
+          "motif_rna": "CAACCACAA",
+          "length_nt": 9,
+          "matrix_id": "1291",
+          "experiment_description": "UV cross-linking",
+          "score": "1.000000**",
+          "pubmed": "11447123"
+        },
+        {
+          "motif_rna": "CAACCACACCAC",
+          "length_nt": 12,
+          "matrix_id": "1290",
+          "experiment_description": "UV cross-linking",
+          "score": "1.000000**",
+          "pubmed": "11447123"
+        },
+        {
+          "motif_rna": "CACC",
+          "length_nt": 4,
+          "matrix_id": "s54",
+          "experiment_description": "SELEX",
+          "score": "0.495098**",
+          "pubmed": "22730292"
+        },
+        {
+          "motif_rna": "CAUC",
+          "length_nt": 4,
+          "matrix_id": "1298",
+          "experiment_description": "UV cross-linking;other",
+          "score": "1.000000**",
+          "pubmed": "22730292"
+        },
+        {
+          "motif_rna": "CAUCAUC",
+          "length_nt": 7,
+          "matrix_id": "1299",
+          "experiment_description": "UV cross-linking;other",
+          "score": "1.000000**",
+          "pubmed": "22730292"
+        }
+      ]
+    },
+    "IGF2BP1": {
+      "mrna_role": "stabilizing_m6a_mrna",
+      "n_unique_motifs": 1,
+      "top_motifs": [
+        {
+          "motif_rna": "AAGCACCCGUU",
+          "length_nt": 11,
+          "matrix_id": "M296_0.6",
+          "experiment_description": "SELEX",
+          "score": "0.278085**",
+          "pubmed": "12507992"
+        }
+      ]
+    },
+    "IGF2BP2": {
+      "mrna_role": "stabilizing_m6a_mrna",
+      "n_unique_motifs": 36,
+      "top_motifs": [
+        {
+          "motif_rna": "AAAAACA",
+          "length_nt": 7,
+          "matrix_id": "M032_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.058613",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "CAAAACA",
+          "length_nt": 7,
+          "matrix_id": "M032_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.018336",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "GAAAACA",
+          "length_nt": 7,
+          "matrix_id": "M032_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.017855",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "ACAAACA",
+          "length_nt": 7,
+          "matrix_id": "M032_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.076341**",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "CCAAACA",
+          "length_nt": 7,
+          "matrix_id": "M032_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.023882",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "GCAAACA",
+          "length_nt": 7,
+          "matrix_id": "M032_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.023256",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "AAAUACA",
+          "length_nt": 7,
+          "matrix_id": "M032_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.032073",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "CAAUACA",
+          "length_nt": 7,
+          "matrix_id": "M032_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.010034",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "GAAUACA",
+          "length_nt": 7,
+          "matrix_id": "M032_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.00977",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "ACAUACA",
+          "length_nt": 7,
+          "matrix_id": "M032_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.041773",
+          "pubmed": "23846655"
+        }
+      ]
+    },
+    "IGF2BP3": {
+      "mrna_role": "stabilizing_m6a_mrna",
+      "n_unique_motifs": 13,
+      "top_motifs": [
+        {
+          "motif_rna": "AAAAACA",
+          "length_nt": 7,
+          "matrix_id": "M163_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.0329",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "ACAAACA",
+          "length_nt": 7,
+          "matrix_id": "M163_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.040492**",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "AAAUACA",
+          "length_nt": 7,
+          "matrix_id": "M163_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.025377",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "ACAUACA",
+          "length_nt": 7,
+          "matrix_id": "M163_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.031233",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "AAACACA",
+          "length_nt": 7,
+          "matrix_id": "M163_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.025302",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "ACACACA",
+          "length_nt": 7,
+          "matrix_id": "M163_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.03114",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "AAAAUCA",
+          "length_nt": 7,
+          "matrix_id": "M163_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.017073",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "ACAAUCA",
+          "length_nt": 7,
+          "matrix_id": "M163_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.021012",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "AAAUUCA",
+          "length_nt": 7,
+          "matrix_id": "M163_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.013169",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "ACAUUCA",
+          "length_nt": 7,
+          "matrix_id": "M163_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.016208",
+          "pubmed": "23846655"
+        }
+      ]
+    },
+    "ZFP36": {
+      "mrna_role": "destabilizing_are_TTP",
+      "n_unique_motifs": 63,
+      "top_motifs": [
+        {
+          "motif_rna": "AAAAAACAAAG",
+          "length_nt": 11,
+          "matrix_id": "M269_0.6",
+          "experiment_description": "SELEX",
+          "score": "0.04524",
+          "pubmed": "12324455"
+        },
+        {
+          "motif_rna": "AAUAAACAAAG",
+          "length_nt": 11,
+          "matrix_id": "M269_0.6",
+          "experiment_description": "SELEX",
+          "score": "0.04524",
+          "pubmed": "12324455"
+        },
+        {
+          "motif_rna": "AACAAACAAAG",
+          "length_nt": 11,
+          "matrix_id": "M269_0.6",
+          "experiment_description": "SELEX",
+          "score": "0.0232",
+          "pubmed": "12324455"
+        },
+        {
+          "motif_rna": "AAAAAGCAAAG",
+          "length_nt": 11,
+          "matrix_id": "M269_0.6",
+          "experiment_description": "SELEX",
+          "score": "0.0312",
+          "pubmed": "12324455"
+        },
+        {
+          "motif_rna": "AAUAAGCAAAG",
+          "length_nt": 11,
+          "matrix_id": "M269_0.6",
+          "experiment_description": "SELEX",
+          "score": "0.0312",
+          "pubmed": "12324455"
+        },
+        {
+          "motif_rna": "AACAAGCAAAG",
+          "length_nt": 11,
+          "matrix_id": "M269_0.6",
+          "experiment_description": "SELEX",
+          "score": "0.016",
+          "pubmed": "12324455"
+        },
+        {
+          "motif_rna": "AAAAAAUAAAG",
+          "length_nt": 11,
+          "matrix_id": "M269_0.6",
+          "experiment_description": "SELEX",
+          "score": "0.088218**",
+          "pubmed": "12324455"
+        },
+        {
+          "motif_rna": "AAUAAAUAAAG",
+          "length_nt": 11,
+          "matrix_id": "M269_0.6",
+          "experiment_description": "SELEX",
+          "score": "0.088218**",
+          "pubmed": "12324455"
+        },
+        {
+          "motif_rna": "AACAAAUAAAG",
+          "length_nt": 11,
+          "matrix_id": "M269_0.6",
+          "experiment_description": "SELEX",
+          "score": "0.04524",
+          "pubmed": "12324455"
+        },
+        {
+          "motif_rna": "AAAAAGUAAAG",
+          "length_nt": 11,
+          "matrix_id": "M269_0.6",
+          "experiment_description": "SELEX",
+          "score": "0.06084",
+          "pubmed": "12324455"
+        }
+      ]
+    },
+    "ZFP36L2": {
+      "mrna_role": "destabilizing_are_BRF2",
+      "n_unique_motifs": 1,
+      "top_motifs": [
+        {
+          "motif_rna": "UUAUUUAUU",
+          "length_nt": 9,
+          "matrix_id": "15",
+          "experiment_description": "NMR",
+          "score": "1.000000**",
+          "pubmed": "14981510"
+        }
+      ]
+    },
+    "PUM1": {
+      "mrna_role": "destabilizing_pumilio",
+      "n_unique_motifs": 13,
+      "top_motifs": [
+        {
+          "motif_rna": "AAUUGUACAUAA",
+          "length_nt": 12,
+          "matrix_id": "137",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "19540345"
+        },
+        {
+          "motif_rna": "CCAGAAUUGUA",
+          "length_nt": 11,
+          "matrix_id": "82",
+          "experiment_description": "EMSA",
+          "score": "1.000000**",
+          "pubmed": "9404893"
+        },
+        {
+          "motif_rna": "CUUGUAGAUAA",
+          "length_nt": 11,
+          "matrix_id": "74",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "19540345"
+        },
+        {
+          "motif_rna": "UGUAAAUA",
+          "length_nt": 8,
+          "matrix_id": "533",
+          "experiment_description": "X-RAY DIFFRACTION",
+          "score": "1.000000**",
+          "pubmed": "21397187"
+        },
+        {
+          "motif_rna": "UGUAAUAUU",
+          "length_nt": 9,
+          "matrix_id": "484",
+          "experiment_description": "X-RAY DIFFRACTION",
+          "score": "1.000000**",
+          "pubmed": "18328718"
+        },
+        {
+          "motif_rna": "UGUACAU",
+          "length_nt": 7,
+          "matrix_id": "569",
+          "experiment_description": "X-RAY DIFFRACTION",
+          "score": "1.000000**",
+          "pubmed": "21397187"
+        },
+        {
+          "motif_rna": "UGUACAUA",
+          "length_nt": 8,
+          "matrix_id": "389",
+          "experiment_description": "X-RAY DIFFRACTION",
+          "score": "1.000000**",
+          "pubmed": "12202039"
+        },
+        {
+          "motif_rna": "UGUACAUC",
+          "length_nt": 8,
+          "matrix_id": "406",
+          "experiment_description": "X-RAY DIFFRACTION",
+          "score": "1.000000**",
+          "pubmed": "21397187"
+        },
+        {
+          "motif_rna": "UGUAGAUA",
+          "length_nt": 8,
+          "matrix_id": "337",
+          "experiment_description": "X-RAY DIFFRACTION",
+          "score": "1.000000**",
+          "pubmed": "21397187"
+        },
+        {
+          "motif_rna": "UGUAUAUA",
+          "length_nt": 8,
+          "matrix_id": "151",
+          "experiment_description": "genome-wide in vivo immunoprecipitation",
+          "score": "0.332237**",
+          "pubmed": "18411299"
+        }
+      ]
+    },
+    "PUM2": {
+      "mrna_role": "destabilizing_pumilio",
+      "n_unique_motifs": 5,
+      "top_motifs": [
+        {
+          "motif_rna": "UGUAAAUA",
+          "length_nt": 8,
+          "matrix_id": "503",
+          "experiment_description": "X-RAY DIFFRACTION",
+          "score": "1.000000**",
+          "pubmed": "21397187"
+        },
+        {
+          "motif_rna": "UGUACAUC",
+          "length_nt": 8,
+          "matrix_id": "361",
+          "experiment_description": "X-RAY DIFFRACTION",
+          "score": "1.000000**",
+          "pubmed": "21397187"
+        },
+        {
+          "motif_rna": "UGUAGAUA",
+          "length_nt": 8,
+          "matrix_id": "514",
+          "experiment_description": "X-RAY DIFFRACTION",
+          "score": "1.000000**",
+          "pubmed": "21397187"
+        },
+        {
+          "motif_rna": "UGUAUAUA",
+          "length_nt": 8,
+          "matrix_id": "116",
+          "experiment_description": "genome-wide in vivo immunoprecipitation",
+          "score": "0.332237**",
+          "pubmed": "18776931"
+        },
+        {
+          "motif_rna": "UGUACAUA",
+          "length_nt": 8,
+          "matrix_id": "116",
+          "experiment_description": "genome-wide in vivo immunoprecipitation",
+          "score": "0.332237**",
+          "pubmed": "18776931"
+        }
+      ]
+    },
+    "KHSRP": {
+      "mrna_role": "destabilizing_are_KSRP",
+      "n_unique_motifs": 54,
+      "top_motifs": [
+        {
+          "motif_rna": "AGGG",
+          "length_nt": 4,
+          "matrix_id": "172",
+          "experiment_description": "NMR",
+          "score": "1.000000**",
+          "pubmed": "18684992"
+        },
+        {
+          "motif_rna": "AUUUUA",
+          "length_nt": 6,
+          "matrix_id": "1109",
+          "experiment_description": "UV cross-linking",
+          "score": "1.000000**",
+          "pubmed": "16126846"
+        },
+        {
+          "motif_rna": "CACCCUCC",
+          "length_nt": 8,
+          "matrix_id": "175",
+          "experiment_description": "genome-wide in vivo immunoprecipitation",
+          "score": "0.062344**",
+          "pubmed": "17437629"
+        },
+        {
+          "motif_rna": "CUCCCUCC",
+          "length_nt": 8,
+          "matrix_id": "175",
+          "experiment_description": "genome-wide in vivo immunoprecipitation",
+          "score": "0.062344**",
+          "pubmed": "17437629"
+        },
+        {
+          "motif_rna": "CCCCCUCC",
+          "length_nt": 8,
+          "matrix_id": "175",
+          "experiment_description": "genome-wide in vivo immunoprecipitation",
+          "score": "0.062344**",
+          "pubmed": "17437629"
+        },
+        {
+          "motif_rna": "CGCCCUCC",
+          "length_nt": 8,
+          "matrix_id": "175",
+          "experiment_description": "genome-wide in vivo immunoprecipitation",
+          "score": "0.062344**",
+          "pubmed": "17437629"
+        },
+        {
+          "motif_rna": "CAGCCUCC",
+          "length_nt": 8,
+          "matrix_id": "175",
+          "experiment_description": "genome-wide in vivo immunoprecipitation",
+          "score": "0.062344**",
+          "pubmed": "17437629"
+        },
+        {
+          "motif_rna": "CUGCCUCC",
+          "length_nt": 8,
+          "matrix_id": "175",
+          "experiment_description": "genome-wide in vivo immunoprecipitation",
+          "score": "0.062344**",
+          "pubmed": "17437629"
+        },
+        {
+          "motif_rna": "CCGCCUCC",
+          "length_nt": 8,
+          "matrix_id": "175",
+          "experiment_description": "genome-wide in vivo immunoprecipitation",
+          "score": "0.062344**",
+          "pubmed": "17437629"
+        },
+        {
+          "motif_rna": "CGGCCUCC",
+          "length_nt": 8,
+          "matrix_id": "175",
+          "experiment_description": "genome-wide in vivo immunoprecipitation",
+          "score": "0.062344**",
+          "pubmed": "17437629"
+        }
+      ]
+    },
+    "HNRNPD": {
+      "mrna_role": "destabilizing_are_AUF1",
+      "n_unique_motifs": 9,
+      "top_motifs": [
+        {
+          "motif_rna": "AAAAAAA",
+          "length_nt": 7,
+          "matrix_id": "740",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "16834569"
+        },
+        {
+          "motif_rna": "AAUUUA",
+          "length_nt": 6,
+          "matrix_id": "742",
+          "experiment_description": "RNA affinity chromatography/purification",
+          "score": "1.000000**",
+          "pubmed": "24452013"
+        },
+        {
+          "motif_rna": "AGAUAU",
+          "length_nt": 6,
+          "matrix_id": "741",
+          "experiment_description": "RNA affinity chromatography/purification",
+          "score": "1.000000**",
+          "pubmed": "24452013"
+        },
+        {
+          "motif_rna": "AGUAGG",
+          "length_nt": 6,
+          "matrix_id": "743",
+          "experiment_description": "RNA affinity chromatography/purification",
+          "score": "1.000000**",
+          "pubmed": "24452013"
+        },
+        {
+          "motif_rna": "AUUUA",
+          "length_nt": 5,
+          "matrix_id": "739",
+          "experiment_description": "UV cross-linking;EMSA",
+          "score": "1.000000**",
+          "pubmed": "8647811"
+        },
+        {
+          "motif_rna": "AUUUAUUUA",
+          "length_nt": 9,
+          "matrix_id": "738",
+          "experiment_description": "UV cross-linking;EMSA",
+          "score": "1.000000**",
+          "pubmed": "8647811"
+        },
+        {
+          "motif_rna": "UUAGAG",
+          "length_nt": 6,
+          "matrix_id": "735",
+          "experiment_description": "EMSA",
+          "score": "1.000000**",
+          "pubmed": "8321232"
+        },
+        {
+          "motif_rna": "UUAGGA",
+          "length_nt": 6,
+          "matrix_id": "736",
+          "experiment_description": "EMSA",
+          "score": "1.000000**",
+          "pubmed": "8321232"
+        },
+        {
+          "motif_rna": "UUAGGG",
+          "length_nt": 6,
+          "matrix_id": "737",
+          "experiment_description": "EMSA",
+          "score": "1.000000**",
+          "pubmed": "8321232"
+        }
+      ]
+    },
+    "RC3H1": {
+      "mrna_role": "destabilizing_cde_Roquin",
+      "n_unique_motifs": 3,
+      "top_motifs": [
+        {
+          "motif_rna": "CCUUCUGUG",
+          "length_nt": 9,
+          "matrix_id": "354",
+          "experiment_description": "X-RAY DIFFRACTION",
+          "score": "1.000000**",
+          "pubmed": "25026078"
+        },
+        {
+          "motif_rna": "UCCCUUCUGUG",
+          "length_nt": 11,
+          "matrix_id": "467",
+          "experiment_description": "X-RAY DIFFRACTION",
+          "score": "1.000000**",
+          "pubmed": "25026078"
+        },
+        {
+          "motif_rna": "UUUC",
+          "length_nt": 4,
+          "matrix_id": "531",
+          "experiment_description": "X-RAY DIFFRACTION",
+          "score": "1.000000**",
+          "pubmed": "25026078"
+        }
+      ]
+    },
+    "PTBP1": {
+      "mrna_role": "splicing_and_utr_regulator",
+      "n_unique_motifs": 96,
+      "top_motifs": [
+        {
+          "motif_rna": "AUCUUC",
+          "length_nt": 6,
+          "matrix_id": "s12",
+          "experiment_description": "SELEX",
+          "score": "0.04703",
+          "pubmed": "9214659"
+        },
+        {
+          "motif_rna": "CCCCCCC",
+          "length_nt": 7,
+          "matrix_id": "1016",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "9305981"
+        },
+        {
+          "motif_rna": "CCUCUUU",
+          "length_nt": 7,
+          "matrix_id": "1003",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "21518792"
+        },
+        {
+          "motif_rna": "CCUUCCUU",
+          "length_nt": 8,
+          "matrix_id": "1002",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "16260624"
+        },
+        {
+          "motif_rna": "CCUUUCCC",
+          "length_nt": 8,
+          "matrix_id": "996",
+          "experiment_description": "EMSA;UV cross-linking",
+          "score": "1.000000**",
+          "pubmed": "17548433"
+        },
+        {
+          "motif_rna": "CUCCAUCUU",
+          "length_nt": 9,
+          "matrix_id": "994",
+          "experiment_description": "EMSA",
+          "score": "1.000000**",
+          "pubmed": "16431980"
+        },
+        {
+          "motif_rna": "CUCU",
+          "length_nt": 4,
+          "matrix_id": "489",
+          "experiment_description": "SOLUTION NMR",
+          "score": "1.000000**",
+          "pubmed": "16179478"
+        },
+        {
+          "motif_rna": "CUCUC",
+          "length_nt": 5,
+          "matrix_id": "8",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "19861426"
+        },
+        {
+          "motif_rna": "CUCUCU",
+          "length_nt": 6,
+          "matrix_id": "1006",
+          "experiment_description": "UV cross-linking",
+          "score": "1.000000**",
+          "pubmed": "10911989"
+        },
+        {
+          "motif_rna": "CUCUUA",
+          "length_nt": 6,
+          "matrix_id": "s12",
+          "experiment_description": "SELEX",
+          "score": "0.124689",
+          "pubmed": "9214659"
+        }
+      ]
+    },
+    "HNRNPC": {
+      "mrna_role": "poly_u_binding",
+      "n_unique_motifs": 18,
+      "top_motifs": [
+        {
+          "motif_rna": "AUUUA",
+          "length_nt": 5,
+          "matrix_id": "712",
+          "experiment_description": "UV cross-linking",
+          "score": "1.000000**",
+          "pubmed": "8473331"
+        },
+        {
+          "motif_rna": "GGAUAC",
+          "length_nt": 6,
+          "matrix_id": "733",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "19910374"
+        },
+        {
+          "motif_rna": "GGGGGGG",
+          "length_nt": 7,
+          "matrix_id": "727",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "7688265"
+        },
+        {
+          "motif_rna": "AUUUUUG",
+          "length_nt": 7,
+          "matrix_id": "M025_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.154023",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "UUUUUUG",
+          "length_nt": 7,
+          "matrix_id": "M025_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.046077",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "CUUUUUG",
+          "length_nt": 7,
+          "matrix_id": "M025_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.050246",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "AUUUUUU",
+          "length_nt": 7,
+          "matrix_id": "M025_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.297441**",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "UUUUUUU",
+          "length_nt": 7,
+          "matrix_id": "M025_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.088981",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "CUUUUUU",
+          "length_nt": 7,
+          "matrix_id": "M025_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.097032",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "UUUUU",
+          "length_nt": 5,
+          "matrix_id": "724",
+          "experiment_description": "UV cross-linking;EMSA",
+          "score": "1.000000**",
+          "pubmed": "9393875"
+        }
+      ]
+    },
+    "QKI": {
+      "mrna_role": "quaking_stability_regulator",
+      "n_unique_motifs": 12,
+      "top_motifs": [
+        {
+          "motif_rna": "ACACACUAACCU",
+          "length_nt": 12,
+          "matrix_id": "104",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "15273320"
+        },
+        {
+          "motif_rna": "ACUAAC",
+          "length_nt": 6,
+          "matrix_id": "3",
+          "experiment_description": "genome-wide in vivo immunoprecipitation",
+          "score": "1.000000**",
+          "pubmed": "20371350"
+        },
+        {
+          "motif_rna": "ACUAACA",
+          "length_nt": 7,
+          "matrix_id": "M046_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.278208**",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "ACUAACC",
+          "length_nt": 7,
+          "matrix_id": "M046_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.206363",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "ACUAACG",
+          "length_nt": 7,
+          "matrix_id": "M046_0.6",
+          "experiment_description": "RNAcompete",
+          "score": "0.117093",
+          "pubmed": "23846655"
+        },
+        {
+          "motif_rna": "ACUUAU",
+          "length_nt": 6,
+          "matrix_id": "1141",
+          "experiment_description": "EMSA",
+          "score": "1.000000**",
+          "pubmed": "24722255"
+        },
+        {
+          "motif_rna": "AUCUAAUCAUAU",
+          "length_nt": 12,
+          "matrix_id": "83",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "15273320"
+        },
+        {
+          "motif_rna": "AUCUACUCAUAU",
+          "length_nt": 12,
+          "matrix_id": "70",
+          "experiment_description": "other",
+          "score": "1.000000**",
+          "pubmed": "15273320"
+        },
+        {
+          "motif_rna": "AUUAAC",
+          "length_nt": 6,
+          "matrix_id": "1138",
+          "experiment_description": "UV cross-linking;EMSA",
+          "score": "1.000000**",
+          "pubmed": "24722255"
+        },
+        {
+          "motif_rna": "CUAAU",
+          "length_nt": 5,
+          "matrix_id": "1139",
+          "experiment_description": "UV cross-linking;EMSA",
+          "score": "1.000000**",
+          "pubmed": "24722255"
+        }
+      ]
+    }
+  }
+}

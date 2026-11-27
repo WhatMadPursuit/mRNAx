@@ -68,8 +68,13 @@ def handle_mcp_request(toolbox: AtomicToolbox, req: dict[str, Any]) -> dict[str,
     }
 
 
-def serve_mcp_stdio(*, project_id: str, store_dir: Path, seed_dir: Path) -> None:
-    session = ProjectHarnessSession(project_id=project_id, store_dir=store_dir, seed_dir=seed_dir)
+def serve_mcp_stdio(*, project_id: str | None = None, store_dir: Path, seed_dir: Path) -> None:
+    session = ProjectHarnessSession(
+        project_id=project_id,
+        store_dir=store_dir,
+        seed_dir=seed_dir,
+        default_project_id="proj_mcp",
+    )
     toolbox = AtomicToolbox(session)
     for raw_line in sys.stdin:
         line = raw_line.strip()

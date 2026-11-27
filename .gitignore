@@ -10,6 +10,8 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+.DS_Store
+.project.lock
 
 # Secrets & Credentials (STRICTLY FORBIDDEN IN GIT)
 .env

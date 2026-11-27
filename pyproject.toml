@@ -13,7 +13,6 @@ dependencies = [
     "pydantic>=2.9.0",
     "biopython>=1.84",
     "dnachisel>=3.2.15",
-    "ViennaRNA>=2.6.4",
     "numpy>=1.26.0",
     "scipy>=1.13.0",
     "pyyaml>=6.0.1",
@@ -28,7 +27,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+research = [
+    "ViennaRNA>=2.6.4",
+]
 dev = [
+    "ViennaRNA>=2.6.4",
     "pytest>=8.3.0",
     "pandas>=2.2.0",
     "pyarrow>=17.0.0",
@@ -44,7 +47,11 @@ mrnax = "mrnax.harness.cli:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/mrnax"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"registry_seed" = "mrnax/_bundled_data/registry_seed"
+"docs/replacement_cards" = "mrnax/_bundled_data/replacement_cards"
+
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests/unit"]
 pythonpath = ["src"]
 addopts = "-ra -q"

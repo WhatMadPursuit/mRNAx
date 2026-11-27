@@ -6,8 +6,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from mrnax.constraints.registry import ScopedConstraintEngine, default_m1_constraints
-from mrnax.harness.state_machine import ProjectHarnessSession
+from mrnax.constraints.registry import ScopedConstraintEngine
+from mrnax.engine.pareto_director import project_report_for_intent
+from mrnax.harness.state_machine import ProjectHarnessSession, paired_chains
 from mrnax.io_insdc.genbank_io import export_construct_package
 from mrnax.schemas.experiment_record import ExperimentRecord
 
@@ -35,16 +36,17 @@ class AtomicToolbox:
 
     # 2. audit_construct
     def audit_construct(
-        self, bundle_id: str, compliance_track: str = "research_max"
+        self, bundle_id: str, compliance_track: str | None = None
     ) -> dict[str, Any]:
         bundle = self.session.get_bundle(bundle_id)
-        constraints = (
-            self.session._intents[-1].constraints
-            if self.session._intents
-            else default_m1_constraints()
-        )
+        intent = self.session.intent_for_bundle(bundle_id)
         outcome = self.constraint_engine.evaluate_bundle(
-            bundle, constraints, compliance_track=compliance_track  # type: ignore[arg-type]
+            bundle,
+            intent.constraints,
+            compliance_track=compliance_track or intent.compliance_track,
+            expected_chemistry=intent.uridine_chemistry,
+            locked_scopes=intent.locked_scopes,
+            expected_protein_targets=intent.protein_targets,
         )
         return {
             "bundle_id": bundle.bundle_id,
@@ -97,7 +99,8 @@ class AtomicToolbox:
                 "blocking_questions": intent.blocking_questions,
             }
         bundles = self.session.execute_design(intent)
-        latest_rep = list(self.session._reports.values())[-1]
+        latest_rep = self.session.latest_report(intent.intent_id)
+        assert latest_rep is not None
         return {
             "intent_id": intent.intent_id,
             "intent_version": intent.intent_version,
@@ -116,20 +119,17 @@ class AtomicToolbox:
         lock_cds_from_bundle_id: str | None = None,
         detarget_liver: bool | None = None,
     ) -> dict[str, Any]:
-        add_locks = None
-        if lock_cds_from_bundle_id:
-            b = self.session.get_bundle(lock_cds_from_bundle_id)
-            add_locks = {"cds": b.molecules[0].get_segment_sequence("cds")}
         intent_v = self.session.apply_incremental_intent_update(
             turn_id=f"turn_{len(self.session._intents) + 1:02d}",
             user_utterance=user_utterance,
             updated_restriction_enzymes=updated_restriction_enzymes,
-            additional_locked_scopes=add_locks,  # type: ignore[arg-type]
+            lock_cds_from_bundle_id=lock_cds_from_bundle_id,
             detarget_tissues=(["liver_hepatocyte"] if detarget_liver else None),
             protected_tissues=(["skeletal_muscle"] if detarget_liver else None),
         )
         bundles = self.session.execute_design(intent_v)
-        latest_rep = list(self.session._reports.values())[-1]
+        latest_rep = self.session.latest_report(intent_v.intent_id)
+        assert latest_rep is not None
         return {
             "intent_id": intent_v.intent_id,
             "intent_version": intent_v.intent_version,
@@ -144,26 +144,33 @@ class AtomicToolbox:
     def compare_bundles(self, bundle_id_a: str, bundle_id_b: str) -> dict[str, Any]:
         ba = self.session.get_bundle(bundle_id_a)
         bb = self.session.get_bundle(bundle_id_b)
-        ma, mb = ba.molecules[0], bb.molecules[0]
-        diffs: dict[str, dict[str, Any]] = {}
-        for s in ("five_prime_utr", "cds", "stop_cassette", "three_prime_utr", "poly_a"):
-            sa = ma.get_segment_sequence(s)
-            sb = mb.get_segment_sequence(s)
-            diffs[s] = {
-                "identical": sa == sb,
-                "len_a": len(sa),
-                "len_b": len(sb),
-            }
-        return {
-            "bundle_a": bundle_id_a,
-            "bundle_b": bundle_id_b,
-            "segment_comparison": diffs,
-        }
+        comparisons = []
+        totals: dict[str, dict[str, Any]] = {}
+        for ma, mb in paired_chains(ba, bb):
+            diffs = {}
+            for scope in ("five_prime_utr", "cds", "stop_cassette", "three_prime_utr", "poly_a"):
+                sa = ma.get_segment_sequence(scope)
+                sb = mb.get_segment_sequence(scope)
+                diffs[scope] = {"identical": sa == sb, "len_a": len(sa), "len_b": len(sb)}
+                total = totals.setdefault(scope, {"identical": True, "len_a": 0, "len_b": 0})
+                total["identical"] &= sa == sb
+                total["len_a"] += len(sa)
+                total["len_b"] += len(sb)
+            comparisons.append({"molecule_id_a": ma.molecule_id, "molecule_id_b": mb.molecule_id,
+                                "segment_comparison": diffs})
+        return {"bundle_a": bundle_id_a, "bundle_b": bundle_id_b, "segment_comparison": totals,
+                "chain_comparisons": comparisons}
 
     # 6. ingest_experiment
-    def ingest_experiment(self, record_json: dict[str, Any], batch_comparable: bool = True) -> dict[str, Any]:
+    def ingest_experiment(
+        self, record_json: dict[str, Any], batch_comparable: bool = True, held_out_validation_passed: bool = False
+    ) -> dict[str, Any]:
+        if type(held_out_validation_passed) is not bool or type(batch_comparable) is not bool:
+            raise ValueError("Feedback validation flags must be booleans")
         rec = ExperimentRecord.model_validate(record_json)
-        updated = self.session.ingest_experiment_feedback(rec, batch_comparable=batch_comparable)
+        updated = self.session.ingest_experiment_feedback(
+            rec, batch_comparable=batch_comparable, held_out_validation_passed=held_out_validation_passed,
+        )
         return updated.model_dump(mode="json")
 
     # 7. explain_tradeoffs
@@ -171,15 +178,25 @@ class AtomicToolbox:
         rep = (
             self.session._reports[report_id]
             if report_id
-            else list(self.session._reports.values())[-1]
+            else self.session.latest_report()
+        )
+        if rep is None:
+            raise ValueError("No evaluation report available in session")
+        intent = next((i for i in self.session._intents if i.intent_id == rep.intent_id), None)
+        projected = project_report_for_intent(
+            rep,
+            self.session._bundles,
+            intent,
+            seed_dir=self.session.seed_dir,
+            disallow_sandbox_override=True,
         )
         return {
-            "report_id": rep.report_id,
-            "outcome_status": rep.outcome_status,
-            "recommended_bundle_ids": rep.recommended_bundle_ids,
-            "candidate_evaluations": [e.model_dump(mode="json") for e in rep.candidate_evaluations],
-            "action_transparency": [t.model_dump(mode="json") for t in rep.action_transparency],
-            "pre_synthesis_advisories": [a.model_dump(mode="json") for a in rep.pre_synthesis_advisories],
+            "report_id": projected.report_id,
+            "outcome_status": projected.outcome_status,
+            "recommended_bundle_ids": projected.recommended_bundle_ids,
+            "candidate_evaluations": [e.model_dump(mode="json") for e in projected.candidate_evaluations],
+            "action_transparency": [t.model_dump(mode="json") for t in projected.action_transparency],
+            "pre_synthesis_advisories": [a.model_dump(mode="json") for a in projected.pre_synthesis_advisories],
         }
 
     # 8. get_job_status
@@ -191,16 +208,59 @@ class AtomicToolbox:
             "active_reference_bundle_id": self.session.active_reference_bundle_id,
         }
 
+    _ALLOWED_TOOL_NAMES: frozenset[str] = frozenset(
+        {
+            "search_protein_assets",
+            "audit_construct",
+            "design_constructs",
+            "refine_construct",
+            "compare_bundles",
+            "ingest_experiment",
+            "explain_tradeoffs",
+            "get_job_status",
+            "export_bundle",
+        }
+    )
+
     # 9. export_bundle
-    def export_bundle(self, bundle_id: str, out_dir: str) -> dict[str, Any]:
+    def export_bundle(self, bundle_id: str, out_dir: str = "") -> dict[str, Any]:
         b = self.session.get_bundle(bundle_id)
-        intent = self.session.latest_intent()
+        intent = self.session.intent_for_bundle(bundle_id)
+        if intent.compliance_track == "commercial_clean":
+            for rep in self.session._reports.values():
+                if rep.intent_id == intent.intent_id and any(
+                    e.bundle_id == bundle_id for e in rep.candidate_evaluations
+                ):
+                    if rep.isolated_sandbox_override or (
+                        rep.rule_snapshot_version is not None
+                        and not rep.rule_snapshot_version.startswith("rules_commercial_clean@")
+                    ):
+                        raise ValueError(
+                            "Commercial export blocked: candidate originated from an isolated_sandbox_override or non-commercial rule snapshot."
+                        )
+        base_store = self.session.store_dir.resolve()
+        raw_target = Path(out_dir) if out_dir else (base_store / "exports" / bundle_id)
+        unres = raw_target if raw_target.is_absolute() else (base_store / raw_target)
+        if unres.is_symlink() or any(p.is_symlink() for p in unres.parents if p != base_store.parent):
+            raise ValueError(f"Export out_dir '{out_dir}' must not traverse symlinks")
+        target_dir = unres.resolve()
+        if not target_dir.is_relative_to(base_store) or target_dir == base_store:
+            raise ValueError(
+                f"Export out_dir '{out_dir}' must resolve inside project store_dir '{base_store}'"
+            )
+        for fn in ("full_rna.fasta", "cds_only.fasta", "construct.gb", "chemistry_metadata.json"):
+            cand_f = target_dir / fn
+            if cand_f.is_symlink():
+                raise ValueError(f"Refusing to overwrite symlinked export target '{cand_f}'")
         manifest = export_construct_package(
             b,
-            Path(out_dir),
+            target_dir,
             constraint_engine=self.constraint_engine,
             constraints=intent.constraints,
             compliance_track=intent.compliance_track,
+            expected_chemistry=intent.uridine_chemistry,
+            locked_scopes=intent.locked_scopes,
+            expected_protein_targets=intent.protein_targets,
         )
         return manifest
 
@@ -299,6 +359,22 @@ class AtomicToolbox:
             {
                 "type": "function",
                 "function": {
+                    "name": "ingest_experiment",
+                    "description": "Record an experiment with its batch comparability and held-out validation result.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "record_json": {"type": "object"},
+                            "batch_comparable": {"type": "boolean", "default": True},
+                            "held_out_validation_passed": {"type": "boolean", "default": False},
+                        },
+                        "required": ["record_json"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
                     "name": "export_bundle",
                     "description": "Export full RNA FASTA, CDS FASTA, INSDC GenBank, and chemistry_metadata.json.",
                     "parameters": {
@@ -314,7 +390,9 @@ class AtomicToolbox:
         ]
 
     def dispatch_tool_call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        if name not in self._ALLOWED_TOOL_NAMES:
+            raise ValueError(f"Disallowed or unknown tool '{name}'")
         fn = getattr(self, name, None)
-        if fn is None or name.startswith("_"):
+        if fn is None or not callable(fn):
             raise ValueError(f"Unknown tool '{name}'")
         return fn(**arguments)

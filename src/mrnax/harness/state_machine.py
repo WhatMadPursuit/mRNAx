@@ -2,19 +2,27 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import math
+import os
 import re
+import tempfile
+import threading
 import uuid
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from functools import wraps
 from pathlib import Path
 from typing import Any
 
 from mrnax.constraints.registry import ScopedConstraintEngine, default_m1_constraints
-from mrnax.engine.pareto_director import run_design_pipeline
-from mrnax.harness.sandbox import UntrustedExternalText
+from mrnax.engine.pareto_director import next_report_timestamp_ns, run_design_pipeline
+from mrnax.harness.sandbox import UntrustedExternalText, redact_secret_markers
 from mrnax.schemas.common import ComplianceProfile, SegmentScope, UridineChemistry
-from mrnax.schemas.construct_bundle import ConstructBundle, ProteinTargetSpec, SegmentSpan
+from mrnax.schemas.construct_bundle import ConstructBundle, ProteinTargetSpec, RNAMoleculeSpec
 from mrnax.schemas.design_intent import (
+    BundleSegmentLock,
     CellExpressionSpec,
     ConstraintSpec,
     DesignIntent,
@@ -46,17 +54,94 @@ def _detect_enzymes(utterance: str) -> list[str] | None:
     return found if found else None
 
 
+_held_locks = threading.local()
+
+
+@contextmanager
+def project_lock(store_dir: Path) -> Iterator[None]:
+    path = store_dir.resolve() / ".project.lock"
+    key = (os.getpid(), path)
+    held = getattr(_held_locks, "paths", set())
+    if key in held:
+        yield
+        return
+    with path.open("a+b") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        _held_locks.paths = held | {key}
+        try:
+            yield
+        finally:
+            _held_locks.paths = held
+
+
+def _project_mutation[**P, R](method: Callable[P, R]) -> Callable[P, R]:
+    @wraps(method)
+    def serialized(self, *args, **kwargs):
+        with project_lock(self.store_dir):
+            meta = self.store_dir / "project_state.json"
+            if meta.exists() and json.loads(meta.read_bytes()).get("state_revision", 0) != self._state_revision:
+                self._load_existing()
+            return method(self, *args, **kwargs)
+    return serialized
+
+
+def _write_json(path: Path, value: dict, *, exclusive: bool = False) -> None:
+    # Publish only fully written files; link(2) gives atomic create-if-absent.
+    with tempfile.NamedTemporaryFile(dir=path.parent, mode="w", encoding="utf-8", delete=False) as tmp:
+        staged = Path(tmp.name)
+        try:
+            json.dump(value, tmp, indent=2, sort_keys=True)
+            tmp.write("\n")
+            tmp.close()
+            if exclusive:
+                os.link(staged, path)
+            else:
+                os.replace(staged, path)
+        finally:
+            staged.unlink(missing_ok=True)
+
+
+_SEGMENT_SCOPES: tuple[SegmentScope, ...] = ("five_prime_utr", "cds", "stop_cassette", "three_prime_utr", "poly_a")
+
+
+def paired_chains(left: ConstructBundle, right: ConstructBundle) -> list[tuple[RNAMoleculeSpec, RNAMoleculeSpec]]:
+    for bundle in (left, right):
+        ids = {m.molecule_id for m in bundle.molecules}
+        if len(ids) != len(bundle.molecules) or ids != bundle.target_stoichiometry.keys():
+            raise ValueError("Bundle chain IDs and stoichiometry disagree")
+    if left.co_expression_mode != right.co_expression_mode or len(left.molecules) != len(right.molecules):
+        raise ValueError("Incompatible chain count or co-expression mode")
+    by_id = {m.molecule_id: m for m in right.molecules}
+    pairs = []
+    for a in left.molecules:
+        b = by_id.get(a.molecule_id)
+        if b is None:
+            matches = [m for m in right.molecules if m.effective_translation_target == a.effective_translation_target]
+            if len(matches) != 1:
+                raise ValueError("Ambiguous chain identity across bundles")
+            b = matches[0]
+        if (a.effective_translation_target.protein_sequence != b.effective_translation_target.protein_sequence
+                or a.chemistry_track != b.chemistry_track
+                or left.target_stoichiometry[a.molecule_id] != right.target_stoichiometry[b.molecule_id]):
+            raise ValueError("Incompatible target, chemistry, or chain stoichiometry")
+        pairs.append((a, b))
+    if len({b.molecule_id for _, b in pairs}) != len(pairs):
+        raise ValueError("No one-to-one chain identity across bundles")
+    return pairs
+
+
 class ProjectHarnessSession:
     """Stateful project service persisting turns, DesignIntent versions, ConstructBundles, and feedback."""
 
     def __init__(
         self,
         *,
-        project_id: str,
+        project_id: str | None = None,
         store_dir: Path,
         seed_dir: Path,
+        default_project_id: str = "proj_default",
     ) -> None:
-        self.project_id = project_id
+        self.project_id = (project_id or "").strip() or default_project_id
         self.store_dir = store_dir
         self.seed_dir = seed_dir
         self.store_dir.mkdir(parents=True, exist_ok=True)
@@ -69,49 +154,309 @@ class ProjectHarnessSession:
         self._bundles: dict[str, ConstructBundle] = {}
         self._reports: dict[str, EvaluationReport] = {}
         self._manifests: dict[str, RunManifest] = {}
+        self._experiments: list[ExperimentRecord] = []
+        self._bundle_intent_map: dict[str, str] = {}
+        self._ambiguous_report_intents: set[str] = set()
         self._external_notes: list[UntrustedExternalText] = []
         self.active_reference_bundle_id: str | None = None
-        self._load_existing()
+        self._state_revision = 0
+        with project_lock(self.store_dir):
+            self._load_existing()
+
+    MAX_PROJECT_TURNS: int = 120
 
     def _load_existing(self) -> None:
-        for p in sorted((self.store_dir / "intents").glob("intent_v*.json")):
+        self._intents.clear()
+        self._bundles.clear()
+        self._reports.clear()
+        self._manifests.clear()
+        self._experiments.clear()
+        self._bundle_intent_map.clear()
+        self._ambiguous_report_intents.clear()
+        intent_files = sorted((self.store_dir / "intents").glob("intent_v*.json"))
+        for p in intent_files:
             self._intents.append(DesignIntent.model_validate_json(p.read_text(encoding="utf-8")))
-        for p in sorted((self.store_dir / "bundles").glob("*.json")):
+        bundle_files = (self.store_dir / "bundles").glob("*.json")
+        for p in bundle_files:
             b = ConstructBundle.model_validate_json(p.read_text(encoding="utf-8"))
             self._bundles[b.bundle_id] = b
-        for p in sorted((self.store_dir / "reports").glob("rep_*.json")):
-            rep = EvaluationReport.model_validate_json(p.read_text(encoding="utf-8"))
-            self._reports[rep.report_id] = rep
+
+        # Load any persisted RunManifest files in store_dir / manifests / reports for historical provenance hydration
+        manifest_candidates: list[Path] = []
+        for mp in (
+            *self.store_dir.glob("*manifest*.json"),
+            *((self.store_dir / "manifests").glob("*.json") if (self.store_dir / "manifests").is_dir() else ()),
+            *((self.store_dir / "reports").glob("*manifest*.json") if (self.store_dir / "reports").is_dir() else ()),
+        ):
+            if mp.is_file():
+                manifest_candidates.append(mp)
+        for mp in manifest_candidates:
+            try:
+                man = RunManifest.model_validate_json(mp.read_text(encoding="utf-8"))
+                self._manifests[man.execution_id] = man
+            except Exception:
+                continue
+
         state_meta = self.store_dir / "project_state.json"
+        meta: dict[str, Any] = {}
+        has_saved_bundle_map = False
+        has_saved_report_order = False
+        report_order: list[str] = []
+        has_saved_exp_order = False
+        exp_order: list[str] = []
         if state_meta.is_file():
             meta = json.loads(state_meta.read_text(encoding="utf-8"))
+            self._state_revision = meta.get("state_revision", 0)
             self.active_reference_bundle_id = meta.get("active_reference_bundle_id")
+            if isinstance(meta.get("report_order"), list):
+                has_saved_report_order = True
+                report_order = [str(x) for x in meta["report_order"]]
+            if isinstance(meta.get("ambiguous_report_intents"), list):
+                self._ambiguous_report_intents.update(str(x) for x in meta["ambiguous_report_intents"])
+            if isinstance(meta.get("experiment_order"), list):
+                has_saved_exp_order = True
+                exp_order = [str(x) for x in meta["experiment_order"]]
+            saved_map = meta.get("bundle_intent_map")
+            if isinstance(saved_map, dict):
+                has_saved_bundle_map = True
+                self._bundle_intent_map.update({str(k): str(v) for k, v in saved_map.items()})
+        stored_pid = meta.get("project_id") or (self._intents[0].project_id if self._intents else None)
+        if isinstance(stored_pid, str) and stored_pid.strip():
+            self.project_id = stored_pid.strip()
+
+        order_rank = {rid: idx for idx, rid in enumerate(report_order)}
+        loaded_reps: list[tuple[tuple[int, int, int, int, int, str], EvaluationReport]] = []
+        legacy_mtime_by_intent: dict[str, list[int]] = {}
+        for p in sorted((self.store_dir / "reports").glob("rep_*.json")):
+            rep = EvaluationReport.model_validate_json(p.read_text(encoding="utf-8"))
+            if rep.rule_snapshot_version is None and rep.execution_id in self._manifests:
+                man = self._manifests[rep.execution_id]
+                rep = rep.model_copy_validated(
+                    rule_snapshot_version=man.rule_snapshot_version,
+                    isolated_sandbox_override=rep.isolated_sandbox_override or man.isolated_sandbox_override,
+                )
+            ord_idx = order_rank.get(rep.report_id, 10**9)
+            mtime_ns = p.stat().st_mtime_ns
+            has_ns = 1 if rep.created_at_ns is not None else 0
+            created_ns = int(rep.created_at_ns) if rep.created_at_ns is not None else 0
+            if ord_idx == 10**9 and rep.created_at_ns is None:
+                legacy_mtime_by_intent.setdefault(rep.intent_id, []).append(mtime_ns)
+            loaded_reps.append(((ord_idx, rep.intent_version, has_ns, created_ns, mtime_ns, rep.report_id), rep))
+        for iid, mtimes in legacy_mtime_by_intent.items():
+            if len(mtimes) > 1 and len(set(mtimes)) < len(mtimes):
+                self._ambiguous_report_intents.add(iid)
+        loaded_reps.sort(key=lambda item: item[0])
+        for _, rep in loaded_reps:
+            self._reports[rep.report_id] = rep
+
+        # Compute earliest witnessed intent per bundle across chronological intent history (heals legacy maps too)
+        version_by_iid = {i.intent_id: i.intent_version for i in self._intents}
+        reps_by_intent: dict[str, list[EvaluationReport]] = {}
+        for rep in self._reports.values():
+            reps_by_intent.setdefault(rep.intent_id, []).append(rep)
+        earliest_witness: dict[str, str] = {}
+        for intent in self._intents:
+            if intent.reference_bundle_id and intent.reference_bundle_id in self._bundles:
+                earliest_witness.setdefault(intent.reference_bundle_id, intent.intent_id)
+            for rep in reps_by_intent.get(intent.intent_id, []):
+                for ce in rep.candidate_evaluations:
+                    earliest_witness.setdefault(ce.bundle_id, intent.intent_id)
+
+        if not has_saved_bundle_map:
+            self._bundle_intent_map.update(earliest_witness)
+            if (
+                self.active_reference_bundle_id
+                and self.active_reference_bundle_id in self._bundles
+                and len(self._intents) == 1
+            ):
+                self._bundle_intent_map.setdefault(self.active_reference_bundle_id, self._intents[0].intent_id)
+        else:
+            for bid, earliest_iid in earliest_witness.items():
+                cur_iid = self._bundle_intent_map.get(bid)
+                if (
+                    cur_iid is not None
+                    and cur_iid in version_by_iid
+                    and version_by_iid[cur_iid] > version_by_iid[earliest_iid]
+                ):
+                    self._bundle_intent_map[bid] = earliest_iid
+
+        self._reload_experiments_from_disk(meta=meta, exp_order=exp_order, has_saved_exp_order=has_saved_exp_order)
+
+        # Upgrade legacy report_order on writable stores when chronological order is unambiguous (e.g. before USTAR archival)
+        if (
+            state_meta.is_file()
+            and not has_saved_report_order
+            and len(self._reports) > 1
+            and not self._ambiguous_report_intents
+            and os.access(self.store_dir, os.W_OK)
+            and os.access(state_meta, os.W_OK)
+        ):
+            try:
+                self._save_state_meta()
+            except OSError:
+                pass
+
+    def _repair_experiment_in_memory(self, exp: ExperimentRecord) -> tuple[ExperimentRecord, bool]:
+        """Stamp physical construct digests in memory and downgrade legacy over-counted approvals."""
+        stamped_obs = [
+            o.model_copy_validated(physical_construct_digest=self._bundles[o.bundle_id].physical_construct_digest)
+            if (o.physical_construct_digest is None and o.bundle_id in self._bundles)
+            else o
+            for o in exp.observations
+        ]
+        obs_changed = stamped_obs != exp.observations
+        known_digests = [o.physical_construct_digest for o in stamped_obs]
+        phys_n = len(set(known_digests)) if all(d is not None for d in known_digests) else None
+        dec_cur = exp.feedback_decision
+        needs_downgrade = bool(
+            dec_cur is not None
+            and phys_n is not None
+            and phys_n < 6
+            and (dec_cur.weight_update_allowed or dec_cur.isolated_calibration_proposal_id is not None)
+        )
+        if needs_downgrade and dec_cur is not None:
+            new_rationale = re.sub(
+                r"weight_update_allowed=True(?:\s*\(N=\d+\))?",
+                f"weight_update_allowed=False (N={phys_n})",
+                dec_cur.rationale,
+            )
+            if f"N={phys_n}" not in new_rationale:
+                new_rationale = f"{new_rationale} [downgraded: physical N={phys_n} < 6]"
+            dec_cur = dec_cur.model_copy_validated(
+                weight_update_allowed=False,
+                held_out_validation_passed=False,
+                isolated_calibration_proposal_id=None,
+                rationale=new_rationale,
+            )
+        if obs_changed or needs_downgrade:
+            exp = exp.model_copy_validated(observations=stamped_obs, feedback_decision=dec_cur)
+        return exp, needs_downgrade
+
+    def _reload_experiments_from_disk(
+        self,
+        *,
+        meta: dict[str, Any] | None = None,
+        exp_order: list[str] | None = None,
+        has_saved_exp_order: bool | None = None,
+    ) -> None:
+        initial_load = meta is not None
+        prev_ids = {e.experiment_id for e in self._experiments}
+        disk_advanced = False
+        if meta is None:
+            state_meta = self.store_dir / "project_state.json"
+            if state_meta.is_file():
+                raw_meta = json.loads(state_meta.read_text(encoding="utf-8"))
+                meta = raw_meta if isinstance(raw_meta, dict) else {}
+                disk_rev = meta.get("state_revision")
+                if isinstance(disk_rev, int) and disk_rev > self._state_revision:
+                    disk_advanced = True
+                    self._state_revision = disk_rev
+                    disk_ref = meta.get("active_reference_bundle_id")
+                    if isinstance(disk_ref, str) and disk_ref in self._bundles:
+                        self.active_reference_bundle_id = disk_ref
+            else:
+                meta = {}
+        if has_saved_exp_order is None:
+            has_saved_exp_order = isinstance(meta.get("experiment_order"), list)
+        if exp_order is None:
+            exp_order = meta.get("experiment_order") if has_saved_exp_order else []
+
+        exp_rank = {eid: idx for idx, eid in enumerate(exp_order)}
+        last_app = meta.get("last_applied_experiment_id")
+        loaded_exps: list[tuple[tuple[int, int, int, int, str], ExperimentRecord]] = []
+        for p in sorted((self.store_dir / "experiments").glob("*.json")):
+            exp = ExperimentRecord.model_validate_json(p.read_text(encoding="utf-8"))
+            exp, _ = self._repair_experiment_in_memory(exp)
+            e_ord = exp_rank.get(exp.experiment_id, 10**9)
+            if exp.ingested_at_ns is not None:
+                sort_key = (1, int(exp.ingested_at_ns), e_ord, 0, exp.experiment_id)
+            else:
+                is_last = 1 if (isinstance(last_app, str) and exp.experiment_id == last_app) else 0
+                sort_key = (0, e_ord, p.stat().st_mtime_ns, is_last, exp.experiment_id)
+            loaded_exps.append((sort_key, exp))
+        loaded_exps.sort(key=lambda item: item[0])
+        self._experiments = [exp for _, exp in loaded_exps]
+
+        saved_exp_set = set(exp_order)
+        if self._experiments:
+            latest_exp = self._experiments[-1]
+            newly_discovered_latest = initial_load or disk_advanced or (latest_exp.experiment_id not in prev_ids)
+            latest_is_unapplied = newly_discovered_latest and (
+                (has_saved_exp_order and latest_exp.experiment_id not in saved_exp_set)
+                or (
+                    not has_saved_exp_order
+                    and "last_applied_experiment_id" in meta
+                    and latest_exp.experiment_id != last_app
+                )
+                or (
+                    not has_saved_exp_order
+                    and "last_applied_experiment_id" not in meta
+                    and len(self._experiments) == 1
+                )
+            )
+            if (
+                latest_is_unapplied
+                and latest_exp.feedback_decision is not None
+                and latest_exp.feedback_decision.new_reference_bundle_id
+                and latest_exp.feedback_decision.new_reference_bundle_id in self._bundles
+            ):
+                self.active_reference_bundle_id = latest_exp.feedback_decision.new_reference_bundle_id
 
     def _save_state_meta(self) -> None:
-        (self.store_dir / "project_state.json").write_text(
-            json.dumps(
-                {
-                    "project_id": self.project_id,
-                    "active_reference_bundle_id": self.active_reference_bundle_id,
-                    "intent_count": len(self._intents),
-                },
-                indent=2,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
+        revision = self._state_revision + 1
+        meta_payload: dict[str, Any] = {
+            "project_id": self.project_id,
+            "active_reference_bundle_id": self.active_reference_bundle_id,
+            "intent_count": len(self._intents),
+            "bundle_intent_map": self._bundle_intent_map,
+            "report_order": [
+                rid for rid, r in self._reports.items() if r.intent_id not in self._ambiguous_report_intents
+            ],
+            "experiment_order": [e.experiment_id for e in self._experiments],
+            "last_applied_experiment_id": self._experiments[-1].experiment_id if self._experiments else None,
+            "state_revision": revision,
+        }
+        if self._ambiguous_report_intents:
+            meta_payload["ambiguous_report_intents"] = sorted(self._ambiguous_report_intents)
+        _write_json(self.store_dir / "project_state.json", meta_payload)
+        self._state_revision = revision
 
     def _persist_intent(self, intent: DesignIntent) -> DesignIntent:
-        self._intents.append(intent)
+        previous = self._intents[-1] if self._intents else None
+        if intent.intent_version != len(self._intents) + 1 or intent.parent_intent_id != (previous.intent_id if previous else None):
+            raise ValueError("Stale intent revision or parent")
+        if len(self._intents) >= self.MAX_PROJECT_TURNS:
+            raise ValueError(
+                f"Project '{self.project_id}' reached maximum turn history ({self.MAX_PROJECT_TURNS}); start a new session."
+            )
         out = self.store_dir / "intents" / f"intent_v{intent.intent_version:03d}_{intent.intent_id}.json"
-        out.write_text(json.dumps(intent.model_dump(mode="json"), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        _write_json(out, intent.model_dump(mode="json"), exclusive=True)
+        self._intents.append(intent)
         self._save_state_meta()
         return intent
 
-    def register_bundle(self, bundle: ConstructBundle, *, set_as_reference: bool = False) -> None:
-        self._bundles[bundle.bundle_id] = bundle
+    @_project_mutation
+    def register_bundle(
+        self,
+        bundle: ConstructBundle,
+        *,
+        set_as_reference: bool = False,
+        originating_intent_id: str | None = None,
+    ) -> None:
+        if Path(bundle.bundle_id).name != bundle.bundle_id:
+            raise ValueError("bundle_id must be a filename component")
+        if originating_intent_id and not any(i.intent_id == originating_intent_id for i in self._intents):
+            raise ValueError("Unknown originating intent")
         out = self.store_dir / "bundles" / f"{bundle.bundle_id}.json"
-        out.write_text(json.dumps(bundle.model_dump(mode="json"), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        try:
+            _write_json(out, bundle.model_dump(mode="json"), exclusive=True)
+        except FileExistsError:
+            stored = ConstructBundle.model_validate_json(out.read_bytes())
+            if stored != bundle:
+                raise FileExistsError(f"Bundle '{bundle.bundle_id}' already exists with different content") from None
+        self._bundles[bundle.bundle_id] = bundle
+        if originating_intent_id is not None:
+            self._bundle_intent_map.setdefault(bundle.bundle_id, originating_intent_id)
         if set_as_reference:
             self.active_reference_bundle_id = bundle.bundle_id
         self._save_state_meta()
@@ -124,15 +469,35 @@ class ProjectHarnessSession:
             raise RuntimeError("No DesignIntent exists in this session yet")
         return self._intents[-1]
 
+    def intent_for_bundle(self, bundle_id: str) -> DesignIntent:
+        origin = self._bundle_intent_map.get(bundle_id)
+        for intent in self._intents:
+            if intent.intent_id == origin:
+                return intent
+        raise ValueError(f"Bundle '{bundle_id}' has no known originating intent")
+
+    def latest_report(self, intent_id: str | None = None) -> EvaluationReport | None:
+        target = intent_id or (self._intents[-1].intent_id if self._intents else None)
+        if target in self._ambiguous_report_intents:
+            raise ValueError(
+                f"Ambiguous legacy report order for intent '{target}' (multiple un-ordered reports share identical filesystem timestamps)"
+            )
+        return next((r for r in reversed(self._reports.values()) if r.intent_id == target), None)
+
     def attach_external_evidence_readonly(self, sandboxed: UntrustedExternalText) -> None:
         """Store quarantined external text; strictly forbidden from modifying any DesignIntent or lock."""
         if not sandboxed.untrusted_readonly:
             raise ValueError("External text must be marked untrusted_readonly=True")
-        self._external_notes.append(sandboxed)
+        redacted = sandboxed.model_copy_validated(
+            source_id=redact_secret_markers(sandboxed.source_id),
+            wrapped_payload=redact_secret_markers(sandboxed.wrapped_payload),
+        )
+        self._external_notes.append(redacted)
         log_path = self.store_dir / "quarantined_external_evidence.jsonl"
         with log_path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(sandboxed.model_dump(mode="json")) + "\n")
+            fh.write(redact_secret_markers(json.dumps(redacted.model_dump(mode="json"))) + "\n")
 
+    @_project_mutation
     def create_initial_intent(
         self,
         *,
@@ -151,6 +516,7 @@ class ProjectHarnessSession:
         protected_tissues: list[str] | None = None,
         prioritize_late_signal: bool = False,
         conflicting_single_pick: bool = False,
+        use_commercial_surrogate: bool = False,
         random_seed: int = 42,
     ) -> DesignIntent:
         prot_clean = protein_sequence.strip().upper()
@@ -175,15 +541,41 @@ class ProjectHarnessSession:
                 "Which objective has higher priority, or should mRNAx retain multiple Pareto trade-off candidates?"
             )
 
-        ref_id: str | None = None
-        if reference_bundle is not None:
-            self.register_bundle(reference_bundle, set_as_reference=True)
-            ref_id = reference_bundle.bundle_id
+        ref_id = reference_bundle.bundle_id if reference_bundle else None
+        if reference_bundle is not None and len(reference_bundle.molecules) > 1:
+            targets_init = [
+                ProteinTargetSpec(
+                    protein_sequence=(
+                        prot_clean if idx == 0 else m.effective_translation_target.protein_sequence
+                    ),
+                    transl_table=m.effective_translation_target.transl_table,
+                    accession_or_source=(
+                        accession_or_source if idx == 0 else m.effective_translation_target.accession_or_source
+                    ),
+                    entry_version=(
+                        entry_version if idx == 0 else m.effective_translation_target.entry_version
+                    ),
+                    confirmation_status=prot_status,  # type: ignore[arg-type]
+                )
+                for idx, m in enumerate(reference_bundle.molecules)
+            ]
+            prot_lock_val = "|".join(t.protein_sequence for t in targets_init)
+        else:
+            targets_init = [
+                ProteinTargetSpec(
+                    protein_sequence=prot_clean,
+                    transl_table=1,
+                    accession_or_source=accession_or_source,
+                    entry_version=entry_version,
+                    confirmation_status=prot_status,  # type: ignore[arg-type]
+                )
+            ]
+            prot_lock_val = prot_clean
 
         locks: dict[str, LockedRegionSpec] = {
             "protein_sequence": LockedRegionSpec(
                 scope="protein_sequence",
-                locked_value=prot_clean,
+                locked_value=prot_lock_val,
                 reason="100% amino-acid identity lock",
                 locked_at_turn_id=turn_id,
             )
@@ -200,24 +592,65 @@ class ProjectHarnessSession:
             s for s in ("five_prime_utr", "cds", "three_prime_utr") if s not in locks
         ]
 
-        objs = [
-            ObjectiveSpec(
-                requirement_id="obj_5p_initiation_openness",
-                metric_id="kozak_unpaired_prob",
-                direction="maximize",
-                priority_rank=1,
-                evidence_status="thermodynamic_proxy",
-                source_utterance=user_utterance,
-            ),
-            ObjectiveSpec(
-                requirement_id="obj_cds_local_stability",
-                metric_id="cds_mean_window_mfe",
-                direction="minimize",
-                priority_rank=2,
-                evidence_status="thermodynamic_proxy",
-                source_utterance=user_utterance,
-            ),
-        ]
+        if use_commercial_surrogate:
+            objs = [
+                ObjectiveSpec(
+                    requirement_id="obj_utr5_mrl_cc",
+                    metric_id="utr5_mrl_pred",
+                    direction="maximize",
+                    priority_rank=1,
+                    evidence_status="validated_predictor",
+                    source_utterance=user_utterance,
+                ),
+                ObjectiveSpec(
+                    requirement_id="obj_cds_stab_cc",
+                    metric_id="cds_stability_pred",
+                    direction="maximize",
+                    priority_rank=2,
+                    evidence_status="validated_predictor",
+                    source_utterance=user_utterance,
+                ),
+                ObjectiveSpec(
+                    requirement_id="obj_tx_hl_cc",
+                    metric_id="consensus_halflife_pred",
+                    direction="maximize",
+                    priority_rank=2,
+                    evidence_status="validated_predictor",
+                    source_utterance=user_utterance,
+                ),
+                ObjectiveSpec(
+                    requirement_id="obj_utr3_stab_cc",
+                    metric_id="utr3_stability_pred",
+                    direction="maximize",
+                    priority_rank=3,
+                    evidence_status="validated_predictor",
+                    source_utterance=user_utterance,
+                ),
+            ]
+            run_pol = RuntimePolicySpec(
+                enabled_evaluators=["surrogate_v1_clean"],
+                random_seed=random_seed,
+            )
+        else:
+            objs = [
+                ObjectiveSpec(
+                    requirement_id="obj_5p_initiation_openness",
+                    metric_id="kozak_unpaired_prob",
+                    direction="maximize",
+                    priority_rank=1,
+                    evidence_status="thermodynamic_proxy",
+                    source_utterance=user_utterance,
+                ),
+                ObjectiveSpec(
+                    requirement_id="obj_cds_local_stability",
+                    metric_id="cds_mean_window_mfe",
+                    direction="minimize",
+                    priority_rank=2,
+                    evidence_status="thermodynamic_proxy",
+                    source_utterance=user_utterance,
+                ),
+            ]
+            run_pol = RuntimePolicySpec(random_seed=random_seed)
         if prioritize_late_signal or any(w in user_utterance for w in ("后期信号", "late signal", "48h", "half-life")):
             objs.append(
                 ObjectiveSpec(
@@ -256,15 +689,7 @@ class ProjectHarnessSession:
             uridine_chemistry=chem,
             status=intent_status,  # type: ignore[arg-type]
             blocking_questions=blocking_q,
-            protein_targets=[
-                ProteinTargetSpec(
-                    protein_sequence=prot_clean,
-                    transl_table=1,
-                    accession_or_source=accession_or_source,
-                    entry_version=entry_version,
-                    confirmation_status=prot_status,  # type: ignore[arg-type]
-                )
-            ],
+            protein_targets=targets_init,
             reference_bundle_id=ref_id,
             locked_scopes=locks,
             mutable_scopes=mutable,
@@ -272,9 +697,12 @@ class ProjectHarnessSession:
             objectives=objs,
             cell_expression_control=cell_ctrl,
             portfolio_tracks=tracks,  # type: ignore[arg-type]
-            runtime_policy=RuntimePolicySpec(random_seed=random_seed),
+            runtime_policy=run_pol,
         )
-        return self._persist_intent(intent)
+        self._persist_intent(intent)
+        if reference_bundle is not None:
+            self.register_bundle(reference_bundle, set_as_reference=True, originating_intent_id=intent.intent_id)
+        return intent
 
     def extract_structured_intent_deterministic(
         self,
@@ -312,6 +740,7 @@ class ProjectHarnessSession:
             protected_tissues=prot_tiss,
         )
 
+    @_project_mutation
     def apply_incremental_intent_update(
         self,
         *,
@@ -319,11 +748,13 @@ class ProjectHarnessSession:
         user_utterance: str,
         updated_restriction_enzymes: list[str] | None = None,
         additional_locked_scopes: dict[SegmentScope, str] | None = None,
+        lock_cds_from_bundle_id: str | None = None,
         unlocked_scopes: list[SegmentScope] | None = None,
         updated_chemistry: UridineChemistry | None = None,
         updated_compliance_track: ComplianceProfile | None = None,
         detarget_tissues: list[str] | None = None,
         protected_tissues: list[str] | None = None,
+        use_commercial_surrogate: bool = False,
     ) -> DesignIntent:
         """Single-item incremental edit inheriting 100% of untouched locks, constraints, and targets."""
         prev = self.latest_intent()
@@ -336,6 +767,19 @@ class ProjectHarnessSession:
                 locked_value=s_val.upper().replace("T", "U"),
                 reason=f"Locked at {turn_id}: {user_utterance}",
                 locked_at_turn_id=turn_id,
+            )
+
+        if lock_cds_from_bundle_id is not None:
+            source = self.get_bundle(lock_cds_from_bundle_id)
+            molecule = source.molecules[0]
+            segment = molecule.get_segment("cds")
+            if segment is None:
+                raise ValueError(f"Selected bundle {source.bundle_id} has no primary CDS")
+            new_locks["cds"] = BundleSegmentLock(
+                scope="cds", locked_value=molecule.sequence[segment.start:segment.end],
+                reason=f"Locked at {turn_id}: {user_utterance}", locked_at_turn_id=turn_id,
+                source_bundle_id=source.bundle_id, source_bundle_digest=source.version_digest,
+                source_molecule_id=molecule.molecule_id, source_segment=segment,
             )
 
         mutable: list[SegmentScope] = [
@@ -376,6 +820,47 @@ class ProjectHarnessSession:
                 protected_tissues=protected_tissues or (prev.cell_expression_control.protected_tissues if prev.cell_expression_control else []),
             )
 
+        new_objs = prev.objectives
+        new_pol = prev.runtime_policy
+        if use_commercial_surrogate:
+            new_objs = [
+                ObjectiveSpec(
+                    requirement_id="obj_utr5_mrl_cc",
+                    metric_id="utr5_mrl_pred",
+                    direction="maximize",
+                    priority_rank=1,
+                    evidence_status="validated_predictor",
+                    source_utterance=user_utterance,
+                ),
+                ObjectiveSpec(
+                    requirement_id="obj_cds_stab_cc",
+                    metric_id="cds_stability_pred",
+                    direction="maximize",
+                    priority_rank=2,
+                    evidence_status="validated_predictor",
+                    source_utterance=user_utterance,
+                ),
+                ObjectiveSpec(
+                    requirement_id="obj_tx_hl_cc",
+                    metric_id="consensus_halflife_pred",
+                    direction="maximize",
+                    priority_rank=2,
+                    evidence_status="validated_predictor",
+                    source_utterance=user_utterance,
+                ),
+                ObjectiveSpec(
+                    requirement_id="obj_utr3_stab_cc",
+                    metric_id="utr3_stability_pred",
+                    direction="maximize",
+                    priority_rank=3,
+                    evidence_status="validated_predictor",
+                    source_utterance=user_utterance,
+                ),
+            ]
+            new_pol = prev.runtime_policy.model_copy_validated(
+                enabled_evaluators=["surrogate_v1_clean"]
+            )
+
         updated = prev.model_copy_validated(
             intent_id=f"int_{uuid.uuid4().hex[:8]}",
             intent_version=prev.intent_version + 1,
@@ -387,10 +872,13 @@ class ProjectHarnessSession:
             locked_scopes=new_locks,
             mutable_scopes=mutable,
             constraints=new_constraints,
+            objectives=new_objs,
             cell_expression_control=new_cell,
+            runtime_policy=new_pol,
         )
         return self._persist_intent(updated)
 
+    @_project_mutation
     def resolve_conflict_with_pareto_tracks(self, *, turn_id: str, user_utterance: str) -> DesignIntent:
         prev = self.latest_intent()
         resolved = prev.model_copy_validated(
@@ -404,6 +892,7 @@ class ProjectHarnessSession:
         )
         return self._persist_intent(resolved)
 
+    @_project_mutation
     def execute_design(self, intent: DesignIntent | None = None) -> list[ConstructBundle]:
         active_intent = intent or self.latest_intent()
         ref = self._bundles.get(active_intent.reference_bundle_id) if active_intent.reference_bundle_id else None
@@ -411,21 +900,31 @@ class ProjectHarnessSession:
             active_intent, reference_bundle=ref, seed_dir=self.seed_dir
         )
         for idx, b in enumerate(bundles):
-            self.register_bundle(b, set_as_reference=(idx == 0 and self.active_reference_bundle_id is None))
+            self.register_bundle(
+                b,
+                set_as_reference=(idx == 0 and self.active_reference_bundle_id is None),
+                originating_intent_id=(active_intent.intent_id if b.bundle_id not in self._bundles else None),
+            )
+        if report.created_at_ns is None:
+            report = report.model_copy_validated(created_at_ns=next_report_timestamp_ns())
+        self._ambiguous_report_intents.discard(active_intent.intent_id)
         self._reports[report.report_id] = report
         self._manifests[manifest.execution_id] = manifest
-        (self.store_dir / "reports" / f"{report.report_id}.json").write_text(
-            json.dumps(report.model_dump(mode="json"), indent=2, sort_keys=True) + "\n", encoding="utf-8"
-        )
+        if hasattr(manifest, "model_dump"):
+            (self.store_dir / "manifests").mkdir(exist_ok=True)
+            _write_json(self.store_dir / "manifests" / f"{manifest.execution_id}.json", manifest.model_dump(mode="json"))
+        _write_json(self.store_dir / "reports" / f"{report.report_id}.json", report.model_dump(mode="json"), exclusive=True)
+        self._save_state_meta()
         return bundles
 
+    @_project_mutation
     def build_multi_segment_variant_for_comparison(self, base_bundle: ConstructBundle) -> ConstructBundle:
         """Helper producing a distinct 5'UTR + synonymous CDS variant for multi-segment attribution tests."""
         utr_reg = json.loads((self.seed_dir / "utr_components_v1.json").read_text(encoding="utf-8"))
         mol = base_bundle.molecules[0]
         cur_u5 = mol.get_segment_sequence("five_prime_utr")
         alt_u5 = next(
-            u["sequence"]
+            u
             for u in utr_reg["five_prime_utrs"]
             if not u["has_uaug"] and u["sequence"] != cur_u5
         )
@@ -441,144 +940,211 @@ class ProjectHarnessSession:
                 alt_cds = cds_seq[:i] + "CUC" + cds_seq[i + 3 :]
                 break
 
-        stop_s = mol.get_segment_sequence("stop_cassette")
-        u3_s = mol.get_segment_sequence("three_prime_utr")
-        pa_s = mol.get_segment_sequence("poly_a")
-        c1 = len(alt_u5)
-        c2 = c1 + len(alt_cds)
-        c3 = c2 + len(stop_s)
-        c4 = c3 + len(u3_s)
-        c5 = c4 + len(pa_s)
-        new_mol = mol.model_copy_validated(
-            sequence=alt_u5 + alt_cds + stop_s + u3_s + pa_s,
-            segments=[
-                SegmentSpan(
-                    segment_type="five_prime_utr",
-                    start=0,
-                    end=c1,
-                    component_id="utr5_alt",
-                    origin_source="NCBI_RefSeq_alt",
-                    license_track="commercial_clean",
-                    action_taken="selected_from_library",
-                ),
-                SegmentSpan(
-                    segment_type="cds",
-                    start=c1,
-                    end=c2,
-                    component_id=None,
-                    origin_source="mrnax:synonymous_alt",
-                    license_track="commercial_clean",
-                    action_taken="synonymous_mutated",
-                ),
-                SegmentSpan(
-                    segment_type="stop_cassette",
-                    start=c2,
-                    end=c3,
-                    component_id="stop",
-                    origin_source="mrnax:standard",
-                    license_track="commercial_clean",
-                    action_taken="locked_verbatim",
-                ),
-                SegmentSpan(
-                    segment_type="three_prime_utr",
-                    start=c3,
-                    end=c4,
-                    component_id="utr3_same",
-                    origin_source="NCBI_RefSeq",
-                    license_track="commercial_clean",
-                    action_taken="locked_verbatim",
-                ),
-                SegmentSpan(
-                    segment_type="poly_a",
-                    start=c4,
-                    end=c5,
-                    component_id="polya_same",
-                    origin_source="mrnax:homopolymer_tail",
-                    license_track="commercial_clean",
-                    action_taken="locked_verbatim",
-                ),
-            ],
-            annotations=[],
-        )
+        spans = []
+        parts = []
+        cursor = 0
+        for span in mol.segments:
+            piece = mol.sequence[span.start:span.end]
+            if span.segment_type == "five_prime_utr":
+                piece = alt_u5["sequence"]
+                span = span.model_copy_validated(
+                    component_id=alt_u5["component_id"], origin_source=alt_u5["origin_source"],
+                    license_track=alt_u5["license_track"], action_taken="selected_from_library",
+                )
+            elif span.segment_type == "cds" and alt_cds != piece:
+                piece = alt_cds
+                span = span.model_copy_validated(action_taken="synonymous_mutated")
+            else:
+                span = span.model_copy_validated(action_taken="locked_verbatim")
+            parts.append(piece)
+            spans.append(span.model_copy_validated(start=cursor, end=cursor + len(piece)))
+            cursor += len(piece)
+        new_mol = mol.model_copy_validated(sequence="".join(parts), segments=spans, annotations=[])
         alt_bundle = ConstructBundle.create(
             bundle_id=f"{base_bundle.bundle_id}_multi_alt",
             parent_bundle_id=base_bundle.bundle_id,
             derivation_action="de_novo_design",
             target_stoichiometry=base_bundle.target_stoichiometry,
-            molecules=[new_mol],
+            co_expression_mode=base_bundle.co_expression_mode,
+            molecules=[new_mol, *base_bundle.molecules[1:]],
+            external_evidence=base_bundle.external_evidence,
         )
-        self.register_bundle(alt_bundle)
+        self.register_bundle(alt_bundle, originating_intent_id=self._bundle_intent_map.get(base_bundle.bundle_id))
         return alt_bundle
 
     def _spawn_verbatim_disambiguation_chimera(
         self, ref_a: ConstructBundle, winner_b: ConstructBundle
-    ) -> ConstructBundle:
+    ) -> ConstructBundle | None:
         """Create a zero-junction-edit pure verbatim chimera (priority: five_prime_utr > three_prime_utr > cds)."""
-        mol_a = ref_a.molecules[0]
-        mol_b = winner_b.molecules[0]
+        pairs = paired_chains(ref_a, winner_b)
         constraint_engine = ScopedConstraintEngine.from_seed_dir(self.seed_dir)
-        active_constraints = self.latest_intent().constraints
-        track = self.latest_intent().compliance_track
-
+        intent = self.latest_intent()
         for swap_scope in ("five_prime_utr", "three_prime_utr", "cds"):
-            seg_a = mol_a.get_segment_sequence(swap_scope)
-            seg_b = mol_b.get_segment_sequence(swap_scope)
-            if seg_a == seg_b:
-                continue
-
-            parts: dict[SegmentScope, str] = {
-                s: (seg_b if s == swap_scope else mol_a.get_segment_sequence(s))
-                for s in ("five_prime_utr", "cds", "stop_cassette", "three_prime_utr", "poly_a")
-            }
-            cursor = 0
-            new_segs: list[SegmentSpan] = []
-            for s in ("five_prime_utr", "cds", "stop_cassette", "three_prime_utr", "poly_a"):
-                sub = parts[s]
-                orig_seg = mol_b.get_segment(s) if s == swap_scope else mol_a.get_segment(s)
-                assert orig_seg is not None
-                new_segs.append(
-                    SegmentSpan(
-                        segment_type=s,
-                        start=cursor,
-                        end=cursor + len(sub),
-                        component_id=orig_seg.component_id,
-                        origin_source=f"{'winner_B' if s == swap_scope else 'ref_A'}:{orig_seg.origin_source}",
-                        license_track=orig_seg.license_track,
-                        action_taken="chimera_spliced" if s == swap_scope else "locked_verbatim",
-                    )
+            for idx, (mol_a, mol_b) in enumerate(pairs):
+                if mol_a.get_segment_sequence(swap_scope) == mol_b.get_segment_sequence(swap_scope):
+                    continue
+                parts = []
+                spans = []
+                cursor = 0
+                for scope in _SEGMENT_SCOPES:
+                    donor = mol_b if scope == swap_scope else mol_a
+                    span = donor.get_segment(scope)
+                    if span is None:
+                        continue
+                    part = donor.sequence[span.start:span.end]
+                    parts.append(part)
+                    spans.append(span.model_copy_validated(
+                        start=cursor, end=cursor + len(part),
+                        action_taken="chimera_spliced" if scope == swap_scope else "locked_verbatim",
+                    ))
+                    cursor += len(part)
+                molecules = list(ref_a.molecules)
+                molecules[idx] = mol_a.model_copy_validated(sequence="".join(parts), segments=spans, annotations=[])
+                chimera = ConstructBundle.create(
+                    bundle_id=f"bnd_chimera_{uuid.uuid4().hex}",
+                    parent_bundle_id=winner_b.bundle_id,
+                    derivation_action="disambiguation_chimera",
+                    target_stoichiometry=ref_a.target_stoichiometry,
+                    co_expression_mode=ref_a.co_expression_mode,
+                    molecules=molecules,
+                    external_evidence=[*ref_a.external_evidence, *(r for r in winner_b.external_evidence if r not in ref_a.external_evidence)],
                 )
-                cursor += len(sub)
+                check = constraint_engine.evaluate_bundle(
+                    chimera, intent.constraints, compliance_track=intent.compliance_track,
+                    expected_chemistry=intent.uridine_chemistry, locked_scopes=intent.locked_scopes,
+                )
+                if check.passed_all_hard_gates:
+                    self.register_bundle(chimera, originating_intent_id=intent.intent_id)
+                    return chimera
 
-            chim_mol = mol_a.model_copy_validated(
-                sequence="".join(parts[s] for s in ("five_prime_utr", "cds", "stop_cassette", "three_prime_utr", "poly_a")),
-                segments=new_segs,
-                annotations=[],
-            )
-            chimera = ConstructBundle.create(
-                bundle_id=f"bnd_chimera_{swap_scope[:4]}_{uuid.uuid4().hex[:6]}",
-                parent_bundle_id=winner_b.bundle_id,
-                derivation_action="disambiguation_chimera",
-                target_stoichiometry=ref_a.target_stoichiometry,
-                molecules=[chim_mol],
-            )
-            check = constraint_engine.evaluate_bundle(chimera, active_constraints, compliance_track=track)
-            if check.passed_all_hard_gates:
-                self.register_bundle(chimera)
-                return chimera
+        return None
 
-        raise RuntimeError("Could not build valid disambiguation chimera across differing segments")
-
+    @_project_mutation
     def ingest_experiment_feedback(
-        self, record: ExperimentRecord, *, batch_comparable: bool = True
+        self,
+        record: ExperimentRecord,
+        *,
+        batch_comparable: bool = True,
+        held_out_validation_passed: bool = False,
     ) -> ExperimentRecord:
         """Deterministic 4-branch wet-lab feedback handler (Joint Ruling #6)."""
-        out_path = self.store_dir / "experiments" / f"{record.experiment_id}.json"
-        if record.extraction_state == "draft_extraction":
-            out_path.write_text(
-                json.dumps(record.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
+        exp_dir = (self.store_dir / "experiments").resolve()
+        out_path = (exp_dir / f"{record.experiment_id}.json").resolve()
+        if out_path.parent != exp_dir:
+            raise ValueError(f"Experiment output path '{out_path}' escapes project experiments directory")
+
+        if record.project_id != self.project_id:
+            return record.model_copy_validated(
+                feedback_decision=FeedbackDecisionRecord(
+                    branch="experimental_confound_blocked",
+                    new_reference_bundle_id=None,
+                    weight_update_allowed=False,
+                    rationale=(
+                        f"Experiment project_id '{record.project_id}' does not match session project "
+                        f"'{self.project_id}'; refusing cross-project mutation."
+                    ),
+                )
             )
-            return record
+
+        self._reload_experiments_from_disk()
+        existing_exp = next((e for e in self._experiments if e.experiment_id == record.experiment_id), None)
+        if existing_exp is not None:
+            same_payload = existing_exp.model_dump(
+                mode="json",
+                exclude={"feedback_decision", "ingested_at_ns", "observations"},
+            ) == record.model_dump(
+                mode="json",
+                exclude={"feedback_decision", "ingested_at_ns", "observations"},
+            ) and [
+                o.model_dump(mode="json", exclude={"physical_construct_digest"}) for o in existing_exp.observations
+            ] == [
+                o.model_dump(mode="json", exclude={"physical_construct_digest"}) for o in record.observations
+            ]
+            if same_payload and (
+                existing_exp.extraction_state == "draft_extraction" or existing_exp.feedback_decision is not None
+            ):
+                # Re-verify physical construct independence on legacy cross-version retries
+                existing_exp, _ = self._repair_experiment_in_memory(existing_exp)
+                if out_path.is_file():
+                    disk_payload = json.loads(out_path.read_text(encoding="utf-8"))
+                    disk_dec = disk_payload.get("feedback_decision") if isinstance(disk_payload, dict) else None
+                    disk_needs_downgrade = bool(
+                        isinstance(disk_dec, dict)
+                        and existing_exp.n_independent_constructs < 6
+                        and (
+                            disk_dec.get("weight_update_allowed") is True
+                            or disk_dec.get("isolated_calibration_proposal_id") is not None
+                        )
+                    )
+                    if disk_needs_downgrade:
+                        _write_json(out_path, existing_exp.model_dump(mode="json"))
+                self._experiments = [
+                    existing_exp if e.experiment_id == existing_exp.experiment_id else e
+                    for e in self._experiments
+                ]
+                if (
+                    existing_exp.feedback_decision is not None
+                    and existing_exp.feedback_decision.new_reference_bundle_id
+                    and self._experiments
+                    and existing_exp.experiment_id == self._experiments[-1].experiment_id
+                ):
+                    self.active_reference_bundle_id = existing_exp.feedback_decision.new_reference_bundle_id
+                state_meta_path = self.store_dir / "project_state.json"
+                persisted_meta = (
+                    json.loads(state_meta_path.read_text(encoding="utf-8"))
+                    if state_meta_path.is_file()
+                    else {}
+                )
+                persisted_exp_order = persisted_meta.get("experiment_order") or []
+                if (
+                    persisted_meta.get("active_reference_bundle_id") != self.active_reference_bundle_id
+                    or existing_exp.experiment_id not in persisted_exp_order
+                    or (
+                        self._experiments
+                        and persisted_meta.get("last_applied_experiment_id") != self._experiments[-1].experiment_id
+                    )
+                ):
+                    self._save_state_meta()
+                return existing_exp
+            if not same_payload and existing_exp.extraction_state != "draft_extraction":
+                raise ValueError(
+                    f"Experiment '{record.experiment_id}' already exists with different observations or metadata"
+                )
+
+        def save(decision: FeedbackDecisionRecord | None) -> ExperimentRecord:
+            stamped = [
+                o.model_copy_validated(physical_construct_digest=self._bundles[o.bundle_id].physical_construct_digest)
+                if o.bundle_id in self._bundles
+                else o
+                for o in record.observations
+            ]
+            updated = record.model_copy_validated(
+                observations=stamped,
+                feedback_decision=decision,
+                ingested_at_ns=record.ingested_at_ns or next_report_timestamp_ns(),
+            )
+            _write_json(out_path, updated.model_dump(mode="json"))
+            merged = [e for e in self._experiments if e.experiment_id != updated.experiment_id]
+            merged.append(updated)
+            merged.sort(
+                key=lambda item: (
+                    1 if item.ingested_at_ns is not None else 0,
+                    int(item.ingested_at_ns) if item.ingested_at_ns is not None else 0,
+                )
+            )
+            self._experiments = merged
+            if (
+                decision is not None
+                and decision.new_reference_bundle_id
+                and self._experiments
+                and updated.experiment_id == self._experiments[-1].experiment_id
+            ):
+                self.active_reference_bundle_id = decision.new_reference_bundle_id
+            self._save_state_meta()
+            return updated
+
+        if record.extraction_state == "draft_extraction":
+            return save(None)
 
         if not batch_comparable or not record.shared_controls:
             dec = FeedbackDecisionRecord(
@@ -587,9 +1153,7 @@ class ProjectHarnessSession:
                 weight_update_allowed=False,
                 rationale="Cross-batch comparison or missing shared control; reference & weights preserved.",
             )
-            updated = record.model_copy_validated(feedback_decision=dec)
-            out_path.write_text(json.dumps(updated.model_dump(mode="json"), indent=2) + "\n", encoding="utf-8")
-            return updated
+            return save(dec)
 
         # Verify all observed construct IDs & digests match registered session bundles
         for obs in record.observations:
@@ -600,9 +1164,7 @@ class ProjectHarnessSession:
                     weight_update_allowed=False,
                     rationale=f"Observed bundle '{obs.bundle_id}' is not registered in this project.",
                 )
-                updated = record.model_copy_validated(feedback_decision=dec)
-                out_path.write_text(json.dumps(updated.model_dump(mode="json"), indent=2) + "\n", encoding="utf-8")
-                return updated
+                return save(dec)
             if self._bundles[obs.bundle_id].version_digest != obs.version_digest:
                 dec = FeedbackDecisionRecord(
                     branch="experimental_confound_blocked",
@@ -610,9 +1172,7 @@ class ProjectHarnessSession:
                     weight_update_allowed=False,
                     rationale=f"Version digest mismatch on '{obs.bundle_id}'; cannot align wet-lab observation.",
                 )
-                updated = record.model_copy_validated(feedback_decision=dec)
-                out_path.write_text(json.dumps(updated.model_dump(mode="json"), indent=2) + "\n", encoding="utf-8")
-                return updated
+                return save(dec)
 
         if self.active_reference_bundle_id is not None and self.active_reference_bundle_id not in {
             obs.bundle_id for obs in record.observations
@@ -626,9 +1186,7 @@ class ProjectHarnessSession:
                     f"'{record.batch_id}'; refusing unanchored reference switch."
                 ),
             )
-            updated = record.model_copy_validated(feedback_decision=dec)
-            out_path.write_text(json.dumps(updated.model_dump(mode="json"), indent=2) + "\n", encoding="utf-8")
-            return updated
+            return save(dec)
 
         # Compute biological replicate summary & interval per pre_registered_criteria
         crit = record.pre_registered_criteria
@@ -683,45 +1241,72 @@ class ProjectHarnessSession:
                     f"ci_non_overlap={ci_non_overlap}); retaining reference {cur_ref_id}."
                 ),
             )
-            updated = record.model_copy_validated(feedback_decision=dec)
-            out_path.write_text(json.dumps(updated.model_dump(mode="json"), indent=2) + "\n", encoding="utf-8")
-            return updated
+            return save(dec)
 
-        # Rank reversal met pre-registered criteria -> switch project reference to best_id first!
         ref_bundle = self._bundles[cur_ref_id]
         win_bundle = self._bundles[best_id]
-        self.active_reference_bundle_id = best_id
-        self._save_state_meta()
+        try:
+            pairs = paired_chains(ref_bundle, win_bundle)
+        except ValueError as exc:
+            return save(FeedbackDecisionRecord(branch="experimental_confound_blocked", rationale=str(exc)))
 
-        changed_scopes = [
-            s
-            for s in ("five_prime_utr", "cds", "stop_cassette", "three_prime_utr", "poly_a")
-            if ref_bundle.molecules[0].get_segment_sequence(s) != win_bundle.molecules[0].get_segment_sequence(s)
-        ]
-        attr_status = "multi_region_ambiguous" if len(changed_scopes) >= 2 else "single_region_resolved"
-        chimera_id: str | None = None
-        if attr_status == "multi_region_ambiguous":
-            try:
-                chimera = self._spawn_verbatim_disambiguation_chimera(ref_bundle, win_bundle)
-                chimera_id = chimera.bundle_id
-            except RuntimeError:
-                chimera_id = None
+        changes = sum(
+            a.get_segment_sequence(scope) != b.get_segment_sequence(scope)
+            for a, b in pairs for scope in _SEGMENT_SCOPES
+        )
+        attr_status = ("multi_region_ambiguous" if changes > 1 else
+                       "single_region_resolved" if changes == 1 else "not_applicable")
+        chimera = (
+            self._spawn_verbatim_disambiguation_chimera(ref_bundle, win_bundle)
+            if attr_status == "multi_region_ambiguous" else None
+        )
+        followup_note = (
+            " No verbatim follow-up met the active constraints."
+            if attr_status == "multi_region_ambiguous" and chimera is None else ""
+        )
 
-        n_ind = record.n_independent_constructs
-        iso_cal_id = f"cal_iso_{uuid.uuid4().hex[:8]}" if n_ind >= 6 else None
+        phys_digests = {self._bundles[obs.bundle_id].physical_construct_digest for obs in record.observations}
+        n_ind = min(record.n_independent_constructs, len(phys_digests))
+        allow_cal = bool(n_ind >= 6 and held_out_validation_passed)
+        iso_cal_id = f"cal_iso_{uuid.uuid4().hex[:8]}" if allow_cal else None
+
+        # Check kinetic divergence: earlier timepoint (<24h) favored cur_ref_id while late (>=24h) favors best_id
+        is_kinetic_divergence = False
+        if record.timepoint_hours is not None and record.timepoint_hours >= 24.0:
+            for prev_exp in self._experiments:
+                if (
+                    prev_exp.extraction_state == "verified_structured"
+                    and prev_exp.feedback_decision is not None
+                    and prev_exp.feedback_decision.branch != "experimental_confound_blocked"
+                    and all(getattr(prev_exp, field) == getattr(record, field) for field in (
+                        "project_id", "batch_id", "assay_type", "readout_name_exact", "unit",
+                        "cell_or_model_context", "chemistry_track", "delivery_vehicle",
+                    ))
+                    and set(prev_exp.shared_controls) == set(record.shared_controls)
+                    and prev_exp.timepoint_hours is not None
+                    and prev_exp.timepoint_hours < 24.0
+                ):
+                    early_means = {
+                        o.bundle_id: sum(b.unit_mean for b in o.biological_replicates) / len(o.biological_replicates)
+                        for o in prev_exp.observations
+                    }
+                    if cur_ref_id in early_means and best_id in early_means and early_means[cur_ref_id] > early_means[best_id]:
+                        is_kinetic_divergence = True
+                        break
+
         dec = FeedbackDecisionRecord(
-            branch="rank_reversal_switch_reference",
+            branch="kinetic_divergence_update" if is_kinetic_divergence else "rank_reversal_switch_reference",
             new_reference_bundle_id=best_id,
-            weight_update_allowed=False,  # Production weights require independent held-out verification even at N>=6!
+            retained_early_control_bundle_id=cur_ref_id if is_kinetic_divergence else None,
+            weight_update_allowed=allow_cal,
+            held_out_validation_passed=allow_cal,
             isolated_calibration_proposal_id=iso_cal_id,
             sequence_attribution_status=attr_status,  # type: ignore[arg-type]
-            spawned_disambiguation_chimera_id=chimera_id,
+            spawned_disambiguation_chimera_id=chimera.bundle_id if chimera else None,
             rationale=(
                 f"Empirical readout ({record.readout_name_exact}) favored {best_id} over {cur_ref_id} "
                 f"by {fold:.2f}x with non-overlapping CIs (n_bio={best_nbio}). Switched project reference to {best_id}; "
-                f"automatic weight tuning strictly disabled (N={n_ind})."
+                f"weight_update_allowed={allow_cal} (N={n_ind}).{followup_note}"
             ),
         )
-        updated = record.model_copy_validated(feedback_decision=dec)
-        out_path.write_text(json.dumps(updated.model_dump(mode="json"), indent=2) + "\n", encoding="utf-8")
-        return updated
+        return save(dec)

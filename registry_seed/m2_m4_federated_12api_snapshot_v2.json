@@ -1,0 +1,517 @@
+{
+  "suite_id": "M2_M4_FEDERATED_12API_EVIDENCE_SNAPSHOT_V2",
+  "generated_at_utc": "2026-11-26T21:10:04Z",
+  "license_track": "commercial_clean",
+  "guardrail_negative_tests": {
+    "block_gtex_mature_mirna": {
+      "passed": true,
+      "blocked_reason": "GTEx MUST NOT be queried for mature miRNA expression (query='hsa-miR-122-5p'). Use mirna_rbp_commercial_v2.json (miRBase CC0 + FANTOM5 CC-BY-4.0) instead."
+    },
+    "block_hpa_mature_mirna": {
+      "passed": true,
+      "blocked_reason": "HumanProteinAtlas MUST NOT be queried for mature miRNA expression (query='hsa-miR-122-5p'). Use mirna_rbp_commercial_v2.json (miRBase CC0 + FANTOM5 CC-BY-4.0) instead."
+    },
+    "block_thera_sabdab_commercial": {
+      "passed": true,
+      "blocked_reason": "Thera-SAbDab is classified as needs_vendor_license / research_only and is BLOCKED in commercial_clean. Use WHO INN + RCSB PDB (CC0) + ChEMBL (lookup-only) instead."
+    },
+    "block_chembl_ccbysa_commercial_export": {
+      "passed": true,
+      "blocked_reason": "Source 'ChEMBL' (license=CC-BY-SA-3.0, tier=lookup_only_sharealike_boundary) is BLOCKED from 'commercial_training'. Keep as internal lookup-only evidence pointer with explicit release-version attribution."
+    },
+    "block_hpa_ccbysa_commercial_export": {
+      "passed": true,
+      "blocked_reason": "Source 'HumanProteinAtlas' (license=CC-BY-SA-3.0, tier=lookup_only_sharealike_boundary) is BLOCKED from 'commercial_training'. Keep as internal lookup-only evidence pointer with explicit release-version attribution."
+    }
+  },
+  "live_api_snapshots": {
+    "01_uniprot_DLL3": {
+      "source_name": "UniProt",
+      "license_spdx": "CC-BY-4.0",
+      "license_tier": "commercial_clean",
+      "request_url": "https://rest.uniprot.org/uniprotkb/Q9NYJ7.json",
+      "retrieved_at_utc": "2026-11-26T21:10:05Z",
+      "payload_sha256": "31995f6c3090114ee3467effbe492e4d6fd1b4c6feb1bb096d62ce0ce7c0993e",
+      "summary": {
+        "primary_accession": "Q9NYJ7",
+        "uniProtkbId": "DLL3_HUMAN",
+        "protein_name": "Delta-like protein 3",
+        "aa_length": 618,
+        "starts_with_met": true,
+        "has_signal_peptide": true,
+        "signal_peptide_coords_1based": [
+          {
+            "start": 1,
+            "end": 26
+          }
+        ],
+        "transmembrane_coords_1based": [
+          {
+            "start": 493,
+            "end": 513,
+            "desc": "Helical"
+          }
+        ],
+        "ensembl_gene_ids": [
+          "ENSG00000090932.12"
+        ],
+        "sequence_sha256": "08655e45c9c70122a1320e3ba4b74aa9d81f6e2598e67d546a928ae5498e801e"
+      },
+      "raw_excerpt": {
+        "sequence_prefix_30aa": "MVSPRMSGLLSQTVILALIFLPQTRPAGVF"
+      },
+      "latency_ms": 1233.0,
+      "status": "ok"
+    },
+    "02_ensembl_DLL3": {
+      "source_name": "Ensembl",
+      "license_spdx": "Apache-2.0",
+      "license_tier": "commercial_clean",
+      "request_url": "https://rest.ensembl.org/lookup/symbol/homo_sapiens/DLL3?expand=1",
+      "retrieved_at_utc": "2026-11-26T21:10:06Z",
+      "payload_sha256": "1770ea13ecfef63b38a6d7ff200cca9aff9077baa528360491fffd7cf681c143",
+      "summary": {
+        "ensembl_gene_id": "ENSG00000090932",
+        "display_name": "DLL3",
+        "canonical_transcript": "ENST00000356433.10",
+        "biotype": "protein_coding",
+        "seq_region_name": "19",
+        "strand": 1
+      },
+      "raw_excerpt": {
+        "ensembl_gene_id": "ENSG00000090932",
+        "display_name": "DLL3",
+        "canonical_transcript": "ENST00000356433.10",
+        "biotype": "protein_coding",
+        "seq_region_name": "19",
+        "strand": 1
+      },
+      "latency_ms": 1255.6,
+      "status": "ok"
+    },
+    "03_rcsb_pdb_CD3E_Fab": {
+      "source_name": "RCSB_PDB",
+      "license_spdx": "CC0-1.0",
+      "license_tier": "commercial_clean",
+      "request_url": "https://search.rcsb.org/rcsbsearch/v2/query",
+      "retrieved_at_utc": "2026-11-26T21:10:09Z",
+      "payload_sha256": "b98a17f0072e237d760174a74c69695d72dc20ff145b08f284fac50cf4cb13f4",
+      "summary": {
+        "query": "CD3 epsilon antibody",
+        "total_hits": 16,
+        "top_entries": [
+          {
+            "pdb_id": "1XIW",
+            "title": "Crystal structure of human CD3-e/d dimer in complex with a UCHT1 single-chain antibody fragment",
+            "resolution_angstrom": 1.9
+          },
+          {
+            "pdb_id": "8F0L",
+            "title": "Crystal Structure of the Human T cell Receptor CD3(EPSILON) N-Terminal Peptide Complexed with ADI-26906 FAB",
+            "resolution_angstrom": 1.81
+          },
+          {
+            "pdb_id": "1SY6",
+            "title": "Crystal Structure of CD3gammaepsilon Heterodimer in Complex with OKT3 Fab Fragment",
+            "resolution_angstrom": 2.1
+          }
+        ]
+      },
+      "raw_excerpt": [
+        {
+          "pdb_id": "1XIW",
+          "title": "Crystal structure of human CD3-e/d dimer in complex with a UCHT1 single-chain antibody fragment",
+          "resolution_angstrom": 1.9
+        },
+        {
+          "pdb_id": "8F0L",
+          "title": "Crystal Structure of the Human T cell Receptor CD3(EPSILON) N-Terminal Peptide Complexed with ADI-26906 FAB",
+          "resolution_angstrom": 1.81
+        },
+        {
+          "pdb_id": "1SY6",
+          "title": "Crystal Structure of CD3gammaepsilon Heterodimer in Complex with OKT3 Fab Fragment",
+          "resolution_angstrom": 2.1
+        }
+      ],
+      "latency_ms": 2873.7,
+      "status": "ok"
+    },
+    "04_chembl_tarlatamab": {
+      "source_name": "ChEMBL",
+      "license_spdx": "CC-BY-SA-3.0",
+      "license_tier": "lookup_only_sharealike_boundary",
+      "request_url": "https://www.ebi.ac.uk/chembl/api/data/molecule/search.json?q=tarlatamab&limit=2",
+      "retrieved_at_utc": "2026-11-26T21:10:13Z",
+      "payload_sha256": "7b917f6666b2ef988d887010ae73e69be7bed378d53ca32820dd65f71b6a9e13",
+      "summary": {
+        "query": "tarlatamab",
+        "chembl_db_version": "ChEMBL_37",
+        "chembl_release_date": "2026-05-01",
+        "attribution_url": "https://chembl.github.io/chembl-licensing/",
+        "n_returned": 1,
+        "molecules": [
+          {
+            "chembl_id": "CHEMBL5095292",
+            "pref_name": "TARLATAMAB",
+            "molecule_type": "Antibody",
+            "max_phase": "4.0"
+          }
+        ]
+      },
+      "raw_excerpt": {
+        "pointer_only_no_raw_redistribution": true
+      },
+      "latency_ms": 4313.3,
+      "status": "ok"
+    },
+    "05_opentargets_DLL3": {
+      "source_name": "OpenTargets",
+      "license_spdx": "CC0-1.0_Public_Platform",
+      "license_tier": "commercial_clean",
+      "request_url": "https://api.platform.opentargets.org/api/v4/graphql",
+      "retrieved_at_utc": "2026-11-26T21:10:14Z",
+      "payload_sha256": "d1604d0770218282ef32cb2ec74632019c39b2e947f0fcc0bdbad9766fe864da",
+      "summary": {
+        "ensembl_id": "ENSG00000090932",
+        "approved_symbol": "DLL3",
+        "total_associated_diseases": 1445,
+        "antibody_tractability": [
+          "UniProt SigP or TMHMM",
+          "GO CC med conf",
+          "Human Protein Atlas loc"
+        ]
+      },
+      "raw_excerpt": {
+        "ensembl_id": "ENSG00000090932",
+        "approved_symbol": "DLL3",
+        "total_associated_diseases": 1445,
+        "antibody_tractability": [
+          "UniProt SigP or TMHMM",
+          "GO CC med conf",
+          "Human Protein Atlas loc"
+        ]
+      },
+      "latency_ms": 815.6,
+      "status": "ok"
+    },
+    "06_clinicaltrials_DLL3_CD3": {
+      "source_name": "ClinicalTrials.gov",
+      "license_spdx": "US-Public-Domain",
+      "license_tier": "commercial_clean",
+      "request_url": "https://clinicaltrials.gov/api/v2/studies?query.term=DLL3%20CD3%20T-cell%20engager&pageSize=3",
+      "retrieved_at_utc": "2026-11-26T21:10:15Z",
+      "payload_sha256": "93bea1389a7243cf3a34520ab25fe61e1e8c30939ff16081ea11ad1aefcb6050",
+      "summary": {
+        "query": "DLL3 CD3 T-cell engager",
+        "n_returned": 3,
+        "studies": [
+          {
+            "nct_id": "NCT07699237",
+            "brief_title_sandboxed": {
+              "untrusted_external_data": true,
+              "must_not_modify_locked_constraints": true,
+              "source_id": "CTgov:NCT07699237",
+              "text_excerpt": "A Multicenter Phase II Trial to Evaluate Rechallenge With Platinum-based Chemotherapy (Carboplatin, Etoposide) for Progression During Tarlatamab Therapy in Relapsed Extensive Disease Small-cell Lung Cancer (SCLC)"
+            },
+            "overall_status": "NOT_YET_RECRUITING"
+          },
+          {
+            "nct_id": "NCT07423585",
+            "brief_title_sandboxed": {
+              "untrusted_external_data": true,
+              "must_not_modify_locked_constraints": true,
+              "source_id": "CTgov:NCT07423585",
+              "text_excerpt": "Tarlatamab for the Treatment of Extensive Stage Small-cell Lung Cancer"
+            },
+            "overall_status": "RECRUITING"
+          },
+          {
+            "nct_id": "NCT06816394",
+            "brief_title_sandboxed": {
+              "untrusted_external_data": true,
+              "must_not_modify_locked_constraints": true,
+              "source_id": "CTgov:NCT06816394",
+              "text_excerpt": "Tarlatamab for Advanced Extrapulmonary Small Cell Carcinoma and Neuroendocrine Carcinoma (TAURUS)"
+            },
+            "overall_status": "RECRUITING"
+          }
+        ]
+      },
+      "raw_excerpt": [
+        {
+          "nct_id": "NCT07699237",
+          "brief_title_sandboxed": {
+            "untrusted_external_data": true,
+            "must_not_modify_locked_constraints": true,
+            "source_id": "CTgov:NCT07699237",
+            "text_excerpt": "A Multicenter Phase II Trial to Evaluate Rechallenge With Platinum-based Chemotherapy (Carboplatin, Etoposide) for Progression During Tarlatamab Therapy in Relapsed Extensive Disease Small-cell Lung Cancer (SCLC)"
+          },
+          "overall_status": "NOT_YET_RECRUITING"
+        },
+        {
+          "nct_id": "NCT07423585",
+          "brief_title_sandboxed": {
+            "untrusted_external_data": true,
+            "must_not_modify_locked_constraints": true,
+            "source_id": "CTgov:NCT07423585",
+            "text_excerpt": "Tarlatamab for the Treatment of Extensive Stage Small-cell Lung Cancer"
+          },
+          "overall_status": "RECRUITING"
+        },
+        {
+          "nct_id": "NCT06816394",
+          "brief_title_sandboxed": {
+            "untrusted_external_data": true,
+            "must_not_modify_locked_constraints": true,
+            "source_id": "CTgov:NCT06816394",
+            "text_excerpt": "Tarlatamab for Advanced Extrapulmonary Small Cell Carcinoma and Neuroendocrine Carcinoma (TAURUS)"
+          },
+          "overall_status": "RECRUITING"
+        }
+      ],
+      "latency_ms": 721.2,
+      "status": "ok"
+    },
+    "07_gtex_DLL3": {
+      "source_name": "GTEx",
+      "license_spdx": "Public_Aggregate_TPM",
+      "license_tier": "commercial_clean",
+      "request_url": "https://gtexportal.org/api/v2/expression/medianGeneExpression?gencodeId=ENSG00000090932.10&datasetId=gtex_v8",
+      "retrieved_at_utc": "2026-11-26T21:10:17Z",
+      "payload_sha256": "91d0d851a68e04f53fecd3135f1e5c0897e9f774f0df124df61e9898a926e67a",
+      "summary": {
+        "gene_symbol": "DLL3",
+        "gencode_id": "ENSG00000090932.10",
+        "n_tissues": 54,
+        "top_5_tissues": [
+          {
+            "tissue": "Brain_Nucleus_accumbens_basal_ganglia",
+            "median_tpm": 11.429
+          },
+          {
+            "tissue": "Brain_Hypothalamus",
+            "median_tpm": 8.555
+          },
+          {
+            "tissue": "Brain_Amygdala",
+            "median_tpm": 8.268
+          },
+          {
+            "tissue": "Brain_Anterior_cingulate_cortex_BA24",
+            "median_tpm": 6.841
+          },
+          {
+            "tissue": "Brain_Caudate_basal_ganglia",
+            "median_tpm": 6.469
+          }
+        ],
+        "liver_tpm": 0.01
+      },
+      "raw_excerpt": [
+        {
+          "tissue": "Brain_Nucleus_accumbens_basal_ganglia",
+          "median_tpm": 11.429
+        },
+        {
+          "tissue": "Brain_Hypothalamus",
+          "median_tpm": 8.555
+        },
+        {
+          "tissue": "Brain_Amygdala",
+          "median_tpm": 8.268
+        },
+        {
+          "tissue": "Brain_Anterior_cingulate_cortex_BA24",
+          "median_tpm": 6.841
+        },
+        {
+          "tissue": "Brain_Caudate_basal_ganglia",
+          "median_tpm": 6.469
+        },
+        {
+          "tissue": "Brain_Hippocampus",
+          "median_tpm": 6.239
+        },
+        {
+          "tissue": "Brain_Frontal_Cortex_BA9",
+          "median_tpm": 6.196
+        },
+        {
+          "tissue": "Brain_Cortex",
+          "median_tpm": 5.527
+        },
+        {
+          "tissue": "Brain_Putamen_basal_ganglia",
+          "median_tpm": 5.452
+        },
+        {
+          "tissue": "Pituitary",
+          "median_tpm": 4.951
+        }
+      ],
+      "latency_ms": 1484.9,
+      "status": "ok"
+    },
+    "08_alphafold_DLL3": {
+      "source_name": "AlphaFoldDB",
+      "license_spdx": "CC-BY-4.0",
+      "license_tier": "commercial_clean",
+      "request_url": "https://alphafold.ebi.ac.uk/api/prediction/Q9NYJ7",
+      "retrieved_at_utc": "2026-11-26T21:10:17Z",
+      "payload_sha256": "9ce4a50191388e5f2d527f72f5110f24d49c15742e4417de8620effe003a45d6",
+      "summary": {
+        "uniprot_accession": "Q9NYJ7",
+        "entry_id": "AF-Q9NYJ7-F1",
+        "latest_version": 6,
+        "global_metric_plddt": 65.19,
+        "fraction_plddt_very_high": 0.057,
+        "fraction_plddt_very_low_disordered": 0.275,
+        "seq_length": 618,
+        "cif_url": "https://alphafold.ebi.ac.uk/files/AF-Q9NYJ7-F1-model_v6.cif",
+        "pae_doc_url": "https://alphafold.ebi.ac.uk/files/AF-Q9NYJ7-F1-predicted_aligned_error_v6.json"
+      },
+      "raw_excerpt": {
+        "uniprot_accession": "Q9NYJ7",
+        "entry_id": "AF-Q9NYJ7-F1",
+        "latest_version": 6,
+        "global_metric_plddt": 65.19,
+        "fraction_plddt_very_high": 0.057,
+        "fraction_plddt_very_low_disordered": 0.275,
+        "seq_length": 618,
+        "cif_url": "https://alphafold.ebi.ac.uk/files/AF-Q9NYJ7-F1-model_v6.cif",
+        "pae_doc_url": "https://alphafold.ebi.ac.uk/files/AF-Q9NYJ7-F1-predicted_aligned_error_v6.json"
+      },
+      "latency_ms": 769.3,
+      "status": "ok"
+    },
+    "09_hpa_DLL3_localization": {
+      "source_name": "HumanProteinAtlas",
+      "license_spdx": "CC-BY-SA-3.0",
+      "license_tier": "lookup_only_sharealike_boundary",
+      "request_url": "https://www.proteinatlas.org/ENSG00000090932.json",
+      "retrieved_at_utc": "2026-11-26T21:10:19Z",
+      "payload_sha256": "0f5f41a03fb378ba00496b234c77103606f805771226e979269eadd3b11993b6",
+      "summary": {
+        "ensembl_id": "ENSG00000090932",
+        "gene": "DLL3",
+        "protein_class": [
+          "Disease related genes",
+          "Human disease related genes",
+          "Plasma proteins",
+          "Predicted intracellular proteins",
+          "Predicted membrane proteins"
+        ],
+        "subcellular_main_location": [
+          "Nucleoplasm"
+        ],
+        "secretome_location": null,
+        "rna_tissue_specificity": "Tissue enriched",
+        "attribution_url": "https://www.proteinatlas.org/about/licence",
+        "license_note": "Human Protein Atlas is CC-BY-SA-3.0; lookup-only localization pointer, blocked from commercial training/redistribution exports."
+      },
+      "raw_excerpt": {
+        "pointer_only_no_raw_redistribution": true
+      },
+      "latency_ms": 1380.1,
+      "status": "ok"
+    },
+    "10_europepmc_license_gate_siegel2022": {
+      "source_name": "EuropePMC",
+      "license_spdx": "CC0-1.0_Metadata",
+      "license_tier": "commercial_clean",
+      "request_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=PMCID%3APMC8728028&format=json&resultType=core&pageSize=1",
+      "retrieved_at_utc": "2026-11-26T21:10:20Z",
+      "payload_sha256": "3c3c308a592c90e700723f2d7c9f24e98fb3d10b7ce508be35b9886f868d914e",
+      "summary": {
+        "query": "PMCID:PMC8728028",
+        "pmid": "34849835",
+        "pmcid": "PMC8728028",
+        "doi": "10.1093/g3journal/jkab404",
+        "pub_year": "2022",
+        "journal": "G3 (Bethesda, Md.)",
+        "is_open_access": true,
+        "license_raw": "cc by",
+        "commercial_clean_article_eligible": true,
+        "title_sandboxed": {
+          "untrusted_external_data": true,
+          "must_not_modify_locked_constraints": true,
+          "source_id": "EuropePMC:34849835",
+          "text_excerpt": "Massively parallel analysis of human 3' UTRs reveals that AU-rich element length and registration predict mRNA destabilization."
+        }
+      },
+      "raw_excerpt": {
+        "query": "PMCID:PMC8728028",
+        "pmid": "34849835",
+        "pmcid": "PMC8728028",
+        "doi": "10.1093/g3journal/jkab404",
+        "pub_year": "2022",
+        "journal": "G3 (Bethesda, Md.)",
+        "is_open_access": true,
+        "license_raw": "cc by",
+        "commercial_clean_article_eligible": true,
+        "title_sandboxed": {
+          "untrusted_external_data": true,
+          "must_not_modify_locked_constraints": true,
+          "source_id": "EuropePMC:34849835",
+          "text_excerpt": "Massively parallel analysis of human 3' UTRs reveals that AU-rich element length and registration predict mRNA destabilization."
+        }
+      },
+      "latency_ms": 1144.0,
+      "status": "ok"
+    },
+    "11_ncbi_genbank_PP784251_m1psi_ref": {
+      "source_name": "NCBI_Eutils",
+      "license_spdx": "US-Public-Domain",
+      "license_tier": "commercial_clean",
+      "request_url": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=PP784251&rettype=fasta&retmode=text",
+      "retrieved_at_utc": "2026-11-26T21:10:21Z",
+      "payload_sha256": "b497a4db7494db70ce5fd68d12065400847eda9be7d2b353b3ceed0ecdb8ef3f",
+      "summary": {
+        "accession": "PP784251",
+        "header_sandboxed": {
+          "untrusted_external_data": true,
+          "must_not_modify_locked_constraints": true,
+          "source_id": "NCBI:PP784251",
+          "text_excerpt": ">PP784251.1 Synthetic construct glycoprotein precursor, gene, complete cds"
+        },
+        "length_nt": 3887,
+        "gc_fraction": 0.5397,
+        "sequence_sha256": "7d32c94c91775d9050765948f8ffae6c1c5d3fe9883a0c8237c58b5440a2da06"
+      },
+      "raw_excerpt": {
+        "prefix_60nt": "TAATACGACTCACTATAAGGCTAGTAGTAGACTCCGCAAGAAGAAGCAAAAAATTAAAGA"
+      },
+      "latency_ms": 898.0,
+      "status": "ok"
+    },
+    "12_rnacentral_miR122_5p": {
+      "source_name": "RNAcentral",
+      "license_spdx": "CC0-1.0_with_upstream_terms",
+      "license_tier": "commercial_clean",
+      "request_url": "https://rnacentral.org/api/v1/rna/?external_id=MIMAT0000421&format=json",
+      "retrieved_at_utc": "2026-11-26T21:10:25Z",
+      "payload_sha256": "9547b2e647a52b6ead77fcbd711d49b122fd828b8134ddf49367f3523b4575af",
+      "summary": {
+        "query_id": "MIMAT0000421",
+        "rnacentral_id": "URS00003380CC",
+        "rna_type": "miRNA",
+        "length": 22,
+        "sequence": "UGGAGUGUGACAAUGGUGUUUG",
+        "md5": "84ac0e9bb171d4eb79180f4a72a5ae10",
+        "license_terms_url": "https://docs.rnacentral.org/license.html"
+      },
+      "raw_excerpt": {
+        "query_id": "MIMAT0000421",
+        "rnacentral_id": "URS00003380CC",
+        "rna_type": "miRNA",
+        "length": 22,
+        "sequence": "UGGAGUGUGACAAUGGUGUUUG",
+        "md5": "84ac0e9bb171d4eb79180f4a72a5ae10",
+        "license_terms_url": "https://docs.rnacentral.org/license.html"
+      },
+      "latency_ms": 4027.5,
+      "status": "ok"
+    }
+  }
+}

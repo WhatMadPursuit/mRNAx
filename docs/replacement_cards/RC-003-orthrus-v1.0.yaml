@@ -1,0 +1,97 @@
+card_id: "RC-003-ORTHRUS-1.0-MIT"
+component_id: "orthrus_mamba_rna_foundation"
+approved_software_version: "1.0.0"
+approved_artifact_digests:
+  config.json: "22ef4964de7757d76f6aecb09620483682e025c699b356132fe69d24f934011e"
+  model.safetensors: "0b3a297a429307a97693a5bbb68af13312bc4fcd580e6580cd3d6e59eeba5bd7"
+component_name_and_version: "Orthrus 1.0.0"
+role_in_pipeline: >
+  Orthrus 6-track & 4-track Mamba RNA Foundation Model (Nature Methods 2026; antichronology/orthrus-6-track & orthrus-4-track, 10M params, dim=512, 6 layers, MIT).
+  Commercial-clean MIT-licensed long-context Mamba state-space RNA foundation encoder (2,048+ nt full-transcript context)
+  loaded via our zero-compilation Triton SRAM-fused pure-PyTorch module (`orthrus_portable_pytorch.py`, ZERO `mamba_ssm`
+  or `causal_conv1d` C++ compilation, ZERO `GenomeKit` dependency). Primary commercial-clean GPU backbone for full-transcript
+  mammalian mRNA half-life scoring (Saluki 13,642-gene paralog OOD: 0.6245 ensemble / 0.6023 probe vs 0.5776 pure-seq)
+  and cross-architecture corroboration on Moderna U/5moU/m1Psi SHAPE-MaP (0.5714 on m1Psi vs 0.4142 ViennaRNA).
+current_license_track: "commercial_clean"
+code_rights_basis: >
+  Official source repository https://github.com/bowang-lab/Orthrus (Fradkin, Shi et al., Nature Methods 2026,
+  doi:10.1038/s41592-026-03064-3) declares MIT License. Our clean-room portable Triton/PyTorch inference wrapper
+  (`orthrus_portable_pytorch.py`) uses standard BSD-3 PyTorch + MIT Triton without bundling external CUDA extensions.
+  Retain original copyright, license notice, and no-warranty disclaimer.
+weights_rights_basis: >
+  Specified HuggingFace model cards `antichronology/orthrus-6-track` and `antichronology/orthrus-4-track`
+  (`model.safetensors`, 40,712,192 B each) individually declare MIT License. Per C-W6 independent audit: release records
+  must register exact source repo, commit/version, filename, and digest for each deployed weight artifact; this record
+  applies ONLY to those exact verified HuggingFace checkpoints and does not imply blanket commercial rights over unmapped
+  mirrors or third-party data.
+training_and_parameter_data_rights_basis: >
+  Per C-W6 independent audit: Zenodo 13910050 (v1.0, record-level MIT) is a downstream linear-probing/fine-tuning archive
+  and does NOT replace pretraining corpus or weight licenses. Upstream pretraining sources (mature mRNA transcripts) and
+  downstream benchmark/third-party resources (e.g., HPA, GO, Saluki Agarwal & Kelley 2022 CC-BY-4.0 / Apache-2.0) retain
+  their own original license terms and attribution requirements. mRNAx commercial probes (`orthrus6_saluki_halflife_probe.joblib`)
+  are trained solely on Saluki human consensus half-life (zero ViennaRNA labels, zero GPL/NC dependencies). Engineering
+  provenance record only; not a formal legal opinion.
+runtime_dependency_rights_basis: >
+  Standard PyTorch (2.14.1+cu130, BSD-3-Clause) + Triton (MIT) + huggingface_hub (Apache-2.0) + safetensors (Apache-2.0)
+  + scikit-learn (BSD-3-Clause) + joblib (BSD-3-Clause); zero GPL/AGPL, zero mamba_ssm C++ build, zero GenomeKit.
+derived_assets_clean_room_rule: >
+  Downstream Orthrus probes and LoRA adapters remain commercial_clean only when trained on cleared CC0/CC-BY-4.0/public-GEO
+  or proprietary wet-lab datasets, excluding ViennaRNA-distilled labels and non-commercial/non-OA datasets (e.g., Griesemer 2021
+  Cell quarantined to commercial_clearance_pending).
+commercial_replacement_paths:
+  - "Primary Commercial-Clean Full-Transcript Half-Life Backbone (M1.5-M4): Keep Orthrus 6-track (MIT, Triton-fused) + Pure-Seq LightGBM hybrid (Spearman 0.6245, Top-10% 45.67% on 13,642 genes)."
+  - "Zero-GPU Fallback / Rollback: CommercialCleanSurrogateV1 Saluki pure-sequence LightGBM head (Spearman 0.5776, Top-10% 39.88%, zero GPU)."
+  - "Structure / Hydrolysis Specialist Pair: Pair with RC-002 structRFM (MIT) which remains #1 on Moderna U/5moU/m1Psi SHAPE-MaP (0.586-0.596) and Leppek PERSIST-seq (0.5138)."
+frozen_benchmark_dataset_and_protocol: >
+  Frozen Commercial-Clean 5-Track OOD Suite (Saluki 13,642 human genes paralog GroupKFold; fastUTR 8k 3'UTR MPRA;
+  GSE232927 10k 5'UTR MRL; Moderna Mauger 2019 205,047-nt U/5moU/m1Psi held-out construct SHAPE-MaP; Leppek 2022 PERSIST-seq
+  n=191/203). Mandatory 6-track CDS codon-start channel [0,3,6,...] verified via 4-track vs 6-track ablation.
+acceptance_metrics:
+  - metric_id: "saluki_full13642_human_halflife_ood_spearman"
+    definition_and_scale: "5-fold paralog-grouped OOD Spearman rho across all 13,642 human genes in Saluki consensus half-life ([-1, 1])"
+    direction: "higher_is_better"
+    frozen_baseline_reference: "Pure-Seq LightGBM rho=0.5776; Orthrus-4-track rho=0.2538; Orthrus-6-track probe rho=0.6023; Hybrid Ridge rho=0.6229; Ensemble rho=0.6245"
+    max_acceptable_degradation: "Must beat zero-GPU Pure-Seq LightGBM by delta >= +0.015 Spearman (numeric_min_bound >= 0.5926) on the frozen paralog split"
+    measured_value: 0.6023
+    numeric_min_bound: 0.5926
+  - metric_id: "moderna_shapemap_per_nt_spearman_m1psi"
+    definition_and_scale: "Held-out construct per-nucleotide Spearman rho on Moderna Mauger 2019 m1Psi (mpU) fLuc SHAPE-MaP ([-1, 1])"
+    direction: "higher_is_better"
+    frozen_baseline_reference: "ViennaRNA RNAplfold zero-shot rho=0.4142; Orthrus-6-track probe rho=0.5714 (U=0.5301, 5moU=0.5161); structRFM MIT probe rho=0.5918"
+    max_acceptable_degradation: "Must beat ViennaRNA RNAplfold by >= +0.100 on m1Psi (numeric_min_bound >= 0.5142) as cross-architecture structure corroborator"
+    measured_value: 0.5714
+    numeric_min_bound: 0.5142
+  - metric_id: "triton_scan_parity_max_diff"
+    definition_and_scale: "Maximum absolute tensor difference between Triton SRAM scan and exact float64 reference scan at 512 nt"
+    direction: "lower_is_better"
+    frozen_baseline_reference: "Measured on NVIDIA L4 (PyTorch 2.14.1+cu130): max_abs_diff = 5.72e-06"
+    max_acceptable_degradation: "scan_diff <= 1.0e-4"
+    measured_value: 0.00000572
+    numeric_max_bound: 0.0001
+  - metric_id: "triton_gpu_determinism_drift"
+    definition_and_scale: "Repeat-run deterministic hidden-state drift across fixed-seed L4 inference passes"
+    direction: "lower_is_better"
+    frozen_baseline_reference: "Measured on NVIDIA L4: gpu_drift = 0.0"
+    max_acceptable_degradation: "gpu_drift <= 0.0010"
+    measured_value: 0.0
+    numeric_max_bound: 0.001
+  - metric_id: "triton_l4_peak_vram_mb"
+    definition_and_scale: "Peak allocated GPU memory in MB during batched 512-nt inference on NVIDIA L4"
+    direction: "lower_is_better"
+    frozen_baseline_reference: "Measured on NVIDIA L4: peak VRAM = 2,259.7 MB"
+    max_acceptable_degradation: "peak VRAM <= 4,096.0 MB"
+    measured_value: 2259.7
+    numeric_max_bound: 4096.0
+  - metric_id: "triton_l4_latency_ms_per_seq"
+    definition_and_scale: "Latency in ms/seq at 512 nt on NVIDIA L4 GPU"
+    direction: "lower_is_better"
+    frozen_baseline_reference: "Measured on NVIDIA L4: latency = 2.46 ms/seq (406.2 seq/s)"
+    max_acceptable_degradation: "latency <= 15.0 ms/seq"
+    measured_value: 2.46
+    numeric_max_bound: 15.0
+max_compute_cost_budget: "Peak VRAM <= 4,096 MB (measured 2,259.7 MB on L4); 406.2 seq/s batched (2.46 ms/seq at 512 nt); zero commercial royalty."
+overall_switch_rule: >
+  Enable Orthrus 6-track (MIT, Triton-fused) as the primary GPU full-transcript half-life head in M1.5/M4 commercial_clean
+  whenever all three acceptance_metrics stay within bounds, the 6-track CDS codon-start channel [0,3,6,...] is supplied
+  (never substitute 4-track for full-transcript half-life), and zero GPL/non-commercial dependencies are introduced.
+rollback_version: "CommercialCleanSurrogateV1 Saluki pure-sequence LightGBM head (zero GPU, OOD Spearman 0.5776)"

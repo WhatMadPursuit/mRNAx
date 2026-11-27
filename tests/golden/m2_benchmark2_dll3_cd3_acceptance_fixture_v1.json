@@ -1,0 +1,703 @@
+{
+  "fixture_id": "M2_BENCHMARK2_DLL3_CD3_ACCEPTANCE_FIXTURE_V1",
+  "version": "1.0.0",
+  "compliance_track": "commercial_clean",
+  "sequence_provenance_honesty_notice": "Synthetic non-proprietary antibody framework scaffolds with canonical human Ig-kappa signal peptide are used for deterministic software & RNA engineering validation. Proprietary clinical CDRs (e.g. Tarlatamab) are NEVER fabricated; users paste their own proprietary AA sequences in production.",
+  "federated_evidence_binding": {
+    "snapshot_file": "m2_benchmark2_dll3_cd3_evidence_snapshot_v1.json",
+    "drive_id": "1DE-8Wcmg0ZICZ1q9dSK4K3xVPTrMBe73",
+    "snapshot_sha256": "7c01e92d75df27956ee5b9792808b18e10322371eeb8047e49559a8746a02fc7",
+    "live_apis_verified": "9/9 OK + 2/2 negative guardrails PASS"
+  },
+  "three_layer_crs_safety_boundary": {
+    "layer1_sequence_controllable": [
+      "Liver hepatocyte detargeting via 3x hsa-miR-122-5p sites (117,673 CPM liver vs 0.13 CPM T-cell; FANTOM5 CC-BY-4.0)",
+      "Balanced 1:1 co-encapsulation stoichiometry & matched 5'UTR/CDS kinetics across both arms",
+      "Zero +1 m1Psi UUUU slippery frameshift runs (Mulroney 2024) & zero patent FTO collisions"
+    ],
+    "layer2_protein_and_formulation_outside_rna_sequence_only": [
+      "Anti-CD3 affinity tuning (low-affinity CD3 arm reduces cytokine burst) requires protein engineering",
+      "LNP tropism, step-up dosing schedule, and Cmax peak control require formulation/PK design"
+    ],
+    "layer3_clinical_protocol_strictly_out_of_sequence_scope": [
+      "Inpatient CRS/ICANS grading, step-up monitoring, corticosteroid & tocilizumab intervention protocols CANNOT be replaced by mRNA sequence optimization alone."
+    ]
+  },
+  "design_intent": {
+    "intent_id": "INTENT_M2_B2_DLL3_CD3_V1",
+    "project_id": "PROJ_M2_BENCHMARK2_DLL3_CD3",
+    "intent_version": 1,
+    "parent_intent_id": null,
+    "created_from_turn_ids": [
+      "turn_b2_01"
+    ],
+    "entry_mode": "protein_only",
+    "compliance_track": "commercial_clean",
+    "uridine_chemistry": "m1psi",
+    "status": "ready",
+    "blocking_questions": [],
+    "protein_targets": [
+      {
+        "protein_sequence": "METDTLLLWVLLLWVPGSTGQVQLVQSGAEVKKPGASVKVSCKASGYTFTGYYMHWVRQAPGQGLEWMGWINPNSGGTNYAQKFQGRVTMTRDTSISTAYMELSRLRSDDTAVYYCAR",
+        "transl_table": 1,
+        "accession_or_source": "SYNTHETIC_NON_PROPRIETARY_ANTI_DLL3_VH_SCAFFOLD_WITH_HUMAN_IGK_SP",
+        "entry_version": "demo_v1_no_proprietary_cdrs",
+        "has_signal_peptide": true,
+        "is_secreted_or_membrane": true,
+        "confirmation_status": "confirmed"
+      },
+      {
+        "protein_sequence": "METDTLLLWVLLLWVPGSTGDIQMTQSPSSLSASVGDRVTITCRASQSISSYLNWYQQKPGKAPKLLIYAASSLQSGVPSRFSGSGSGTDFTLTISSLQPEDFATYYCQQSYSTPLTF",
+        "transl_table": 1,
+        "accession_or_source": "SYNTHETIC_NON_PROPRIETARY_ANTI_CD3E_VL_SCAFFOLD_WITH_HUMAN_IGK_SP",
+        "entry_version": "demo_v1_no_proprietary_cdrs",
+        "has_signal_peptide": true,
+        "is_secreted_or_membrane": true,
+        "confirmation_status": "confirmed"
+      }
+    ],
+    "reference_bundle_id": null,
+    "locked_scopes": {
+      "protein_sequence": {
+        "scope": "protein_sequence",
+        "locked_value": "METDTLLLWVLLLWVPGSTGQVQLVQSGAEVKKPGASVKVSCKASGYTFTGYYMHWVRQAPGQGLEWMGWINPNSGGTNYAQKFQGRVTMTRDTSISTAYMELSRLRSDDTAVYYCAR|METDTLLLWVLLLWVPGSTGDIQMTQSPSSLSASVGDRVTITCRASQSISSYLNWYQQKPGKAPKLLIYAASSLQSGVPSRFSGSGSGTDFTLTISSLQPEDFATYYCQQSYSTPLTF",
+        "reason": "Exact amino-acid preservation required across both co-encapsulated chains",
+        "locked_at_turn_id": "turn_b2_01"
+      }
+    },
+    "mutable_scopes": [
+      "five_prime_utr",
+      "cds",
+      "three_prime_utr"
+    ],
+    "constraints": [
+      {
+        "requirement_id": "gate_uaug_5utr",
+        "constraint_kind": "uaug_free",
+        "target_scopes": [
+          "five_prime_utr"
+        ],
+        "severity": "hard_gate",
+        "source_type": "system_safety_gate",
+        "source_locator": "mrnax:safety:uaug_v1",
+        "params": {}
+      },
+      {
+        "requirement_id": "gate_homopolymer_max",
+        "constraint_kind": "homopolymer_max",
+        "target_scopes": [
+          "cds",
+          "five_prime_utr",
+          "stop_cassette",
+          "three_prime_utr"
+        ],
+        "severity": "hard_gate",
+        "source_type": "system_safety_gate",
+        "source_locator": "mrnax:safety:homopolymer_v1",
+        "params": {
+          "max_run": 7
+        }
+      },
+      {
+        "requirement_id": "gate_m1psi_frameshift",
+        "constraint_kind": "m1psi_slippery_free",
+        "target_scopes": [
+          "cds"
+        ],
+        "severity": "hard_gate",
+        "source_type": "system_safety_gate",
+        "source_locator": "doi:10.1038/s41586-023-06800-3 (Mulroney et al. 2024)",
+        "params": {}
+      },
+      {
+        "requirement_id": "gate_t7_terminator",
+        "constraint_kind": "t7_class2_terminator_free",
+        "target_scopes": [
+          "cds",
+          "five_prime_utr",
+          "stop_cassette",
+          "three_prime_utr"
+        ],
+        "severity": "hard_gate",
+        "source_type": "system_safety_gate",
+        "source_locator": "mrnax:ivt:t7_terminator_v1",
+        "params": {}
+      },
+      {
+        "requirement_id": "gate_dsrna_and_loopback",
+        "constraint_kind": "dsrna_and_3p_loopback",
+        "target_scopes": [
+          "full_transcript",
+          "inter_chain",
+          "three_prime_terminal"
+        ],
+        "severity": "hard_gate",
+        "source_type": "system_safety_gate",
+        "source_locator": "mrnax:safety:dsrna_loopback_v1",
+        "params": {
+          "max_perfect_stem_bp": 25,
+          "loopback_3p_bp": 10
+        }
+      },
+      {
+        "requirement_id": "gate_type_iis_restriction",
+        "constraint_kind": "type_iis_restriction_free",
+        "target_scopes": [
+          "full_transcript"
+        ],
+        "severity": "hard_gate",
+        "source_type": "user_explicit",
+        "source_locator": "mrnax:ivt:linearization_enzymes_v1",
+        "params": {
+          "enzymes": [
+            "BspQI"
+          ],
+          "forbidden_motifs": []
+        }
+      }
+    ],
+    "objectives": [
+      {
+        "requirement_id": "OBJ-B2-EXPR-01",
+        "metric_id": "consensus_halflife_pred",
+        "direction": "maximize",
+        "priority_rank": 1,
+        "evidence_status": "validated_predictor",
+        "source_utterance": "Maximize sustained secretion and half-life across both chains while matching stoichiometry.",
+        "target_band": null
+      },
+      {
+        "requirement_id": "OBJ-B2-MRL-02",
+        "metric_id": "utr5_mrl_pred",
+        "direction": "maximize",
+        "priority_rank": 2,
+        "evidence_status": "validated_predictor",
+        "source_utterance": "Balance 5'UTR translation initiation across both co-encapsulated arms.",
+        "target_band": null
+      }
+    ],
+    "cell_expression_control": {
+      "detarget_tissues": [
+        "liver"
+      ],
+      "protected_tissues": [
+        "spleen",
+        "t_cell"
+      ],
+      "mirna_copy_range": [
+        3,
+        3
+      ],
+      "spacer_nt_range": [
+        8,
+        16
+      ],
+      "min_stop_offset_nt": 15
+    },
+    "co_translational_slowdown_codons": [],
+    "portfolio_tracks": [
+      "exploratory_pareto"
+    ],
+    "runtime_policy": {
+      "budget_tier": "fast",
+      "max_wall_seconds": 60.0,
+      "max_evaluations": 6,
+      "random_seed": 42,
+      "allow_cached_candidates": false,
+      "enabled_generators": [
+        "stage0_random",
+        "dnachisel_cds",
+        "pareto_nsga2"
+      ],
+      "enabled_evaluators": [
+        "surrogate_v1_clean"
+      ]
+    }
+  },
+  "design_intent_digest": "a467c7745ffdb1d6c75ec7003fdf27197e7ae6f83d858bae64cc176d8035f6de",
+  "construct_bundle": {
+    "bundle_id": "B2_DLL3_CD3_LNP_COENCAP_MIR122_V1",
+    "version_digest": "25acca02ea2420222386315fad1980f6e2dbed9568ef79da8128a59132f8c14c",
+    "parent_bundle_id": null,
+    "derivation_action": "de_novo_design",
+    "target_stoichiometry": {
+      "chain_anti_dll3_arm": 1.0,
+      "chain_anti_cd3_arm": 1.0
+    },
+    "co_expression_mode": "lnp_co_encapsulation",
+    "molecules": [
+      {
+        "molecule_id": "chain_anti_dll3_arm",
+        "modality": "linear_mrna",
+        "topology": "linear",
+        "chemistry_track": {
+          "uridine_chemistry": "m1psi",
+          "cap_chemistry": "cap1_cleancap_ag",
+          "source": "user_declared",
+          "custom_modification_notes": null
+        },
+        "effective_translation_target": {
+          "protein_sequence": "METDTLLLWVLLLWVPGSTGQVQLVQSGAEVKKPGASVKVSCKASGYTFTGYYMHWVRQAPGQGLEWMGWINPNSGGTNYAQKFQGRVTMTRDTSISTAYMELSRLRSDDTAVYYCAR",
+          "transl_table": 1,
+          "accession_or_source": "SYNTHETIC_NON_PROPRIETARY_ANTI_DLL3_VH_SCAFFOLD_WITH_HUMAN_IGK_SP",
+          "entry_version": "demo_v1_no_proprietary_cdrs",
+          "has_signal_peptide": true,
+          "is_secreted_or_membrane": true,
+          "confirmation_status": "confirmed"
+        },
+        "sequence": "AUCUCUCUCGGGUGGAGUCUUCUGACAGCUGGUGCGCCUGCCCGGGAACAUCCUCCUGGACUCAAUCAUGGAGACCGACACCCUGCUGCUGUGGGUGCUGCUGCUGUGGGUGCCCGGCAGCACCGGCCAGGUGCAGCUGGUGCAGAGCGGCGCCGAGGUGAAGAAGCCCGGCGCCAGCGUGAAGGUGAGCUGCAAGGCCAGCGGCUACACCUUCACCGGCUACUACAUGCACUGGGUGCGGCAGGCCCCCGGCCAGGGCCUGGAGUGGAUGGGCUGGAUCAACCCCAACAGCGGCGGCACCAACUACGCCCAGAAGUUCCAGGGCCGGGUGACCAUGACCCGGGACACCAGCAUCAGCACCGCCUACAUGGAGCUGAGCCGGCUGCGGAGCGACGACACCGCCGUGUACUACUGCGCCCGGUGAAUCUGCUGGCAGAGUAGUUUGAGCCAAACACCAUUGUCACACUCCAACUACUACCAAACAAACACCAUUGUCACACUCCAACUACUACCAAACAAACACCAUUGUCACACUCCACAGCUGGACUGGGCUGGCCGCCUGCCGCUUCUUGAGGGUGGAAGAGGGGUGCUCUGAGAAGACACUCAGGCAGCAGACUCUGCCUCUCACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "segments": [
+          {
+            "segment_type": "five_prime_utr",
+            "start": 0,
+            "end": 67,
+            "component_id": "utr5_lgals1_ENST00000895126",
+            "origin_source": "GENCODE_v49:ENST00000895126",
+            "license_track": "commercial_clean",
+            "action_taken": "selected_from_library"
+          },
+          {
+            "segment_type": "cds",
+            "start": 67,
+            "end": 421,
+            "component_id": "chain_anti_dll3_arm_cds",
+            "origin_source": "mrnax_synonymous_m1psi_safe",
+            "license_track": "commercial_clean",
+            "action_taken": "generated_novo"
+          },
+          {
+            "segment_type": "stop_cassette",
+            "start": 421,
+            "end": 424,
+            "component_id": "stop_uga",
+            "origin_source": "standard_genetic_code",
+            "license_track": "commercial_clean",
+            "action_taken": "generated_novo"
+          },
+          {
+            "segment_type": "three_prime_utr",
+            "start": 424,
+            "end": 628,
+            "component_id": "utr3_rps21_ENST00000370592_3x_mir122",
+            "origin_source": "GENCODE_v49:ENST00000370592+miRBase:MIMAT0000421",
+            "license_track": "commercial_clean",
+            "action_taken": "generated_novo"
+          },
+          {
+            "segment_type": "poly_a",
+            "start": 628,
+            "end": 728,
+            "component_id": "polya_unsegmented_100",
+            "origin_source": "commercial_clean_unsegmented_polya",
+            "license_track": "commercial_clean",
+            "action_taken": "generated_novo"
+          }
+        ],
+        "annotations": [
+          {
+            "feature_id": "chain_anti_dll3_arm_kozak_tis",
+            "feature_key": "regulatory",
+            "intervals": [
+              [
+                61,
+                71
+              ]
+            ],
+            "strand": 1,
+            "qualifiers": {
+              "regulatory_class": [
+                "kozak_tis"
+              ],
+              "note": [
+                "Span crossing 5'UTR/CDS start junction"
+              ]
+            }
+          },
+          {
+            "feature_id": "chain_anti_dll3_arm_signal_peptide",
+            "feature_key": "sig_peptide",
+            "intervals": [
+              [
+                67,
+                127
+              ]
+            ],
+            "strand": 1,
+            "qualifiers": {
+              "product": [
+                "Human Ig-kappa leader (METDTLLLWVLLLWVPGSTG)"
+              ],
+              "note": [
+                "20 aa N-terminal secretion signal"
+              ]
+            }
+          },
+          {
+            "feature_id": "chain_anti_dll3_arm_mir122_site_1",
+            "feature_key": "regulatory",
+            "intervals": [
+              [
+                448,
+                470
+              ]
+            ],
+            "strand": 1,
+            "qualifiers": {
+              "regulatory_class": [
+                "mirna_target_site"
+              ],
+              "mirna_id": [
+                "hsa-miR-122-5p"
+              ],
+              "mirbase_accession": [
+                "MIMAT0000421"
+              ],
+              "liver_vs_tcell_cpm": [
+                "117673.43 vs 0.13"
+              ]
+            }
+          },
+          {
+            "feature_id": "chain_anti_dll3_arm_mir122_site_2",
+            "feature_key": "regulatory",
+            "intervals": [
+              [
+                482,
+                504
+              ]
+            ],
+            "strand": 1,
+            "qualifiers": {
+              "regulatory_class": [
+                "mirna_target_site"
+              ],
+              "mirna_id": [
+                "hsa-miR-122-5p"
+              ],
+              "mirbase_accession": [
+                "MIMAT0000421"
+              ],
+              "liver_vs_tcell_cpm": [
+                "117673.43 vs 0.13"
+              ]
+            }
+          },
+          {
+            "feature_id": "chain_anti_dll3_arm_mir122_site_3",
+            "feature_key": "regulatory",
+            "intervals": [
+              [
+                516,
+                538
+              ]
+            ],
+            "strand": 1,
+            "qualifiers": {
+              "regulatory_class": [
+                "mirna_target_site"
+              ],
+              "mirna_id": [
+                "hsa-miR-122-5p"
+              ],
+              "mirbase_accession": [
+                "MIMAT0000421"
+              ],
+              "liver_vs_tcell_cpm": [
+                "117673.43 vs 0.13"
+              ]
+            }
+          },
+          {
+            "feature_id": "chain_anti_dll3_arm_mir122_spacer_1",
+            "feature_key": "misc_feature",
+            "intervals": [
+              [
+                470,
+                482
+              ]
+            ],
+            "strand": 1,
+            "qualifiers": {
+              "note": [
+                "12-nt neutral inter-site spacer"
+              ]
+            }
+          },
+          {
+            "feature_id": "chain_anti_dll3_arm_mir122_spacer_2",
+            "feature_key": "misc_feature",
+            "intervals": [
+              [
+                504,
+                516
+              ]
+            ],
+            "strand": 1,
+            "qualifiers": {
+              "note": [
+                "12-nt neutral inter-site spacer"
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "molecule_id": "chain_anti_cd3_arm",
+        "modality": "linear_mrna",
+        "topology": "linear",
+        "chemistry_track": {
+          "uridine_chemistry": "m1psi",
+          "cap_chemistry": "cap1_cleancap_ag",
+          "source": "user_declared",
+          "custom_modification_notes": null
+        },
+        "effective_translation_target": {
+          "protein_sequence": "METDTLLLWVLLLWVPGSTGDIQMTQSPSSLSASVGDRVTITCRASQSISSYLNWYQQKPGKAPKLLIYAASSLQSGVPSRFSGSGSGTDFTLTISSLQPEDFATYYCQQSYSTPLTF",
+          "transl_table": 1,
+          "accession_or_source": "SYNTHETIC_NON_PROPRIETARY_ANTI_CD3E_VL_SCAFFOLD_WITH_HUMAN_IGK_SP",
+          "entry_version": "demo_v1_no_proprietary_cdrs",
+          "has_signal_peptide": true,
+          "is_secreted_or_membrane": true,
+          "confirmation_status": "confirmed"
+        },
+        "sequence": "GGGAAAAGGGGCGGGGUCCUCAGAGCUGCCGCGCUGGCACAUCUUCCUGGAGAAGGGGAGGGUGCGGCUGCAGAGAAUUGAGACUUAGAAGCUUUGAAUUCCUGUAUCUGAGAACGGAGUCGUUGGGGGUGGUGGAGGGGGUUGGAAUUGGGGACCUACGGAAGGCUCAGCUCUUGCCAGGCCAAAUUGAGACAUGGAGACCGACACCCUGCUGCUGUGGGUGCUGCUGCUGUGGGUGCCCGGCAGCACCGGCGACAUCCAGAUGACCCAGAGCCCCAGCAGCCUGAGCGCCAGCGUGGGCGACCGGGUGACCAUCACCUGCCGGGCCAGCCAGAGCAUCAGCAGCUACCUGAACUGGUACCAGCAGAAGCCCGGCAAGGCCCCCAAGCUGCUGAUCUACGCCGCCAGCAGCCUGCAGAGCGGCGUGCCCAGCCGGUUCAGCGGCAGCGGCAGCGGCACCGACUUCACCCUGACCAUCAGCAGCCUGCAGCCCGAGGACUUCGCCACCUACUACUGCCAGCAGAGCUACAGCACCCCCCUGACCUUCUGAGAGCCUUCUGAGCCCAGCGACUUCCAAACACCAUUGUCACACUCCAACUACUACCAAACAAACACCAUUGUCACACUCCAACUACUACCAAACAAACACCAUUGUCACACUCCAUGAAGGGCCCCUUGCAAAGUAAUAGGGCUUCUGCCUAAGCCUCUCCCUCCAGCCAAUAGGCAGCUUUCUUAACUAUCCUAACAAGCCUUGGACCAAAUGGAAAUAAAGCUUUUUGAUGCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "segments": [
+          {
+            "segment_type": "five_prime_utr",
+            "start": 0,
+            "end": 193,
+            "component_id": "utr5_maged2_ENST00000919666",
+            "origin_source": "GENCODE_v49:ENST00000919666",
+            "license_track": "commercial_clean",
+            "action_taken": "selected_from_library"
+          },
+          {
+            "segment_type": "cds",
+            "start": 193,
+            "end": 547,
+            "component_id": "chain_anti_cd3_arm_cds",
+            "origin_source": "mrnax_synonymous_m1psi_safe",
+            "license_track": "commercial_clean",
+            "action_taken": "generated_novo"
+          },
+          {
+            "segment_type": "stop_cassette",
+            "start": 547,
+            "end": 550,
+            "component_id": "stop_uga",
+            "origin_source": "standard_genetic_code",
+            "license_track": "commercial_clean",
+            "action_taken": "generated_novo"
+          },
+          {
+            "segment_type": "three_prime_utr",
+            "start": 550,
+            "end": 784,
+            "component_id": "utr3_ftl_ENST00000853542_3x_mir122",
+            "origin_source": "GENCODE_v49:ENST00000853542+miRBase:MIMAT0000421",
+            "license_track": "commercial_clean",
+            "action_taken": "generated_novo"
+          },
+          {
+            "segment_type": "poly_a",
+            "start": 784,
+            "end": 884,
+            "component_id": "polya_unsegmented_100",
+            "origin_source": "commercial_clean_unsegmented_polya",
+            "license_track": "commercial_clean",
+            "action_taken": "generated_novo"
+          }
+        ],
+        "annotations": [
+          {
+            "feature_id": "chain_anti_cd3_arm_kozak_tis",
+            "feature_key": "regulatory",
+            "intervals": [
+              [
+                187,
+                197
+              ]
+            ],
+            "strand": 1,
+            "qualifiers": {
+              "regulatory_class": [
+                "kozak_tis"
+              ],
+              "note": [
+                "Span crossing 5'UTR/CDS start junction"
+              ]
+            }
+          },
+          {
+            "feature_id": "chain_anti_cd3_arm_signal_peptide",
+            "feature_key": "sig_peptide",
+            "intervals": [
+              [
+                193,
+                253
+              ]
+            ],
+            "strand": 1,
+            "qualifiers": {
+              "product": [
+                "Human Ig-kappa leader (METDTLLLWVLLLWVPGSTG)"
+              ],
+              "note": [
+                "20 aa N-terminal secretion signal"
+              ]
+            }
+          },
+          {
+            "feature_id": "chain_anti_cd3_arm_mir122_site_1",
+            "feature_key": "regulatory",
+            "intervals": [
+              [
+                574,
+                596
+              ]
+            ],
+            "strand": 1,
+            "qualifiers": {
+              "regulatory_class": [
+                "mirna_target_site"
+              ],
+              "mirna_id": [
+                "hsa-miR-122-5p"
+              ],
+              "mirbase_accession": [
+                "MIMAT0000421"
+              ],
+              "liver_vs_tcell_cpm": [
+                "117673.43 vs 0.13"
+              ]
+            }
+          },
+          {
+            "feature_id": "chain_anti_cd3_arm_mir122_site_2",
+            "feature_key": "regulatory",
+            "intervals": [
+              [
+                608,
+                630
+              ]
+            ],
+            "strand": 1,
+            "qualifiers": {
+              "regulatory_class": [
+                "mirna_target_site"
+              ],
+              "mirna_id": [
+                "hsa-miR-122-5p"
+              ],
+              "mirbase_accession": [
+                "MIMAT0000421"
+              ],
+              "liver_vs_tcell_cpm": [
+                "117673.43 vs 0.13"
+              ]
+            }
+          },
+          {
+            "feature_id": "chain_anti_cd3_arm_mir122_site_3",
+            "feature_key": "regulatory",
+            "intervals": [
+              [
+                642,
+                664
+              ]
+            ],
+            "strand": 1,
+            "qualifiers": {
+              "regulatory_class": [
+                "mirna_target_site"
+              ],
+              "mirna_id": [
+                "hsa-miR-122-5p"
+              ],
+              "mirbase_accession": [
+                "MIMAT0000421"
+              ],
+              "liver_vs_tcell_cpm": [
+                "117673.43 vs 0.13"
+              ]
+            }
+          },
+          {
+            "feature_id": "chain_anti_cd3_arm_mir122_spacer_1",
+            "feature_key": "misc_feature",
+            "intervals": [
+              [
+                596,
+                608
+              ]
+            ],
+            "strand": 1,
+            "qualifiers": {
+              "note": [
+                "12-nt neutral inter-site spacer"
+              ]
+            }
+          },
+          {
+            "feature_id": "chain_anti_cd3_arm_mir122_spacer_2",
+            "feature_key": "misc_feature",
+            "intervals": [
+              [
+                630,
+                642
+              ]
+            ],
+            "strand": 1,
+            "qualifiers": {
+              "note": [
+                "12-nt neutral inter-site spacer"
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "fto_guard_commercial_clean_alerts": [],
+  "negative_fto_guard_proof": {
+    "injected_bnt_segmented_polya_blocked_rules": [
+      "BNT_EXAMPLE_A30L70_LINKER_SEQ2",
+      "BNT_FAMILY_51220548_SEGMENTED_POLYA_GENUS"
+    ],
+    "passed": true
+  },
+  "surrogate_v2_scores_by_chain": {
+    "chain_anti_dll3_arm": {
+      "compliance_track": "commercial_clean",
+      "zero_viennarna": true,
+      "uridine_chemistry": "m1psi",
+      "cpu_heads_chemistry_eval_mode": "cross_chemistry_thermodynamic_approximation",
+      "chemistry_caveat": "All 4 CPU sequence heads were trained on unmodified-U mammalian datasets; for m1Psi/5moU structural accessibility use StructRFMChemistryHead with native Mauger 2019 probes.",
+      "scores": {
+        "utr5_mrl_gse232927": 6.33388,
+        "cds_stability_wu2019": 0.00192,
+        "full_tx_halflife_saluki_pc1": 3.31576,
+        "utr3_stability_fastutr": -0.04611
+      },
+      "utr3_fastutr_domain_flag": "out_of_length_domain_204nt_prefer_saluki_pc1"
+    },
+    "chain_anti_cd3_arm": {
+      "compliance_track": "commercial_clean",
+      "zero_viennarna": true,
+      "uridine_chemistry": "m1psi",
+      "cpu_heads_chemistry_eval_mode": "cross_chemistry_thermodynamic_approximation",
+      "chemistry_caveat": "All 4 CPU sequence heads were trained on unmodified-U mammalian datasets; for m1Psi/5moU structural accessibility use StructRFMChemistryHead with native Mauger 2019 probes.",
+      "scores": {
+        "utr5_mrl_gse232927": 6.33801,
+        "cds_stability_wu2019": 0.00448,
+        "full_tx_halflife_saluki_pc1": 1.90674,
+        "utr3_stability_fastutr": -0.00934
+      },
+      "utr3_fastutr_domain_flag": "out_of_length_domain_234nt_prefer_saluki_pc1"
+    }
+  },
+  "protected_tissue_evidence_status": {
+    "spleen": "unmeasured_in_shipped_atlas",
+    "t_cell": "measured_in_shipped_atlas"
+  }
+}

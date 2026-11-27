@@ -1,14 +1,62 @@
 {
-  "package_name": "mRNAx_M15_Curated_Benchmarks_and_Commercial_Clean_Surrogate_v1",
-  "created_at_utc": "2026-11-26T19:33:02Z",
+  "package_name": "mRNAx_M15_Wave5_Curated_Benchmarks_and_Commercial_Clean_Surrogate_v1_1",
+  "created_at_utc": "2026-11-26T20:35:00Z",
   "commercial_tier": "commercial_clean",
   "commercial_use_allowed": true,
   "clean_room_attestation": {
     "zero_gpl_code_or_weights": true,
     "zero_noncommercial_models_or_datasets": true,
     "zero_viennarna_distilled_labels_in_commercial_models": true,
-    "note": "ViennaRNA v2.8.0 was executed exclusively as an offline evaluation comparator (Track 1 / RNAplfold benchmark) and never used to train any exported commercial_clean model or probe."
+    "zero_viennarna_runtime_import_in_commercial_clean": true,
+    "note": "All exported commercial_clean LightGBM and Ridge models were trained strictly on pure primary-sequence features or MIT structRFM embeddings against experimental wet-lab assay readouts. ViennaRNA v2.8.0 is isolated to optional [research] dependencies and never used to generate features or labels for any commercial_clean artifact."
   },
+  "exported_model_artifacts": [
+    {
+      "artifact": "surrogate_v1/utr5_mrl_pure_seq_lgbm.joblib",
+      "head_id": "5utr_mrl",
+      "training_dataset": "GSE232927_top25k_paired (Castillo-Hair et al. 2024 HEK293T polysome profiling)",
+      "target_column": "rl_mean (experimental mean ribosome load)",
+      "feature_family": "36 pure primary-sequence 5'UTR composition, uAUG/uORF, Kozak, G4/homopolymer, and 16 dinucleotide features",
+      "zero_viennarna_features_or_labels": true,
+      "license_track": "commercial_clean"
+    },
+    {
+      "artifact": "surrogate_v1/cds_codon_stability_pure_seq_lgbm.joblib",
+      "head_id": "cds_codon_stability",
+      "training_dataset": "Wu2019_293T_endogenous (Wu et al. 2019 eLife HEK293T SLAM-seq/timecourse)",
+      "target_column": "decay_293t_endogenous (experimental endogenous mRNA decay rate / stability)",
+      "feature_family": "77 pure primary-sequence CDS length, GC1/2/3, 5' ramp, CpG/UpA, CAI, and 61 sense codon frequency features",
+      "zero_viennarna_features_or_labels": true,
+      "license_track": "commercial_clean"
+    },
+    {
+      "artifact": "surrogate_v1/saluki_consensus_halflife_pure_seq_lgbm.joblib",
+      "head_id": "full_tx_consensus_halflife",
+      "training_dataset": "Saluki_AgarwalKelley2022_HumanConsensus (39-study human mRNA half-life PC1 + GENCODE v49 primary transcripts)",
+      "target_column": "saluki_consensus_halflife (experimental 39-study consensus mRNA half-life PC1)",
+      "feature_family": "79 pure primary-sequence 5'UTR + CDS + 3'UTR length, GC3, CAI, ARE/Pumilio/PAS motifs, and 61 sense codon features",
+      "zero_viennarna_features_or_labels": true,
+      "license_track": "commercial_clean"
+    },
+    {
+      "artifact": "surrogate_v1/utr3_stability_pure_seq_lgbm.joblib",
+      "head_id": "3utr_mpra_stability",
+      "training_dataset": "PMC8728028_Siegel2022_fastUTR_Saluki_Fig6_S7",
+      "target_column": "stability_mean_2cell (experimental 2-cell mean 3'UTR mRNA stability)",
+      "feature_family": "51 pure primary-sequence 3'UTR ARE/nonamer/Pumilio/Roquin-CDE/PAS/homopolymer, 16 dinucleotide, and 15 key trinucleotide features",
+      "zero_viennarna_features_or_labels": true,
+      "license_track": "commercial_clean"
+    },
+    {
+      "artifact": "surrogate_v1/structrfm_shapemap_{U,moU,mpU}_probe.joblib & structrfm_5utr_mrl_probe.joblib",
+      "head_id": "structrfm_chemistry_probes",
+      "training_dataset": "GSE139176 (Mauger et al. 2019 PNAS Firefly luciferase SHAPE-MaP across U, 5moU, m1Psi) & GSE232927",
+      "target_column": "experimental per-nucleotide SHAPE-MaP reactivity (U / moU / mpU) & experimental rl_mean",
+      "feature_family": "768-d base embeddings from MIT structRFM_checkpoint (Zenodo 16754363, USE_SPACED=False, zero BPfold)",
+      "zero_viennarna_features_or_labels": true,
+      "license_track": "commercial_clean"
+    }
+  ],
   "upstream_sources": [
     {
       "dataset_id": "GSE232927",
@@ -29,6 +77,19 @@
       "drive_source_folder": "1-SHsVb1b159ZjCuSAuaBB8Gw4jeq10lK"
     },
     {
+      "dataset_id": "Saluki_AgarwalKelley2022",
+      "citation": "Agarwal & Kelley, Genome Biol 2022",
+      "license": "Apache-2.0 repository + CC-BY-4.0 article",
+      "drive_source_folder": "1ORULrQfMmE64o478k5WrDJI2xOqv-Q4Z"
+    },
+    {
+      "dataset_id": "PMC8728028_Siegel2022_fastUTR_Saluki_Fig6_S7",
+      "citation": "Siegel et al. 2022 G3 (PMC8728028, CC-BY-4.0) fastUTR 160-nt 3UTR MPRA variant-effect table curated in Saluki Fig6_S7",
+      "license": "Apache-2.0 / CC-BY-4.0",
+      "drive_source_folder": "1ORULrQfMmE64o478k5WrDJI2xOqv-Q4Z",
+      "training_input": "Saluki Fig6_S7/Siegel_testSet fastUTR MPRA Beas2B and Jurkat tables"
+    },
+    {
       "dataset_id": "GENCODE_v49",
       "citation": "GENCODE Release 49 (EBI)",
       "license": "Public domain / unrestricted distribution",
@@ -42,13 +103,13 @@
     },
     {
       "dataset_id": "GSE139176",
-      "citation": "Mauger et al., PNAS 2019 (Moderna SHAPE-MaP)",
+      "citation": "Mauger et al., PNAS 2019 (Moderna Firefly Luciferase SHAPE-MaP)",
       "license": "CC-BY-4.0",
       "drive_source_folder": "1-SHsVb1b159ZjCuSAuaBB8Gw4jeq10lK"
     },
     {
       "dataset_id": "Zenodo_16754363",
-      "citation": "Zhu et al., structRFM 2025",
+      "citation": "Zhu et al., structRFM 2025 (archive v0.0.3 / PyPI v0.0.9)",
       "license": "MIT",
       "md5": "e572a7781a8099ff45692fcd46f83043"
     }

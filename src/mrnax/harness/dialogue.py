@@ -26,6 +26,13 @@ DEFAULT_PROVIDER_MODELS: dict[str, str] = {
     "gemini": "gemini-2.5-flash",
 }
 
+def normalize_dialogue_provider(value: str) -> str:
+    provider = value.strip().lower()
+    if provider not in DEFAULT_PROVIDER_MODELS:
+        raise ValueError(f"Unsupported dialogue provider: {value}")
+    return provider
+
+
 SYSTEM_PROMPT = (
     "You are the mRNAx v2 Design Agent. STRICT SCIENTIFIC & SAFETY RULES:\n"
     "1. NEVER invent, guess, or write nucleotide/protein sequences or numerical scores yourself.\n"
@@ -51,7 +58,7 @@ class LiveDialogueAgent:
         vault: SecretVault | None = None,
     ) -> None:
         self.toolbox = toolbox
-        self.provider = provider.strip().lower()
+        self.provider = normalize_dialogue_provider(provider)
         self.vault = vault or SecretVault()
         raw_url = base_url or PROVIDER_ENV_MAP[self.provider][1]
         self.base_url = validate_byo_llm_base_url(raw_url, allow_localhost=False)

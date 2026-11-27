@@ -134,19 +134,10 @@ class SecretVault:
 
     def _read_all(self) -> dict[str, str]:
         data: dict[str, str] = {}
-        home_env = Path.home() / ".env"
-        if home_env.is_file():
-            for k, v in dotenv_values(home_env).items():
-                if v:
-                    data[k] = v.strip()
         if self.vault_path.is_file():
-            for k, v in dotenv_values(self.vault_path).items():
+            for k, v in dotenv_values(self.vault_path, interpolate=False).items():
                 if v:
                     data[k] = v.strip()
-        for _, (env_var, _) in PROVIDER_ENV_MAP.items():
-            env_val = os.environ.get(env_var)
-            if env_val:
-                data[env_var] = env_val.strip()
         return data
 
     def _write_vault(self, entries: dict[str, str]) -> None:
@@ -171,11 +162,7 @@ class SecretVault:
         if not cleaned:
             raise ValueError("API key must not be empty")
 
-        existing: dict[str, str] = {}
-        if self.vault_path.is_file():
-            for k, v in dotenv_values(self.vault_path).items():
-                if v:
-                    existing[k] = v.strip()
+        existing = self._read_all()
         existing[env_var] = cleaned
         self._write_vault(existing)
         return {

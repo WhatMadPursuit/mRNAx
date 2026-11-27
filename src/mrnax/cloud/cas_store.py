@@ -8,12 +8,17 @@ CAS commit, and authoritative `COMMIT_RECEIPT` disaster-recovery snapshots.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
+import math
 import secrets
 import sqlite3
 import time
 import uuid
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from mrnax.cloud.drive_rest_v3 import DRIVE_FOLDER_MIME, DrivePermissionError, DriveRestV3Client
@@ -23,6 +28,10 @@ class StaleLeaseConflictError(RuntimeError):
     """Raised when a stale, expired, unauthenticated, or unverified worker attempts to commit (HTTP 409)."""
 
     http_status: int = 409
+
+
+class _ExpiredLeaseConflict(StaleLeaseConflictError):
+    """Lease ended before the reservation or receipt publication."""
 
 
 class IdempotencyPayloadMismatchError(RuntimeError):
@@ -76,10 +85,16 @@ class ExecutionCASStore:
         *,
         drive_verifier: DriveRestV3Client | None = None,
         commits_snapshot_folder_id: str | None = None,
+        require_drive_verifier: bool = False,
+        runs_root_id: str | None = None,
+        local_receipts_path: Path | None = None,
     ) -> None:
         self.db_path = db_path
         self.drive_verifier = drive_verifier
         self.commits_snapshot_folder_id = commits_snapshot_folder_id
+        self.require_drive_verifier = require_drive_verifier
+        self.runs_root_id = runs_root_id
+        self.local_receipts_path = local_receipts_path or db_path.parent / "control_plane_commit_receipts.sqlite3"
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
@@ -129,7 +144,91 @@ class ExecutionCASStore:
                 );
                 """
             )
+            if "receipt_payload" not in {row["name"] for row in conn.execute("PRAGMA table_info(executions)")}:
+                conn.execute("ALTER TABLE executions ADD COLUMN receipt_payload BLOB")
+            self._archive_legacy_local_winners(conn)
             conn.execute("COMMIT;")
+
+    def _canonical_v1_receipt_bytes(self, payload: bytes) -> bytes:
+        doc = json.loads(payload)
+        fields = (
+            "execution_id",
+            "submission_id",
+            "request_digest",
+            "intent_id",
+            "winning_attempt_id",
+            "lease_epoch",
+            "winning_sealed_file_id",
+            "winning_sealed_sha256",
+            "committed_at",
+        )
+        v1_doc = {field: doc[field] for field in fields}
+        v1_doc["schema"] = "mrnax.commit_receipt.v1"
+        return self._receipt_bytes(v1_doc)
+
+    def _same_committed_winner(self, a: bytes, b: bytes) -> bool:
+        if a == b:
+            return True
+        try:
+            return self._canonical_v1_receipt_bytes(a) == self._canonical_v1_receipt_bytes(b)
+        except Exception:
+            return False
+
+    def _archive_legacy_local_winners(self, conn: sqlite3.Connection) -> None:
+        for row in conn.execute("SELECT * FROM executions WHERE status='COMMITTED'"):
+            payload = row["receipt_payload"]
+            if payload is None:
+                fields = ("execution_id", "submission_id", "request_digest", "intent_id", "winning_attempt_id",
+                          "lease_epoch", "winning_sealed_file_id", "winning_sealed_sha256")
+                doc = {field: row[field] for field in fields}
+                doc.update(schema="mrnax.commit_receipt.v1", committed_at=row["updated_at"])
+                payload = self._receipt_bytes(doc)
+                conn.execute("UPDATE executions SET receipt_payload=? WHERE execution_id=?", (payload, row["execution_id"]))
+            if self.commits_snapshot_folder_id is not None:
+                if self.drive_verifier is not None:
+                    existing = self._find_receipt(row["execution_id"], payload)
+                    if existing is None:
+                        payload = self._canonical_v1_receipt_bytes(payload)
+                        conn.execute(
+                            "UPDATE executions SET receipt_payload=? WHERE execution_id=?",
+                            (payload, row["execution_id"]),
+                        )
+                        conn.commit()
+                        if self.local_receipts_path.exists():
+                            with self._local_receipts() as local:
+                                local.execute("BEGIN IMMEDIATE")
+                                local.execute(
+                                    "INSERT OR REPLACE INTO receipts VALUES (?, ?)",
+                                    (row["execution_id"], payload),
+                                )
+                        conn.execute("BEGIN IMMEDIATE")
+                        self.drive_verifier.upload_verified_bytes(
+                            self.commits_snapshot_folder_id,
+                            self._receipt_name(row["execution_id"]),
+                            payload,
+                            mime_type="application/json",
+                        )
+                    elif not self._same_committed_winner(existing, payload):
+                        raise StaleLeaseConflictError(f"Conflicting receipt contents for {row['execution_id']}")
+                    elif existing != payload:
+                        conn.execute(
+                            "UPDATE executions SET receipt_payload=? WHERE execution_id=?",
+                            (existing, row["execution_id"]),
+                        )
+                        if self.local_receipts_path.exists():
+                            with self._local_receipts() as local:
+                                local.execute("BEGIN IMMEDIATE")
+                                local.execute(
+                                    "INSERT OR REPLACE INTO receipts VALUES (?, ?)",
+                                    (row["execution_id"], existing),
+                                )
+            else:
+                with self._local_receipts() as local:
+                    local.execute("INSERT OR IGNORE INTO receipts VALUES (?, ?)", (row["execution_id"], payload))
+                    archived = local.execute("SELECT payload FROM receipts WHERE execution_id=?",
+                                             (row["execution_id"],)).fetchone()[0]
+                    if archived != payload:
+                        raise StaleLeaseConflictError(f"Conflicting local receipt contents for {row['execution_id']}")
 
     @staticmethod
     def _row_to_exec(row: sqlite3.Row) -> ExecutionRow:
@@ -155,6 +254,14 @@ class ExecutionCASStore:
             ).fetchone()
             if row is None:
                 raise KeyError(f"Unknown execution_id '{execution_id}'")
+            if row["status"] == "RUNNING" and row["receipt_payload"] is not None:
+                conn.execute("BEGIN IMMEDIATE")
+                row = conn.execute("SELECT * FROM executions WHERE execution_id=?", (execution_id,)).fetchone()
+                if row["status"] == "RUNNING" and row["receipt_payload"] is not None:
+                    landed = self._find_receipt(execution_id, row["receipt_payload"])
+                    if landed is not None:
+                        self._finalize(conn, row, landed)
+                        row = conn.execute("SELECT * FROM executions WHERE execution_id=?", (execution_id,)).fetchone()
             return self._row_to_exec(row)
 
     def submit_execution(
@@ -176,7 +283,7 @@ class ExecutionCASStore:
                     conn.execute("COMMIT;")
                     return self._row_to_exec(existing)
 
-                exec_id = f"exec_{uuid.uuid4().hex[:12]}"
+                exec_id = f"exec_{uuid.uuid4().hex}"
                 conn.execute(
                     """
                     INSERT INTO executions (
@@ -201,11 +308,10 @@ class ExecutionCASStore:
         execution_id: str,
         worker_id: str,
         *,
+        lease_token: str | None = None,
         ttl_seconds: int = 300,
         now_ts: float | None = None,
     ) -> LeaseGrant:
-        ts = time.time() if now_ts is None else now_ts
-        expires = ts + ttl_seconds
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE;")
             try:
@@ -215,6 +321,14 @@ class ExecutionCASStore:
                 if row is None:
                     conn.execute("ROLLBACK;")
                     raise KeyError(f"Unknown execution_id '{execution_id}'")
+                if row["status"] == "RUNNING" and row["receipt_payload"] is not None:
+                    landed = self._find_receipt(execution_id, row["receipt_payload"])
+                    if landed is not None:
+                        self._finalize(conn, row, landed)
+                        conn.commit()
+                        raise StaleLeaseConflictError(f"Execution '{execution_id}' is already COMMITTED")
+                ts = time.time() if now_ts is None else now_ts
+                expires = ts + ttl_seconds
                 if row["status"] == "COMMITTED":
                     conn.execute("ROLLBACK;")
                     raise StaleLeaseConflictError(f"Execution '{execution_id}' is already COMMITTED")
@@ -226,7 +340,15 @@ class ExecutionCASStore:
                 cur_token = row["current_lease_token"]
 
                 if row["status"] == "RUNNING" and cur_exp is not None and ts < float(cur_exp):
-                    if cur_worker == worker_id and cur_attempt is not None and cur_token is not None:
+                    if (
+                        cur_worker == worker_id
+                        and cur_attempt is not None
+                        and cur_token is not None
+                        and lease_token is not None
+                        and hmac.compare_digest(str(cur_token), lease_token)
+                    ):
+                        if row["receipt_payload"] is not None:
+                            raise StaleLeaseConflictError("A commit is pending for this lease; retry the commit")
                         conn.execute(
                             "UPDATE executions SET lease_expires_at = ?, updated_at = ? WHERE execution_id = ?",
                             (expires, ts, execution_id),
@@ -243,11 +365,15 @@ class ExecutionCASStore:
                         )
                     conn.execute("ROLLBACK;")
                     raise StaleLeaseConflictError(
-                        f"Execution '{execution_id}' is actively leased by '{cur_worker}' until {cur_exp}"
+                        f"Execution '{execution_id}' is actively leased by '{cur_worker}' until {cur_exp} (valid lease_token required to renew)"
                     )
 
+                if row["receipt_payload"] is not None and self.commits_snapshot_folder_id is not None:
+                    self._revoke_inflight_receipt(row["receipt_payload"])
+                    ts = time.time() if now_ts is None else now_ts
+                    expires = ts + ttl_seconds
                 new_epoch = cur_epoch + 1
-                new_attempt = f"att_{execution_id[-6:]}_{new_epoch:03d}"
+                new_attempt = f"att_{execution_id}_{new_epoch:03d}"
                 new_token = f"lzk_{secrets.token_urlsafe(18)}"
                 conn.execute(
                     """
@@ -257,6 +383,7 @@ class ExecutionCASStore:
                            current_attempt_id = ?,
                            current_worker_id = ?,
                            current_lease_token = ?,
+                           receipt_payload = NULL,
                            lease_expires_at = ?,
                            updated_at = ?
                      WHERE execution_id = ?
@@ -295,6 +422,11 @@ class ExecutionCASStore:
         sealed_sha256: str,
     ) -> None:
         if self.drive_verifier is None:
+            if self.require_drive_verifier:
+                raise StaleLeaseConflictError(
+                    "CAS rejected: production control plane requires Drive seal verification, "
+                    "but drive_verifier is not configured."
+                )
             return
         try:
             raw_seal = self.drive_verifier.transport.download_bytes(sealed_file_id)
@@ -312,10 +444,249 @@ class ExecutionCASStore:
             or int(doc.get("lease_epoch", -1)) != lease_epoch
         ):
             raise StaleLeaseConflictError("Drive seal metadata does not match execution/attempt/epoch")
-        for art in doc.get("artifacts", []):
-            meta = self.drive_verifier.transport.get_metadata(str(art["file_id"]))
-            if meta.get("md5Checksum") != art.get("md5"):
+        arts = doc.get("artifacts")
+        if not isinstance(arts, list) or len(arts) == 0:
+            raise StaleLeaseConflictError("Drive seal must list at least one verified artifact")
+        seal_meta = self.drive_verifier.transport.get_metadata(sealed_file_id)
+        if seal_meta.get("name") != "SEALED.json":
+            raise StaleLeaseConflictError("Drive seal must be named SEALED.json")
+        parent_ids = seal_meta.get("parents")
+        if not isinstance(parent_ids, list) or len(parent_ids) != 1:
+            raise StaleLeaseConflictError("Drive seal is missing its unique attempt folder")
+        attempt_folder = parent_ids[0]
+        folder_id = attempt_folder
+        for expected_name in (attempt_id, "attempts", execution_id):
+            folder = self.drive_verifier.transport.get_metadata(folder_id)
+            parents = folder.get("parents")
+            if (folder.get("name") != expected_name or folder.get("mimeType") != DRIVE_FOLDER_MIME
+                    or not isinstance(parents, list) or len(parents) != 1):
+                raise StaleLeaseConflictError("Drive seal is outside the designated attempt folder")
+            matches = [entry["id"] for entry in self.drive_verifier.transport.list_children(
+                parent_id=parents[0], name_exact=expected_name
+            ) if entry.get("mimeType") == DRIVE_FOLDER_MIME]
+            if matches != [folder_id]:
+                raise StaleLeaseConflictError("Drive attempt folder ancestry is ambiguous")
+            folder_id = parents[0]
+        if self.runs_root_id is not None and folder_id != self.runs_root_id:
+            raise StaleLeaseConflictError("Drive seal is outside the designated runs root")
+        if self.runs_root_id is None:
+            transport = self.drive_verifier.transport
+            if self.commits_snapshot_folder_id is not None:
+                snapshot_parents = transport.get_metadata(self.commits_snapshot_folder_id).get("parents")
+                if not isinstance(snapshot_parents, list) or len(snapshot_parents) != 1:
+                    raise StaleLeaseConflictError("Missing workspace parent for the configured Drive receipt folder")
+                workspace_id = snapshot_parents[0]
+            elif self.require_drive_verifier:
+                raise StaleLeaseConflictError("Configure MRNAX_DRIVE_RUNS_ROOT_ID to identify the attempt workspace")
+            else:
+                workspace_id = "root"
+            roots = [f["id"] for f in transport.list_children(parent_id=workspace_id, name_exact="runs")
+                     if f.get("mimeType") == DRIVE_FOLDER_MIME]
+            if roots != [folder_id]:
+                raise StaleLeaseConflictError("Drive seal is outside the designated workspace runs folder")
+        for art in arts:
+            fid = str(art.get("file_id") or "").strip()
+            expected_md5 = str(art.get("md5") or "").strip()
+            if not fid or not expected_md5:
+                raise StaleLeaseConflictError(f"Drive seal artifact '{art.get('name')}' missing file_id or md5")
+            meta = self.drive_verifier.transport.get_metadata(fid)
+            actual_md5 = str(meta.get("md5Checksum") or "").strip()
+            if not actual_md5 or actual_md5 != expected_md5:
                 raise StaleLeaseConflictError(f"Drive seal artifact md5 mismatch for {art.get('name')}")
+            if meta.get("parents") != [attempt_folder] or art.get("parent_id") != attempt_folder:
+                raise StaleLeaseConflictError(
+                    f"Drive seal artifact '{art.get('name')}' does not reside in the sealed attempt folder"
+                )
+
+    @staticmethod
+    def _receipt_bytes(doc: dict) -> bytes:
+        return (json.dumps(doc, indent=2, sort_keys=True) + "\n").encode()
+
+    @staticmethod
+    def _receipt_name(execution_id: str) -> str:
+        return f"COMMIT_RECEIPT_{execution_id}.json"
+
+    @staticmethod
+    def _require_valid_lease(row: sqlite3.Row, now: float) -> None:
+        if row["lease_expires_at"] is None or now >= row["lease_expires_at"]:
+            raise _ExpiredLeaseConflict(f"CAS rejected: lease expired at {row['lease_expires_at']} (now={now})")
+
+    @staticmethod
+    def _drive_created_at(metadata: dict) -> float:
+        stamp = metadata.get("createdTime")
+        if not isinstance(stamp, str):
+            raise StaleLeaseConflictError("Missing Drive creation time")
+        try:
+            created = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise StaleLeaseConflictError("Invalid Drive creation time") from exc
+        if created.tzinfo is None:
+            raise StaleLeaseConflictError("Missing Drive timestamp timezone")
+        return created.timestamp()
+
+    def _publication_deadline(self, row: sqlite3.Row, clock: Callable[[], float]) -> float:
+        if self.commits_snapshot_folder_id is None:
+            return row["lease_expires_at"]
+        if self.drive_verifier is None:
+            raise StaleLeaseConflictError("Cannot timestamp a Drive commit without a Drive verifier")
+        # A server-timestamped prepare binds remaining lease duration to the same clock as the receipt.
+        stamp = self.drive_verifier.upload_verified_bytes(
+            self.commits_snapshot_folder_id, f"COMMIT_WINDOW_{row['current_attempt_id']}.txt",
+            row["current_attempt_id"].encode(), mime_type="text/plain",
+        )
+        server_time = self._drive_created_at(self.drive_verifier.transport.get_metadata(stamp.file_id))
+        local_now = clock()
+        self._require_valid_lease(row, local_now)
+        return server_time + (row["lease_expires_at"] - local_now)
+
+    @staticmethod
+    def _revocation_name(payload: bytes) -> str:
+        return f"REVOKED_RECEIPT_{hashlib.sha256(payload).hexdigest()}.json"
+
+    def _revoke_inflight_receipt(self, payload: bytes) -> None:
+        # Persist the fence before regrant so a delayed POST cannot win even after SQLite is lost.
+        name = self._revocation_name(payload)
+        transport = self.drive_verifier.transport
+        entries = transport.list_children(parent_id=self.commits_snapshot_folder_id, name_exact=name)
+        if entries:
+            if any(transport.download_bytes(entry["id"]) != payload for entry in entries):
+                raise StaleLeaseConflictError("Conflicting Drive revocation contents")
+            return
+        self.drive_verifier.upload_verified_bytes(self.commits_snapshot_folder_id, name, payload,
+                                                 mime_type="application/json")
+
+    def _drive_receipts(self, drive: DriveRestV3Client, folder: str, execution_id: str | None, expected_payload: bytes | None = None) -> dict[str, bytes]:
+        """Drive creation time fences delayed writes even after the publisher crashes."""
+        name = self._receipt_name(execution_id) if execution_id else None
+        expected_epoch = json.loads(expected_payload)["lease_epoch"] if expected_payload is not None else None
+        winners: dict[str, bytes] = {}
+        entries = drive.transport.list_children(parent_id=folder, name_exact=name)
+        revocations: dict[str, list[dict]] = {}
+        for entry in entries:
+            if entry["name"].startswith("REVOKED_RECEIPT_"):
+                revocations.setdefault(entry["name"], []).append(entry)
+        for entry in entries:
+            if not entry["name"].startswith("COMMIT_RECEIPT_"):
+                continue
+            raw = drive.transport.download_bytes(entry["id"])
+            try:
+                doc = json.loads(raw)
+                key = doc["execution_id"]
+                if entry["name"] != self._receipt_name(key):
+                    raise ValueError("filename and execution ID differ")
+                if doc["schema"] == "mrnax.commit_receipt.v2":
+                    revoked_name = self._revocation_name(raw)
+                    if execution_id is not None:
+                        fences = drive.transport.list_children(parent_id=folder, name_exact=revoked_name)
+                    else:
+                        fences = revocations.get(revoked_name, [])
+                    if fences:
+                        if any(drive.transport.download_bytes(fence["id"]) != raw for fence in fences):
+                            raise StaleLeaseConflictError("Conflicting Drive revocation contents")
+                        continue
+                    meta = entry if entry.get("createdTime") else drive.transport.get_metadata(entry["id"])
+                    created_at = self._drive_created_at(meta)
+                    deadline = doc["publish_before_utc"]
+                    if not math.isfinite(deadline):
+                        raise ValueError("invalid Drive publication deadline")
+                    if created_at >= deadline:
+                        continue
+                elif doc["schema"] != "mrnax.commit_receipt.v1":
+                    raise ValueError("unknown schema")
+                if (
+                    expected_epoch is not None
+                    and doc["lease_epoch"] >= expected_epoch
+                    and expected_payload is not None
+                    and not self._same_committed_winner(expected_payload, raw)
+                ):
+                    raise StaleLeaseConflictError(f"Conflicting receipt contents for {key}")
+            except (ValueError, AttributeError, KeyError, TypeError) as exc:
+                raise StaleLeaseConflictError(f"Invalid Drive commit receipt {entry['name']}: {exc}") from exc
+            if key in winners and winners[key] != raw:
+                raise StaleLeaseConflictError(f"Conflicting Drive receipt contents for {key}")
+            winners[key] = raw
+        return winners
+
+    def _local_receipts(self) -> sqlite3.Connection:
+        self.local_receipts_path.parent.mkdir(parents=True, exist_ok=True)
+        local = sqlite3.connect(self.local_receipts_path, timeout=30.0)
+        local.execute("PRAGMA synchronous=FULL")
+        local.execute("CREATE TABLE IF NOT EXISTS receipts (execution_id TEXT PRIMARY KEY, payload BLOB NOT NULL)")
+        return local
+
+    def _find_receipt(self, execution_id: str, expected_payload: bytes | None = None) -> bytes | None:
+        if self.commits_snapshot_folder_id is not None:
+            if self.drive_verifier is None:
+                raise StaleLeaseConflictError("Drive receipt folder is configured without a Drive verifier")
+            return self._drive_receipts(self.drive_verifier, self.commits_snapshot_folder_id, execution_id, expected_payload).get(execution_id)
+        if not self.local_receipts_path.exists():
+            return None
+        with self._local_receipts() as local:
+            row = local.execute("SELECT payload FROM receipts WHERE execution_id = ?", (execution_id,)).fetchone()
+            return row[0] if row else None
+
+    def _publish(self, row: sqlite3.Row, payload: bytes, clock: Callable[[], float]) -> bytes:
+        key = row["execution_id"]
+        existing = self._find_receipt(key, payload)
+        if existing is not None:
+            if existing != payload:
+                raise StaleLeaseConflictError(f"Conflicting receipt contents for {key}")
+            return existing
+
+        if self.commits_snapshot_folder_id is not None:
+            self._require_valid_lease(row, clock())
+            self.drive_verifier.upload_verified_bytes(
+                self.commits_snapshot_folder_id, self._receipt_name(key), payload, mime_type="application/json"
+            )
+            landed = self._find_receipt(key, payload)
+            if landed is None:
+                raise _ExpiredLeaseConflict("Drive receipt was not published before the lease expired")
+            if landed != payload:
+                raise StaleLeaseConflictError(f"Conflicting receipt contents for {key}")
+            return landed
+
+        with self._local_receipts() as local:
+            local.execute("BEGIN IMMEDIATE")
+            self._require_valid_lease(row, clock())
+            local.execute("INSERT OR IGNORE INTO receipts VALUES (?, ?)", (key, payload))
+            landed = local.execute("SELECT payload FROM receipts WHERE execution_id = ?", (key,)).fetchone()[0]
+            if landed != payload:
+                raise StaleLeaseConflictError(f"Conflicting local receipt contents for {key}")
+        return landed
+
+    @staticmethod
+    def _finalize(conn: sqlite3.Connection, row: sqlite3.Row, payload: bytes) -> None:
+        if row["receipt_payload"] != payload:
+            raise StaleLeaseConflictError(f"Receipt contents differ from the reserved commit for {row['execution_id']}")
+        doc = json.loads(payload)
+        conn.execute(
+            """UPDATE executions SET status='COMMITTED', winning_attempt_id=?, winning_sealed_file_id=?,
+                    winning_sealed_sha256=?, updated_at=? WHERE execution_id=?""",
+            (doc["winning_attempt_id"], doc["winning_sealed_file_id"], doc["winning_sealed_sha256"],
+             doc["committed_at"], row["execution_id"]),
+        )
+        conn.execute(
+            "UPDATE attempts SET sealed_file_id=?, commit_outcome='COMMITTED_200' WHERE attempt_id=?",
+            (doc["winning_sealed_file_id"], doc["winning_attempt_id"]),
+        )
+
+    @contextmanager
+    def _commit_connection(
+        self, execution_id: str, attempt_id: str, lease_token: str | None, sealed_file_id: str
+    ) -> Iterator[sqlite3.Connection]:
+        with self._connect() as conn:
+            try:
+                yield conn
+            except StaleLeaseConflictError as exc:
+                conn.rollback()
+                outcome = "EXPIRED_409" if isinstance(exc, _ExpiredLeaseConflict) else "REJECTED_409"
+                conn.execute(
+                    """UPDATE attempts SET commit_outcome=?, sealed_file_id=?
+                       WHERE execution_id=? AND attempt_id=? AND lease_token=?
+                       AND COALESCE(commit_outcome, '') != 'COMMITTED_200'""",
+                    (outcome, sealed_file_id, execution_id, attempt_id, lease_token),
+                )
+                raise
 
     def commit_attempt_cas(
         self,
@@ -328,225 +699,149 @@ class ExecutionCASStore:
         lease_token: str | None = None,
         now_ts: float | None = None,
     ) -> CommitReceipt:
-        """Verify Drive seal + lease token + expiry, then run single-statement atomic CAS commit."""
-        ts = time.time() if now_ts is None else now_ts
-        self._verify_drive_seal_before_commit(
-            execution_id=execution_id,
-            attempt_id=attempt_id,
-            lease_epoch=lease_epoch,
-            sealed_file_id=sealed_file_id,
-            sealed_sha256=sealed_sha256,
-        )
-
-        with self._connect() as conn:
-            conn.execute("BEGIN IMMEDIATE;")
-            try:
-                cur_row = conn.execute(
-                    "SELECT status, lease_epoch, current_attempt_id, current_lease_token, lease_expires_at, winning_attempt_id, submission_id, request_digest, intent_id FROM executions WHERE execution_id = ?",
-                    (execution_id,),
-                ).fetchone()
-                if cur_row is None:
-                    conn.execute("ROLLBACK;")
-                    raise StaleLeaseConflictError(f"CAS rejected: unknown execution '{execution_id}'")
-
-                if lease_token is not None and cur_row["current_lease_token"] != lease_token:
-                    conn.execute("ROLLBACK;")
-                    raise StaleLeaseConflictError("CAS rejected: invalid worker lease_token")
-
-                if cur_row["lease_expires_at"] is not None and ts > float(cur_row["lease_expires_at"]):
-                    conn.execute(
-                        "UPDATE attempts SET sealed_file_id = ?, commit_outcome = 'EXPIRED_409' WHERE attempt_id = ?",
-                        (sealed_file_id, attempt_id),
-                    )
-                    conn.execute("COMMIT;")
-                    raise StaleLeaseConflictError(
-                        f"CAS rejected: lease expired at {cur_row['lease_expires_at']} (now={ts})"
-                    )
-
-                cur = conn.execute(
-                    """
-                    UPDATE executions
-                       SET status = 'COMMITTED',
-                           winning_attempt_id = ?,
-                           winning_sealed_file_id = ?,
-                           winning_sealed_sha256 = ?,
-                           updated_at = ?
-                     WHERE execution_id = ?
-                       AND lease_epoch = ?
-                       AND current_attempt_id = ?
-                       AND status = 'RUNNING'
-                       AND (lease_expires_at IS NULL OR lease_expires_at >= ?)
-                    """,
-                    (
-                        attempt_id,
-                        sealed_file_id,
-                        sealed_sha256,
-                        ts,
-                        execution_id,
-                        lease_epoch,
-                        attempt_id,
-                        ts,
-                    ),
-                )
-                if cur.rowcount == 0:
-                    conn.execute(
-                        "UPDATE attempts SET sealed_file_id = ?, commit_outcome = 'REJECTED_409' WHERE attempt_id = ?",
-                        (sealed_file_id, attempt_id),
-                    )
-                    conn.execute("COMMIT;")
-                    raise StaleLeaseConflictError(
-                        f"CAS rejected for attempt '{attempt_id}' (epoch={lease_epoch}): "
-                        f"status={cur_row['status']}, current_epoch={cur_row['lease_epoch']}, winner={cur_row['winning_attempt_id']}"
-                    )
-
-                conn.execute(
-                    "UPDATE attempts SET sealed_file_id = ?, commit_outcome = 'COMMITTED_200' WHERE attempt_id = ?",
-                    (sealed_file_id, attempt_id),
-                )
-                conn.execute("COMMIT;")
-            except Exception:
-                if conn.in_transaction:
-                    conn.execute("ROLLBACK;")
-                raise
-
-        if self.drive_verifier is not None and self.commits_snapshot_folder_id is not None:
-            receipt_doc = {
-                "schema": "mrnax.commit_receipt.v1",
-                "execution_id": execution_id,
-                "submission_id": cur_row["submission_id"],
-                "request_digest": cur_row["request_digest"],
-                "intent_id": cur_row["intent_id"],
-                "winning_attempt_id": attempt_id,
-                "lease_epoch": lease_epoch,
-                "winning_sealed_file_id": sealed_file_id,
-                "winning_sealed_sha256": sealed_sha256,
-                "committed_at": ts,
-            }
-            self.drive_verifier.upload_verified_bytes(
-                self.commits_snapshot_folder_id,
-                f"COMMIT_RECEIPT_{execution_id}.json",
-                (json.dumps(receipt_doc, indent=2, sort_keys=True) + "\n").encode("utf-8"),
-                mime_type="application/json",
+        try:
+            self._verify_drive_seal_before_commit(
+                execution_id=execution_id, attempt_id=attempt_id, lease_epoch=lease_epoch,
+                sealed_file_id=sealed_file_id, sealed_sha256=sealed_sha256,
             )
+        except (DrivePermissionError, ValueError, TypeError, AttributeError) as exc:
+            raise StaleLeaseConflictError(f"Cannot verify Drive seal or attempt folder: {exc}") from exc
+        clock = time.time if now_ts is None else lambda: now_ts
+        receipt = CommitReceipt(execution_id, "COMMITTED", attempt_id, sealed_file_id, lease_epoch)
+        request = {
+            "execution_id": execution_id, "winning_attempt_id": attempt_id, "lease_epoch": lease_epoch,
+            "winning_sealed_file_id": sealed_file_id, "winning_sealed_sha256": sealed_sha256,
+        }
+        with self._commit_connection(execution_id, attempt_id, lease_token, sealed_file_id) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT * FROM executions WHERE execution_id=?", (execution_id,)).fetchone()
+            if row is None:
+                raise StaleLeaseConflictError(f"CAS rejected: unknown execution '{execution_id}'")
+            if row["current_lease_token"] and (
+                not lease_token or not hmac.compare_digest(row["current_lease_token"], lease_token)
+            ):
+                raise StaleLeaseConflictError("CAS rejected: invalid worker lease_token")
+            if row["current_attempt_id"] != attempt_id or row["lease_epoch"] != lease_epoch:
+                raise StaleLeaseConflictError(f"CAS rejected: stale attempt {attempt_id}")
+            payload = row["receipt_payload"]
+            if payload is None and row["status"] == "COMMITTED":
+                # Pre-journal winners already have an immutable decision in this database.
+                if (row["winning_attempt_id"], row["winning_sealed_file_id"], row["winning_sealed_sha256"]) != (
+                    attempt_id, sealed_file_id, sealed_sha256
+                ):
+                    raise StaleLeaseConflictError("Commit differs from the existing winner")
+                doc = {**request, "schema": "mrnax.commit_receipt.v1", "committed_at": row["updated_at"]}
+            elif payload is None:
+                if row["status"] != "RUNNING":
+                    raise StaleLeaseConflictError(f"CAS rejected: execution is {row['status']}")
+                ts = clock()
+                self._require_valid_lease(row, ts)
+                deadline = self._publication_deadline(row, clock)
+                doc = {**request, "schema": "mrnax.commit_receipt.v2", "committed_at": ts,
+                       "publish_before_utc": deadline}
+            if payload is None:
+                doc.update({key: row[key] for key in ("submission_id", "request_digest", "intent_id")})
+                payload = self._receipt_bytes(doc)
+                conn.execute("UPDATE executions SET receipt_payload=? WHERE execution_id=?", (payload, execution_id))
+            else:
+                expected = json.loads(payload)
+                if any(expected.get(key) != value for key, value in request.items()):
+                    raise StaleLeaseConflictError("Commit differs from the reserved receipt")
+            conn.commit()
 
-        return CommitReceipt(
-            execution_id=execution_id,
-            status="COMMITTED",
-            winning_attempt_id=attempt_id,
-            winning_sealed_file_id=sealed_file_id,
-            lease_epoch=lease_epoch,
-        )
+            # The reservation survives an ambiguous network failure. A lease takeover reconciles it first.
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT * FROM executions WHERE execution_id=?", (execution_id,)).fetchone()
+            if row["receipt_payload"] != payload:
+                raise StaleLeaseConflictError("CAS rejected: commit reservation was superseded")
+            if row["status"] == "COMMITTED":
+                existing = self._find_receipt(execution_id, payload)
+                if existing is None:
+                    if self.commits_snapshot_folder_id is not None:
+                        if self.drive_verifier is None:
+                            raise StaleLeaseConflictError("Drive receipt folder is configured without a Drive verifier")
+                        payload = self._canonical_v1_receipt_bytes(payload)
+                        conn.execute(
+                            "UPDATE executions SET receipt_payload=? WHERE execution_id=?",
+                            (payload, execution_id),
+                        )
+                        conn.commit()
+                        if self.local_receipts_path.exists():
+                            with self._local_receipts() as local:
+                                local.execute("BEGIN IMMEDIATE")
+                                local.execute("INSERT OR REPLACE INTO receipts VALUES (?, ?)", (execution_id, payload))
+                        conn.execute("BEGIN IMMEDIATE")
+                        self.drive_verifier.upload_verified_bytes(
+                            self.commits_snapshot_folder_id,
+                            self._receipt_name(execution_id),
+                            payload,
+                            mime_type="application/json",
+                        )
+                        existing = self._find_receipt(execution_id, payload)
+                    else:
+                        with self._local_receipts() as local:
+                            local.execute("BEGIN IMMEDIATE")
+                            local.execute("INSERT OR IGNORE INTO receipts VALUES (?, ?)", (execution_id, payload))
+                        existing = self._find_receipt(execution_id, payload)
+                if existing is None or not self._same_committed_winner(existing, payload):
+                    raise StaleLeaseConflictError("Conflicting receipt contents for committed winner")
+                if existing != payload:
+                    conn.execute(
+                        "UPDATE executions SET receipt_payload=? WHERE execution_id=?",
+                        (existing, execution_id),
+                    )
+                return receipt
+            self._finalize(conn, row, self._publish(row, payload, clock))
+        return receipt
 
     def reconcile_from_drive_seals(self, drive: DriveRestV3Client, runs_root_id: str) -> int:
-        """Disaster recovery: restore COMMITTED rows ONLY from authoritative Control Plane COMMIT_RECEIPT snapshots
-        when `commits_snapshot_folder_id` is configured; never promote uncommitted worker seals over RUNNING tasks."""
-        reconciled = 0
-        if self.commits_snapshot_folder_id is not None:
-            receipt_files = [
-                f
-                for f in drive.transport.list_children(parent_id=self.commits_snapshot_folder_id)
-                if str(f.get("name", "")).startswith("COMMIT_RECEIPT_")
-            ]
-            for rf in receipt_files:
-                doc = json.loads(drive.transport.download_bytes(str(rf["id"])).decode("utf-8"))
-                exec_id = str(doc["execution_id"])
-                epoch = int(doc["lease_epoch"])
-                att_id = str(doc["winning_attempt_id"])
-                seal_fid = str(doc["winning_sealed_file_id"])
-                sha = str(doc["winning_sealed_sha256"])
-                ts = float(doc.get("committed_at", time.time()))
-                with self._connect() as conn:
-                    conn.execute("BEGIN IMMEDIATE;")
-                    existing = conn.execute(
-                        "SELECT status, lease_epoch FROM executions WHERE execution_id = ?", (exec_id,)
-                    ).fetchone()
-                    if existing is None:
-                        conn.execute(
-                            """
-                            INSERT INTO executions (
-                                execution_id, submission_id, request_digest, intent_id,
-                                status, lease_epoch, current_attempt_id, winning_attempt_id,
-                                winning_sealed_file_id, winning_sealed_sha256, created_at, updated_at
-                            ) VALUES (?, ?, ?, ?, 'COMMITTED', ?, ?, ?, ?, ?, ?, ?)
-                            """,
-                            (
-                                exec_id,
-                                str(doc.get("submission_id", f"reconciled_{exec_id}")),
-                                str(doc.get("request_digest", "reconciled")),
-                                str(doc.get("intent_id", "reconciled")),
-                                epoch,
-                                att_id,
-                                att_id,
-                                seal_fid,
-                                sha,
-                                ts,
-                                ts,
-                            ),
-                        )
-                        reconciled += 1
-                    elif existing["status"] != "COMMITTED" and epoch >= int(existing["lease_epoch"]):
-                        conn.execute(
-                            """
-                            UPDATE executions
-                               SET status = 'COMMITTED',
-                                   lease_epoch = ?,
-                                   winning_attempt_id = ?,
-                                   winning_sealed_file_id = ?,
-                                   winning_sealed_sha256 = ?,
-                                   updated_at = ?
-                             WHERE execution_id = ?
-                            """,
-                            (epoch, att_id, seal_fid, sha, ts, exec_id),
-                        )
-                        reconciled += 1
-                    conn.execute("COMMIT;")
-            return reconciled
+        """Compatibility entry point for receipt recovery in previously deployed workers."""
+        return self.restore_committed_receipts(drive=drive)
 
-        # Legacy cold-DB bootstrap when no separate commits folder configured (ONLY inserts missing rows, never overrides RUNNING)
-        exec_folders = [
-            f for f in drive.transport.list_children(parent_id=runs_root_id)
-            if f.get("mimeType") == DRIVE_FOLDER_MIME
-        ]
-        for ef in exec_folders:
-            exec_id = str(ef["name"])
-            with self._connect() as conn:
-                if conn.execute("SELECT 1 FROM executions WHERE execution_id = ?", (exec_id,)).fetchone():
+    def restore_committed_receipts(self, *, drive: DriveRestV3Client | None = None) -> int:
+        """Restore the configured authority. The local journal is independent of the execution database."""
+        if self.commits_snapshot_folder_id:
+            drive = drive or self.drive_verifier
+            if drive is None:
+                raise StaleLeaseConflictError("Cannot recover Drive receipts without a Drive verifier")
+            winners = self._drive_receipts(drive, self.commits_snapshot_folder_id, None)
+        elif self.local_receipts_path.exists():
+            with self._local_receipts() as local:
+                winners = dict(local.execute("SELECT execution_id, payload FROM receipts"))
+        else:
+            winners = {}
+
+        reconciled = 0
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            for key, payload in winners.items():
+                doc = json.loads(payload)
+                identity = (doc["lease_epoch"], doc["winning_attempt_id"], doc["winning_sealed_file_id"],
+                            doc["winning_sealed_sha256"])
+                row = conn.execute("SELECT * FROM executions WHERE execution_id=?", (key,)).fetchone()
+                if row is not None and row["status"] == "COMMITTED":
+                    if identity != (row["lease_epoch"], row["winning_attempt_id"], row["winning_sealed_file_id"],
+                                    row["winning_sealed_sha256"]) or row["receipt_payload"] not in (None, payload):
+                        raise StaleLeaseConflictError(f"Recovered receipt disagrees with committed winner {key}")
                     continue
-            attempts_dirs = [
-                c for c in drive.transport.list_children(parent_id=str(ef["id"]), name_exact="attempts")
-                if c.get("mimeType") == DRIVE_FOLDER_MIME
-            ]
-            if not attempts_dirs:
-                continue
-            att_folders = [
-                a for a in drive.transport.list_children(parent_id=str(attempts_dirs[0]["id"]))
-                if a.get("mimeType") == DRIVE_FOLDER_MIME
-            ]
-            best_seal: tuple[int, str, str, str] | None = None
-            for af in att_folders:
-                for sf in drive.transport.list_children(parent_id=str(af["id"]), name_exact="SEALED.json"):
-                    raw = drive.transport.download_bytes(str(sf["id"]))
-                    doc = json.loads(raw.decode("utf-8"))
-                    epoch = int(doc["lease_epoch"])
-                    att_id = str(doc["attempt_id"])
-                    sha = hashlib.sha256(raw).hexdigest()
-                    if best_seal is None or epoch > best_seal[0]:
-                        best_seal = (epoch, att_id, str(sf["id"]), sha)
-            if best_seal is not None:
-                epoch, att_id, seal_fid, sha = best_seal
-                ts = time.time()
-                with self._connect() as conn:
-                    conn.execute("BEGIN IMMEDIATE;")
+                common = (doc["submission_id"], doc["request_digest"], doc["intent_id"])
+                if row is None:
                     conn.execute(
-                        """
-                        INSERT INTO executions (
-                            execution_id, submission_id, request_digest, intent_id,
-                            status, lease_epoch, current_attempt_id, winning_attempt_id,
-                            winning_sealed_file_id, winning_sealed_sha256, created_at, updated_at
-                        ) VALUES (?, ?, 'reconciled_from_drive', 'reconciled', 'COMMITTED', ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (exec_id, f"reconciled_{exec_id}", epoch, att_id, att_id, seal_fid, sha, ts, ts),
+                        """INSERT INTO executions (execution_id, submission_id, request_digest, intent_id, status,
+                           created_at, updated_at) VALUES (?, ?, ?, ?, 'QUEUED', ?, ?)""",
+                        (key, *common, doc["committed_at"], doc["committed_at"]),
                     )
-                    conn.execute("COMMIT;")
-                    reconciled += 1
+                elif common != (row["submission_id"], row["request_digest"], row["intent_id"]) or (
+                    row["lease_epoch"] == doc["lease_epoch"] and row["receipt_payload"] not in (None, payload)
+                ):
+                    raise StaleLeaseConflictError(f"Recovered receipt differs from local reservation {key}")
+                conn.execute(
+                    """UPDATE executions SET status='COMMITTED', lease_epoch=?, winning_attempt_id=?,
+                       winning_sealed_file_id=?, winning_sealed_sha256=?, current_attempt_id=?, current_worker_id=NULL,
+                       current_lease_token=NULL, lease_expires_at=NULL, receipt_payload=?, updated_at=? WHERE execution_id=?""",
+                    (*identity, doc["winning_attempt_id"], payload, doc["committed_at"], key),
+                )
+                conn.execute("UPDATE attempts SET sealed_file_id=?, commit_outcome='COMMITTED_200' WHERE attempt_id=?",
+                             (doc["winning_sealed_file_id"], doc["winning_attempt_id"]))
+                reconciled += 1
         return reconciled

@@ -1,0 +1,75 @@
+{
+  "record_id": "LICENSE_RECORD_WAVE5_DATA_AND_M2_INTERFACES_V1_1",
+  "created_at_utc": "2026-11-26T20:15:00Z",
+  "updated_at_utc": "2026-11-26T20:54:00Z",
+  "remediated_per_audit": "C-W6_wave3to6_independent_audit.md (Drive 1F5nhYJtNF26vdY9uAxE40OOfcih5SsNO)",
+  "compliance_track": "mixed_audited_registry_see_per_asset_tier",
+  "clean_room_verified_summary": "Only assets explicitly tagged license_tier='commercial_clean' are eligible for commercial training/product use; quarantined/pending and ShareAlike lookup-only assets are strictly separated.",
+  "assets": [
+    {
+      "file": "fastutr_3utr_mpra_beas2b_jurkat_v1.parquet",
+      "upstream_source": "Siegel et al. 2022 G3 (doi:10.1093/g3journal/jkab404, PMC8728028, CC BY 4.0) — direct upstream GitHub david-a-siegel/AU-Rich-Elements SHA-256 verified (Beas2B 39b8cd5fad482e3d; Jurkat 4b3e1b3452a7753d)",
+      "license_spdx": "CC-BY-4.0 (article) / Apache-2.0 (saluki_paper mirror code)",
+      "license_tier": "commercial_clean_with_attribution",
+      "commercial_clean": true,
+      "notes": "C-W6 audit closed: verified direct upstream Siegel 2022 G3 CC BY 4.0 CSV hashes and causal single-ARE deletion stabilization (74.8% Beas2B, 68.1% Jurkat)."
+    },
+    {
+      "file": "griesemer2021_3utr_variant_mpra_v1.parquet",
+      "upstream_source": "Griesemer et al. 2021 Cell (PMID 34534445, PMC8487971, isOpenAccess=N), mirrored in vagarwal87/saluki_paper Fig6_S7/Sabeti_testSet",
+      "license_spdx": "All-Rights-Reserved / Non-OA (Cell Press)",
+      "license_tier": "commercial_clearance_pending",
+      "commercial_clean": false,
+      "quarantined_drive_folder_id": "15D-RwhZwXZrsRs4pOevR7RxUJt0MbZQI",
+      "notes": "Physically moved server-side out of 02_commercial_clean into 02b_commercial_clearance_pending/curated_pending_v1 after DeepSeek D-B2 & Codex C-W6 audits confirmed non-OA upstream paper."
+    },
+    {
+      "file": "saluki_mouse_consensus_halflife_v1.parquet & saluki_human_mouse_1to1_orthologs_halflife_v1.parquet",
+      "upstream_source": "Agarwal & Kelley 2022 Genome Biology (10.1186/s13059-022-02811-x, CC BY 4.0 / CC0 article data waiver subject to source exceptions) + Zenodo 6326409 (CC BY 4.0) + vagarwal87/saluki_paper (Apache-2.0)",
+      "license_spdx": "CC-BY-4.0 (data/paper) + Apache-2.0 (repo scripts)",
+      "license_tier": "commercial_clean_with_attribution",
+      "commercial_clean": true,
+      "notes": "Separate terms recorded per layer (article CC BY 4.0 vs Zenodo 6326409 CC BY 4.0 vs repo Apache-2.0); retain Agarwal & Kelley 2022 attribution and verify any third-party source exceptions before external redistribution."
+    },
+    {
+      "file": "utr3_stability_pure_seq_lgbm.joblib & mrnax_commercial_surrogate_v2.py",
+      "upstream_source": "mRNAx Clean-Room code (Apache-2.0) + 4 pure-seq heads (5'UTR GSE232927, CDS Wu2019 eLife CC BY 4.0, Saluki Full-Tx CC BY 4.0, 3'UTR Siegel2022 G3 PMC8728028 CC BY 4.0 direct upstream SHA-256 verified)",
+      "license_spdx": "Apache-2.0 / MIT (code); CC-BY-4.0 (per-head training datasets)",
+      "license_tier": "commercial_clean",
+      "commercial_clean": true,
+      "notes": "Zero ViennaRNA features/labels, zero GPL, zero NC weights. Direct upstream Siegel 2022 GitHub CSV SHA-256s verified (Beas2B 39b8cd5fad482e3d; Jurkat 4b3e1b3452a7753d)."
+    },
+    {
+      "file": "mrnax_external_evidence_adapter.py & m2_benchmark2_dll3_cd3_evidence_snapshot_v1.json",
+      "upstream_source": "Live federated APIs: UniProt (CC-BY-4.0), Ensembl (Apache-2.0), RCSB PDB (CC0), OpenTargets (CC0/Apache-2.0), ClinicalTrials.gov v2 (Public Domain), GTEx v2 (Public summary), ChEMBL (CC-BY-SA-3.0 lookup-only with live chembl_db_version)",
+      "license_spdx": "Mixed_Federated (ChEMBL CC-BY-SA-3.0 strictly isolated as lookup_only_sharealike_boundary)",
+      "license_tier": "commercial_clean_adapter_lookup_only_evidence",
+      "commercial_clean": true,
+      "guardrails_enforced": [
+        "GTEx strictly blocked for mature miRNA queries (use mirna_rbp_commercial_v2.json)",
+        "Thera-SAbDab strictly blocked in commercial_clean (needs_vendor_license / research_only)",
+        "ChEMBL CC-BY-SA-3.0 records live chembl_db_version + attribution URL and is BLOCKED from commercial training/redistribution exports via guard_export_to_commercial_bundle",
+        "ClinicalTrials/external text wrapped in untrusted_external_data read-only sandbox"
+      ]
+    },
+    {
+      "file": "golden_intent_eval_suite_v1.json & eval_golden_intent_suite.py",
+      "upstream_source": "mRNAx v2 Clean-Room Regression Suite (30 frozen cases, SHA-256 pinned)",
+      "license_spdx": "Apache-2.0",
+      "license_tier": "commercial_clean",
+      "commercial_clean": true,
+      "notes": "Declarative test spec & self-check validator (not a substitute for live signed BYO-LLM execution runs)."
+    }
+  ],
+  "inspected_upstream_repos_metadata_only": [
+    {
+      "repo": "modernatx/MultiStructRNA",
+      "license_spdx": "MIT",
+      "note": "Wrapper API is MIT, but underlying binaries (ViennaRNA/LinearFold/RNAstructure) carry separate licenses; DO NOT bundle GPL/NC binaries in commercial_clean."
+    },
+    {
+      "repo": "bowang-lab/Orthrus",
+      "license_spdx": "MIT (code & specified antichronology/orthrus-4-track, orthrus-6-track HF model cards); Zenodo 13910050 is downstream fine-tuning/probing deposit only (MIT), NOT pretraining corpus or weight license; HPA/GO retain own terms."
+    }
+  ]
+}

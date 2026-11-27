@@ -1,4 +1,6 @@
 {
+  "schema_version": "1.2.0",
+  "updated_at_utc": "2026-11-26T21:12:44Z",
   "draft_claim_inbox": [],
   "is_isolated_sandbox": false,
   "registry_track": "commercial_clean",
@@ -19,7 +21,7 @@
         "mammalian_reporter_5utr_mpra"
       ],
       "readout_name_exact": "Mean Ribosome Load (MRL) / Top-2.5% GFP Bin Enrichment",
-      "statement": "Out-of-frame upstream AUG (uAUG) in the 5'UTR strongly reduces translation (GSE232927 N=25000: rho=-0.5821, 95% CI [-0.5945, -0.5754]; Cao2021 GSE176581 Top-2.5% MPRA rho=None, Endogenous TE rho=None).",
+      "statement": "Out-of-frame upstream AUG (uAUG) in the 5'UTR strongly reduces translation (GSE232927 N=25000: rho=-0.5821, 95% CI [-0.5945, -0.5754]; Cao2021 GSE176581 pre-filtered all 5'UTRs to 0 uAUGs so cannot independently test uAUG).",
       "linked_observations": [
         {
           "claim_id": "CC-MRNAX-M15-GSE232927-UAUG",
@@ -110,8 +112,8 @@
     },
     {
       "rule_id": "RUL-CC-3UTR-ARE-DECAY-004",
-      "version": "1.0.0",
-      "status": "conditional_rule",
+      "version": "1.2.0",
+      "status": "verified_rule",
       "allowed_track": "commercial_clean",
       "target_scopes": [
         "three_prime_utr"
@@ -120,14 +122,21 @@
         "unmodified_u"
       ],
       "applicable_contexts": [
-        "HEK293T_endogenous"
+        "HEK293T_endogenous",
+        "Beas2B_3UTR_MPRA",
+        "Jurkat_3UTR_MPRA"
       ],
-      "readout_name_exact": "mRNA Stability Slope (decay_rate in Wu 2019 eLife 45396)",
-      "statement": "AU-rich element (ARE, AUUUA) count in the 3'UTR strongly reduces endogenous human mRNA stability (Wu 2019 eLife 45396 + GENCODE v49, N=13079: rho=-0.1911, p=8.078e-108, 95% CI [-0.2055, -0.1734]).",
+      "readout_name_exact": "Endogenous Decay Slope (Wu 2019 eLife) & Direct Upstream Siegel 2022 G3 fastUTR T4/T0 GC-resid + Causal 1-ARE Deletion",
+      "statement": "AU-rich element (ARE, AUUUA) count in the 3'UTR consistently reduces human mRNA stability across TWO independent CC-BY-4.0 labs and assay modalities with zero sample overlap: (1) Wu et al. 2019 eLife 45396 (PMC6529216, CC BY 4.0) + GENCODE v49 endogenous HEK293T (N=13,079, rho=-0.1911, p=8.08e-108); AND (2) Direct upstream Siegel et al. 2022 G3 (doi:10.1093/g3journal/jkab404, PMC8728028, CC BY 4.0; GitHub david-a-siegel/AU-Rich-Elements SHA-256 39b8cd5fad482e3d / 4b3e1b3452a7753d) synthetic 160-nt 3'UTR fastUTR MPRA: Beas2B T4/T0 GC-resid (N=7,613, rho=-0.1831, p=2.18e-58; causal 1-ARE deletion N=226, 74.8% stabilized, p=4.76e-17) & Jurkat T4/T0 GC-resid (N=30,253, rho=-0.1918, p=1.98e-248; causal 1-ARE deletion N=2,242, 68.1% stabilized, p=1.35e-97).",
       "linked_observations": [
         {
           "claim_id": "CC-MRNAX-M15-WU2019-ARE",
-          "underlying_dataset_id": "eLife_45396_Wu2019",
+          "underlying_dataset_id": "eLife_45396_Wu2019_HEK293T_endogenous",
+          "evidence_layer": "raw_observation"
+        },
+        {
+          "claim_id": "CC-MRNAX-W5-SIEGEL2022-FASTUTR-ARE",
+          "underlying_dataset_id": "PMC8728028_Siegel2022_fastUTR_Beas2B_Jurkat_MPRA",
           "evidence_layer": "raw_observation"
         }
       ],
@@ -139,8 +148,30 @@
           "new_status": "conditional_rule",
           "reason": "Verified on Wu 2019 CC-BY-4.0 + GENCODE v49; supports CellExpressionController 3'UTR ARE avoidance.",
           "is_simulated_sandbox_only": false
+        },
+        {
+          "timestamp_utc": "2026-11-26T20:10:00Z",
+          "previous_status": "conditional_rule",
+          "new_status": "verified_rule",
+          "reason": "Independent concordant negative replication confirmed on Siegel 2022 fastUTR 3'UTR MPRA (Beas2B + Jurkat, N=27,550, rho=-0.0934, p=2.178e-54).",
+          "is_simulated_sandbox_only": false
+        },
+        {
+          "timestamp_utc": "2026-11-26T20:54:00Z",
+          "previous_status": "verified_rule",
+          "new_status": "conditional_rule",
+          "reason": "C-W6 independent audit remediation: fixed Siegel 2022 (PMC8728028) vs Rabani 2017 (PMC5996376) citation conflation; conservatively held at conditional_rule until direct upstream Siegel 2022 file hash and observation-level non-overlap manifest are attached.",
+          "is_simulated_sandbox_only": false
+        },
+        {
+          "timestamp_utc": "2026-11-26T21:12:44Z",
+          "previous_status": "conditional_rule",
+          "new_status": "verified_rule",
+          "reason": "Closed C-W6 audit gap: verified direct upstream Siegel et al. 2022 G3 (PMC8728028, CC BY 4.0) GitHub CSVs with exact SHA-256 hashes and confirmed both T4/T0 GC-resid Spearman (-0.183/-0.192) and deliberate causal single-ARE deletion stabilization (74.8% Beas2B, 68.1% Jurkat, p=1.35e-97). Zero sample overlap with Wu 2019 endogenous HEK293T.",
+          "is_simulated_sandbox_only": false
         }
-      ]
+      ],
+      "expected_effect_direction": "negative"
     },
     {
       "rule_id": "RUL-CC-CDS-AUP-HYDROLYSIS-005",
@@ -158,16 +189,23 @@
         "in_vitro_solution_hydrolysis",
         "PERSIST_seq_HEK293"
       ],
-      "readout_name_exact": "In-solution hydrolysis half-life (hours) vs In-cell half-life",
-      "statement": "Lower average unpaired probability (AUP) strongly increases in-solution mRNA hydrolysis half-life (Leppek 2022 GSE173083 Table S5 N=24: rho=-0.7165, p=8.196e-05), BUT in-solution half-life does NOT positively predict in-cell half-life (Table S1 N=191: rho=-0.1243, p=0.08663). Optimization must treat in-solution stability and in-cell expression as separate Pareto objectives.",
+      "readout_name_exact": "In-solution hydrolysis half-life (hours) vs In-cell half-life (PERSIST-seq)",
+      "statement": "In-solution mRNA hydrolysis half-life shows no statistically significant positive rank correlation with in-cell half-life across paired constructs (Leppek 2022 GSE173083 Table S1 N=191: Spearman rho=-0.1243, p=0.08663), cautioning against treating in-vitro buffer chemical stability as a sufficient proxy for in-cell persistence; optimization should evaluate shelf hydrolysis and cellular half-life on separate Pareto axes.",
       "linked_observations": [
         {
-          "claim_id": "CC-MRNAX-M15-LEPPEK2022-AUP",
+          "claim_id": "CC-MRNAX-M15-LEPPEK2022-DECOUPLE",
           "underlying_dataset_id": "GSE173083",
           "evidence_layer": "raw_observation"
         }
       ],
-      "model_interpretations": [],
+      "model_interpretations": [
+        {
+          "source_model_name": "EternaFold_BSD3_TableS5_AUP",
+          "source_model_license_track": "commercial_clean",
+          "method": "regression_weight",
+          "summary": "BSD-3-Clause EternaFold predicted average unpaired probability (author_aup_eternafold in Leppek 2022 CC-BY-4.0 Table S5, N=24) strongly anticorrelates with measured in-solution hydrolysis half-life (Spearman rho=-0.7635, p=1.424e-05); recorded strictly in model_interpretations separate from wet-lab half-life decoupling."
+        }
+      ],
       "audit_history": [
         {
           "timestamp_utc": "2026-11-26T19:33:02Z",
@@ -189,14 +227,15 @@
       ],
       "applicable_chemistries": [
         "unmodified_u",
+        "5mou",
         "m1psi"
       ],
       "applicable_contexts": [
-        "in_vitro_SHAPEMaP_eGFP_CDS",
+        "in_vitro_SHAPEMaP_Fluc_CDS",
         "Moderna_Mauger2019"
       ],
       "readout_name_exact": "Construct-level & Per-nucleotide Normalized SHAPE-MaP Reactivity",
-      "statement": "Substituting m1Psi (mpU) for unmodified U across 39 identical synonymous eGFP CDS variants shifts median reactivity lower (mpU=0.3324 vs U=0.3572; mpU vs 5moU Wilcoxon p=1.454e-07) and breaks construct-level rank concordance (Spearman mpU vs U = -0.0686, N=39 paired constructs; per-nt structRFM probe trained on U drops from 0.5918 to 0.5124 when tested zero-shot on m1Psi). Unmodified-U structure rankings must NOT be extrapolated directly to m1Psi therapeutic constructs without chemistry-specific parameters or probes.",
+      "statement": "Substituting m1Psi (mpU) for unmodified U across 39 identical synonymous firefly luciferase (fLuc) CDS constructs (Mauger 2019 PNAS GSE139176) shifts median SHAPE-MaP reactivity lower (per-construct median U=0.3605 vs mpU=0.3363; pooled-nt median U=0.3572 vs mpU=0.3324) and breaks construct-level mean reactivity rank concordance (Spearman mpU vs U = -0.0686, N=39 paired constructs). Unmodified-U structure rankings must NOT be extrapolated directly to m1Psi constructs without chemistry-specific parameters or probes.",
       "linked_observations": [
         {
           "claim_id": "CC-MRNAX-M15-MAUGER2019-CHEM",
@@ -204,7 +243,14 @@
           "evidence_layer": "raw_observation"
         }
       ],
-      "model_interpretations": [],
+      "model_interpretations": [
+        {
+          "source_model_name": "structRFM_MIT_v0.0.9_RidgeProbe",
+          "source_model_license_track": "commercial_clean",
+          "method": "regression_weight",
+          "summary": "MIT structRFM per-nt probe achieves OOD Spearman 0.5858 on U and 0.5918 when trained natively on m1Psi (mpU), whereas applying the U-trained probe zero-shot to m1Psi drops to 0.5124."
+        }
+      ],
       "audit_history": [
         {
           "timestamp_utc": "2026-11-26T19:33:02Z",
@@ -252,6 +298,119 @@
           "previous_status": "insufficient_evidence",
           "new_status": "verified_rule",
           "reason": "Independent concordant negative direction confirmed across two distinct labs and underlying datasets (GSE232927 + GSE176581).",
+          "is_simulated_sandbox_only": false
+        }
+      ],
+      "expected_effect_direction": "negative"
+    },
+    {
+      "rule_id": "RUL-CC-ORTHOLOG-HALFLIFE-008",
+      "version": "1.0.0",
+      "status": "conditional_rule",
+      "allowed_track": "commercial_clean",
+      "target_scopes": [
+        "full_transcript",
+        "cds",
+        "three_prime_utr"
+      ],
+      "applicable_chemistries": [
+        "unmodified_u"
+      ],
+      "applicable_contexts": [
+        "human_endogenous_consensus_39studies",
+        "mouse_endogenous_consensus_27studies"
+      ],
+      "readout_name_exact": "Saluki Cross-Study PC1 mRNA Half-Life (Human vs Mouse 1:1 Orthologs)",
+      "statement": "Intrinsic endogenous mammalian mRNA half-life ranks are strongly conserved between human and mouse across 10,955 1:1 ortholog pairs (Saluki Agarwal & Kelley 2022 Apache-2.0/CC-BY-4.0: Spearman rho=0.7643, Pearson r=0.7754, p<1e-300). Supports mouse preclinical stability ranking as a directional prior for human constructs, while still requiring wet-lab m1Psi/LNP validation for therapeutic translation.",
+      "linked_observations": [
+        {
+          "claim_id": "CC-MRNAX-W5-SALUKI-ORTHOLOG",
+          "underlying_dataset_id": "Saluki_AgarwalKelley2022",
+          "evidence_layer": "raw_observation"
+        }
+      ],
+      "model_interpretations": [],
+      "audit_history": [
+        {
+          "timestamp_utc": "2026-11-26T20:10:00Z",
+          "previous_status": "insufficient_evidence",
+          "new_status": "conditional_rule",
+          "reason": "Verified on 10,955 Saluki human<->mouse 1:1 ortholog pairs (Apache-2.0/CC-BY-4.0). Capped at conditional_rule because meta-analysis derives from single curated Saluki consortium table and measures endogenous unmodified transcripts.",
+          "is_simulated_sandbox_only": false
+        }
+      ]
+    },
+    {
+      "rule_id": "RUL-CC-M1PSI-FRAMESHIFT-009",
+      "version": "1.0.0",
+      "status": "verified_rule",
+      "allowed_track": "commercial_clean",
+      "target_scopes": [
+        "cds"
+      ],
+      "applicable_chemistries": [
+        "m1psi"
+      ],
+      "applicable_contexts": [
+        "m1Psi_IVT_mRNA_in_vivo",
+        "m1Psi_cell_free_recoding"
+      ],
+      "readout_name_exact": "+1 Ribosomal Frameshift T-cell ELISpot (Mulroney 2024) & Slippery-Site Recoding Ratio (Poulis/Rodnina 2026)",
+      "statement": "N1-methylpseudouridine (m1Psi) substitution induces +1 ribosomal frameshifting and recoding at slippery uridine-rich CDS runs (U{4,} / U-rich stretches) across TWO independent explicit CC-BY-4.0 labs: (1) Mulroney et al. 2024 Nature (Willis lab, PMC10764286, CC BY 4.0; Fig 2b source data n=8/group): BNT162b2 m1Psi +1FS Spike ELISpot mean=249.06 SFU/M (median 236.25) vs ChAdOx1 unmodified mean=19.06 (median 3.75) vs untreated 5.0; AND (2) Poulis, Rodnina et al. 2026 Nat Commun (MPI Goettingen, doi:10.1038/s41467-026-77796-3, PMID 42805987, CC BY 4.0; Fig 1e source data): m1Psi elevates recoding over unmodified U at slippery U-rich Spike sites (U3238-C3241: 2.61 vs 0.82 [3.16x]; U1981-C1984: 2.67 vs 1.60 [1.67x]; U1543-C1546: 1.80 vs 1.12 [1.61x]) while non-slippery background stays lower (0.42 vs 1.03). Supports mandatory synonymous elimination of >=4-U slippery runs in m1Psi CDS design (`remediate_m1psi_slippery_runs`).",
+      "linked_observations": [
+        {
+          "claim_id": "CC-MRNAX-W7-MULRONEY2024-FS",
+          "underlying_dataset_id": "PMC10764286_Mulroney2024_Nature_Fig2b",
+          "evidence_layer": "raw_observation"
+        },
+        {
+          "claim_id": "CC-MRNAX-W7-POULIS2026-RECODING",
+          "underlying_dataset_id": "PMID42805987_PoulisRodnina2026_NatComm_Fig1e",
+          "evidence_layer": "raw_observation"
+        }
+      ],
+      "model_interpretations": [],
+      "audit_history": [
+        {
+          "timestamp_utc": "2026-11-26T21:12:44Z",
+          "previous_status": "insufficient_evidence",
+          "new_status": "verified_rule",
+          "reason": "Direct source-data verification across two completely independent CC-BY-4.0 author lineages (Willis lab Cambridge Nature 2024 + Rodnina lab MPI Goettingen Nat Commun 2026) on native m1Psi chemistry.",
+          "is_simulated_sandbox_only": false
+        }
+      ],
+      "expected_effect_direction": "positive"
+    },
+    {
+      "rule_id": "RUL-CC-CDS-BICODON-CSC-010",
+      "version": "1.0.0",
+      "status": "conditional_rule",
+      "allowed_track": "commercial_clean",
+      "target_scopes": [
+        "cds"
+      ],
+      "applicable_chemistries": [
+        "unmodified_u"
+      ],
+      "applicable_contexts": [
+        "human_endogenous_consensus_39studies"
+      ],
+      "readout_name_exact": "Human Codon Stabilization Coefficient (CSC) & 61x61 Bicodon Stability Enrichment (N=13,642 genes)",
+      "statement": "Across 13,642 human GENCODE v49 canonical CDS mapped to Saluki 39-study PC1 half-life (CC-BY-4.0 / Apache-2.0), individual codons and adjacent bicodon pairs show strong stability stratification: top stabilizing codons AUC (Ile, CSC=+0.1796), GUG (Val, +0.1736), GUC (Val, +0.1445) vs destabilizing AGU (Ser, -0.1719), CAU (His, -0.1667), UCA (Ser, -0.1619), UGU (Cys, -0.1608); and destabilizing bicodons such as CAU-ACU (-3.66 log2) and GAA-UGU (-3.38 log2). Caveat: endogenous unmodified human mRNAs; combine with m1Psi slippery-run remediation and wet-lab validation.",
+      "linked_observations": [
+        {
+          "claim_id": "CC-MRNAX-W7-SALUKI-CSC-BICODON",
+          "underlying_dataset_id": "Saluki_GENCODEv49_13642_Human_CSC_Bicodon",
+          "evidence_layer": "raw_observation"
+        }
+      ],
+      "model_interpretations": [],
+      "audit_history": [
+        {
+          "timestamp_utc": "2026-11-26T21:12:44Z",
+          "previous_status": "insufficient_evidence",
+          "new_status": "conditional_rule",
+          "reason": "Computed directly across all 13,642 human genes in Saluki consensus half-life + GENCODE v49; exported as human_codon_bicodon_stability_atlas_v1.json.",
           "is_simulated_sandbox_only": false
         }
       ]

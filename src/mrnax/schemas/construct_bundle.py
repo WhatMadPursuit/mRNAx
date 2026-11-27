@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from typing import Literal, Self
+from typing import Any, Literal, Self
 
 from Bio.Seq import Seq
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -188,6 +188,28 @@ class RNAMoleculeSpec(FrozenSchemaModel):
         seg = self.get_segment(segment_type)
         return "" if seg is None else self.sequence[seg.start : seg.end]
 
+    def translate_cds_protein(self) -> str | None:
+        """Translate actual CDS nucleotide span(s) directly from RNA sequence; returns None if frame/stop is invalid."""
+        cds_spans = [s for s in self.segments if s.segment_type == "cds"]
+        stop_spans = [s for s in self.segments if s.segment_type == "stop_cassette"]
+        if not cds_spans:
+            return None
+        cds_nt = "".join(self.sequence[s.start : s.end] for s in cds_spans)
+        if len(cds_nt) % 3 != 0:
+            return None
+        translated = str(
+            Seq(cds_nt).translate(table=self.effective_translation_target.transl_table, to_stop=False)
+        )
+        if not stop_spans and translated.endswith("*"):
+            translated = translated[:-1]
+        if "*" in translated:
+            return None
+        for st in stop_spans:
+            st_seq = self.sequence[st.start : st.end]
+            if len(st_seq) < 3 or st_seq[:3] not in _STOP_CODONS:
+                return None
+        return translated
+
 
 class ConstructBundle(FrozenSchemaModel):
     bundle_id: str = Field(min_length=1)
@@ -197,11 +219,12 @@ class ConstructBundle(FrozenSchemaModel):
     target_stoichiometry: dict[str, float]
     co_expression_mode: CoExpressionMode = "single_monocistronic"
     molecules: list[RNAMoleculeSpec] = Field(min_length=1)
+    external_evidence: list[dict[str, Any]] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _verify_digest_integrity(self) -> Self:
         expected = self.compute_digest(
-            self.molecules, self.target_stoichiometry, self.co_expression_mode
+            self.molecules, self.target_stoichiometry, self.co_expression_mode, self.external_evidence
         )
         if self.version_digest != expected:
             raise ValueError(
@@ -209,17 +232,45 @@ class ConstructBundle(FrozenSchemaModel):
             )
         return self
 
+    @property
+    def physical_construct_digest(self) -> str:
+        """Label-invariant physical construct digest across sequence, chemistry, topology, and normalized stoichiometry."""
+        raw_weights = [float(self.target_stoichiometry.get(m.molecule_id, 1.0)) for m in self.molecules]
+        total_w = sum(raw_weights)
+        norm_weights = [round(w / total_w, 6) if total_w > 0 else 0.0 for w in raw_weights]
+        physical_chains = sorted(
+            (
+                norm_weights[idx],
+                m.modality,
+                m.topology,
+                json.dumps(m.chemistry_track.model_dump(mode="json"), sort_keys=True, separators=(",", ":")),
+                m.sequence,
+            )
+            for idx, m in enumerate(self.molecules)
+        )
+        canonical = json.dumps(
+            {
+                "co_expression_mode": self.co_expression_mode,
+                "chains": physical_chains,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
     @classmethod
     def compute_digest(
         cls,
         molecules: list[RNAMoleculeSpec],
         target_stoichiometry: dict[str, float],
         co_expression_mode: CoExpressionMode,
+        external_evidence: list[dict[str, Any]] | None = None,
     ) -> str:
         canonical = json.dumps(
             {
+                **({"external_evidence": external_evidence} if external_evidence else {}),
                 "co_expression_mode": co_expression_mode,
-                "target_stoichiometry": dict(sorted(target_stoichiometry.items())),
+                "target_stoichiometry": {k: float(v) for k, v in target_stoichiometry.items()},
                 "molecules": [m.model_dump(mode="json") for m in molecules],
             },
             sort_keys=True,
@@ -237,8 +288,9 @@ class ConstructBundle(FrozenSchemaModel):
         target_stoichiometry: dict[str, float],
         co_expression_mode: CoExpressionMode = "single_monocistronic",
         molecules: list[RNAMoleculeSpec],
+        external_evidence: list[dict[str, Any]] | None = None,
     ) -> Self:
-        digest = cls.compute_digest(molecules, target_stoichiometry, co_expression_mode)
+        digest = cls.compute_digest(molecules, target_stoichiometry, co_expression_mode, external_evidence)
         return cls(
             bundle_id=bundle_id,
             version_digest=digest,
@@ -247,4 +299,5 @@ class ConstructBundle(FrozenSchemaModel):
             target_stoichiometry=target_stoichiometry,
             co_expression_mode=co_expression_mode,
             molecules=molecules,
+            external_evidence=external_evidence or [],
         )

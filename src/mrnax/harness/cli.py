@@ -11,6 +11,7 @@ from pathlib import Path
 
 from mrnax.constraints.registry import ScopedConstraintEngine
 from mrnax.engine.pareto_director import run_design_pipeline
+from mrnax.engine.profiles import resolve_default_seed_dir
 from mrnax.harness.auth_secrets import PROVIDER_ENV_MAP, SecretVault
 from mrnax.harness.dialogue import LiveDialogueAgent
 from mrnax.harness.mcp_server import serve_mcp_stdio
@@ -20,7 +21,7 @@ from mrnax.io_insdc.genbank_io import export_construct_package
 from mrnax.schemas.construct_bundle import ConstructBundle
 from mrnax.schemas.design_intent import DesignIntent
 
-DEFAULT_SEED_DIR = Path(__file__).resolve().parents[3] / "registry_seed"
+DEFAULT_SEED_DIR = resolve_default_seed_dir()
 
 
 def _cmd_auth(args: argparse.Namespace) -> int:
@@ -80,6 +81,9 @@ def _cmd_replay(args: argparse.Namespace) -> int:
                 constraint_engine=constraint_engine,
                 constraints=intent.constraints,
                 compliance_track=intent.compliance_track,
+                expected_chemistry=intent.uridine_chemistry,
+                locked_scopes=intent.locked_scopes,
+                expected_protein_targets=intent.protein_targets,
             )
             (pkg_dir / "bundle.json").write_text(
                 json.dumps(b.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
@@ -109,6 +113,7 @@ def _cmd_chat(args: argparse.Namespace) -> int:
         project_id=args.project_id,
         store_dir=Path(args.store_dir),
         seed_dir=Path(args.seed_dir),
+        default_project_id="proj_live_chat",
     )
     toolbox = AtomicToolbox(session)
     agent = LiveDialogueAgent(toolbox, provider=args.provider, model=args.model)
@@ -143,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # chat
     p_chat = sub.add_parser("chat", help="Run live BYO-LLM tool-calling dialogue session")
-    p_chat.add_argument("--project-id", default="proj_live_chat")
+    p_chat.add_argument("--project-id", default=None)
     p_chat.add_argument("--store-dir", required=True)
     p_chat.add_argument("--provider", default="deepseek", choices=sorted(PROVIDER_ENV_MAP.keys()))
     p_chat.add_argument("--model", default=None)
@@ -153,7 +158,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # mcp-serve
     p_mcp = sub.add_parser("mcp-serve", help="Run Scheme B JSON-RPC 2.0 stdio MCP tool server")
-    p_mcp.add_argument("--project-id", default="proj_mcp")
+    p_mcp.add_argument("--project-id", default=None)
     p_mcp.add_argument("--store-dir", required=True)
     p_mcp.add_argument("--seed-dir", default=str(DEFAULT_SEED_DIR))
 

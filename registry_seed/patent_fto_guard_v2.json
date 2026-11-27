@@ -1,0 +1,113 @@
+{
+  "registry_id": "patent_fto_guard_v2",
+  "version": "2.0.0",
+  "verified_from_audit": [
+    "G-P01_pilot_license_fto.md",
+    "G-B1_patent_fto_guard.md",
+    "C-B2_wave2_cross_audit.md",
+    "G-W6_patent_fto_guard_v2_candidates.json (live Google Patents granted-claim fetch 2026-11-27)"
+  ],
+  "disclaimer": "Engineering sequence collision & genus alert registry based on verified granted patent claims/examples; NOT a formal legal FTO opinion. Confirm national-phase status with patent counsel.",
+  "excluded_non_blocking_patents_audited": [
+    {
+      "patent": "US10881730B2",
+      "reason": "Granted Moderna neoantigen peptide patent, NOT 5'UTR/3'UTR sequence patent"
+    },
+    {
+      "patent": "US11524023B2",
+      "reason": "Moderna LNP lipid composition patent (out of sequence-guard scope)"
+    },
+    {
+      "patent": "US10080809B2",
+      "reason": "CureVac 5'TOP-UTR + albumin 3'UTR patent listed as 'Expired - Fee Related' on Google Patents"
+    }
+  ],
+  "genus_grammar_rules": [
+    {
+      "rule_id": "BNT_FAMILY_51220548_SEGMENTED_POLYA_GENUS",
+      "patent_family_id": "51220548",
+      "granted_publications": [
+        "US10717982B2 (Cl.1)",
+        "US12054723B2 (Cl.1)",
+        "EP3167059B1 (Cl.1)"
+      ],
+      "target_scope": "poly_a",
+      "regex_rna": "A{20,}[UCG][ACGU]*?A{20,}",
+      "block_in_commercial_clean": true,
+      "block_in_research_max": false,
+      "summary": "Project charter gate for family 51220548: two runs of at least 20 A separated by a linker containing a non-A base."
+    },
+    {
+      "rule_id": "CUREVAC_US9447431B2_HISTONE_STEM_LOOP_3UTR_GENUS",
+      "patent_family_id": "CureVac_HistoneSL_US9447431B2_US10912826B2",
+      "granted_publications": [
+        "US9447431B2 (Cl.1, granted 2016-09-20)",
+        "US10912826B2 (Cl.1-3, granted 2021-02-09)"
+      ],
+      "target_scope": "three_prime_utr",
+      "min_total_poly_a_length": 0,
+      "regex_rna": "GG[CU]{3}UUU[CU][ACGU]{1,2}[AG]{2}GCC",
+      "block_in_commercial_clean": true,
+      "block_in_research_max": false,
+      "summary": "CureVac granted claims covering mRNA combining a canonical metazoan 16-nt histone stem-loop (6-bp GC/GU stem + 4-nt U-rich loop, e.g. GGCUCUUUUCAGAGCC / CAAAGGCCCUUUUCAGGGCCACCC) with poly(A) without HDE."
+    }
+  ],
+  "sequence_collision_rules": [
+    {
+      "rule_id": "BNT_EXAMPLE_A30L70_LINKER_SEQ2",
+      "patent_family_or_pub": "Family 51220548 / US10717982B2 Example 2 SEQ ID NO: 2",
+      "target_scope": "poly_a",
+      "sequence_rna": "GCAUAUGACU",
+      "identity_threshold": 1.0,
+      "block_in_commercial_clean": true,
+      "summary": "Exact 10-nt segmented poly(A) linker example (DNA GCATATGACT) recited in Example 2."
+    },
+    {
+      "rule_id": "MODERNA_US10703789B2_SPEC_5UTR_PREFIX",
+      "patent_family_or_pub": "US10703789B2 / WO2014164253A1 specification",
+      "target_scope": "five_prime_utr",
+      "sequence_rna": "GGGAAAUAAGAGAGAAAAGAAGAGUAAGAAGAAAUAUAAGAGCCACC",
+      "identity_threshold": 0.85,
+      "block_in_commercial_clean": true,
+      "summary": "ModernaTx specification 47-nt 5'UTR sequence."
+    },
+    {
+      "rule_id": "MODERNA_LITERATURE_V1_5UTR_57NT",
+      "patent_family_or_pub": "Literature clinical 5'UTR (pending US10881730B2 full verification per G-B1)",
+      "target_scope": "five_prime_utr",
+      "sequence_rna": "GGGAAAUAAGAGAGAAAAGAAGAGUAAGAAGAAAUAUAAGACCCCGGCGCCGCCACC",
+      "identity_threshold": 0.8,
+      "block_in_commercial_clean": true,
+      "summary": "57-nt engineered 5'UTR containing ACCCCGGCGCC insertion."
+    },
+    {
+      "rule_id": "BNT_US11492628B2_AES_3UTR_CORE",
+      "patent_family_or_pub": "US11492628B2 (Cl.1/6/7/8) / EP3636764B1 (Cl.1/4/5)",
+      "target_scope": "three_prime_utr",
+      "sequence_rna": "CUGGUACUGCAUGCACGCAAUGCUAGCUGCCCCUUUCCCGUCCUGGGUACCCCGAGUCUCCCCCGACCUCGGGUCCCAGGUAUGCUCCCACCUCCACCUGCCCCACUCACCACCUCUGCUAGUUCCAGACACC",
+      "identity_threshold": 0.8,
+      "block_in_commercial_clean": true,
+      "summary": "Granted claim scope covering non-naturally linked AES 3'UTR fragment (>=80% fragment / >=90% variant) and AES-mtRNR1 FI combination."
+    },
+    {
+      "rule_id": "BNT_US11547673B1_HAG_KOZAK_5UTR_47NT",
+      "patent_family_or_pub": "US11547673B1 (Cl.1,4; BioNTech/Pfizer BNT162b2, granted 2023-01-10)",
+      "target_scope": "five_prime_utr",
+      "sequence_rna": "AACUAGUAUUCUUCUGGUCCCCACAGACUCAGAGAGAACCCGCCACC",
+      "identity_threshold": 0.85,
+      "block_in_commercial_clean": true,
+      "block_in_research_max": false,
+      "summary": "Verbatim 47-nt modified human alpha-globin (hAg-Kozak) 5'UTR from granted US11547673B1."
+    },
+    {
+      "rule_id": "BNT_US11547673B1_FULL_FI_AES_MTRNR1_3UTR_278NT",
+      "patent_family_or_pub": "US11547673B1 (Cl.1,5) / EP3636764B1 (Cl.1,4,5; BioNTech/TRON FI element)",
+      "target_scope": "three_prime_utr",
+      "sequence_rna": "CUGGUACUGCAUGCACGCAAUGCUAGCUGCCCCUUUCCCGUCCUGGGUACCCCGAGUCUCCCCCGACCUCGGGUCCCAGGUAUGCUCCCACCUCCACCUGCCCCACUCACCACCUCUGCUAGUUCCAGACACCUCCCAAGCACGCAGCAAUGCAGCUCAAAACGCUUAGCCUAGCCACACCCCCACGGGAAACAGCAGUGAUUAACCUUUAGCAAUAAACGAAAGUUUAACUAAGCUAUACUAACCCCAGGGUUGGUCAAUUUCGUGCCAGCCACACC",
+      "identity_threshold": 0.85,
+      "block_in_commercial_clean": true,
+      "block_in_research_max": false,
+      "summary": "Verbatim 278-nt full FI (AES + mitochondrial 12S rRNA MT-RNR1) 3'UTR from granted US11547673B1 / EP3636764B1."
+    }
+  ]
+}

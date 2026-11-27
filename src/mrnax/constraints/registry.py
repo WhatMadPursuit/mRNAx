@@ -105,12 +105,18 @@ def default_m1_constraints(
 class ScopedConstraintEngine:
     """Executes identical `target_scopes` logic across generation, filtering, and export."""
 
-    def __init__(self, fto_guard: SequenceFTOGuard) -> None:
+    def __init__(self, fto_guard: SequenceFTOGuard, *, seed_dir: Path | None = None) -> None:
         self.fto_guard = fto_guard
+        self.seed_dir = seed_dir
 
     @classmethod
     def from_seed_dir(cls, seed_dir: Path) -> ScopedConstraintEngine:
-        return cls(fto_guard=SequenceFTOGuard.from_json_path(seed_dir / "patent_fto_guard_v1.json"))
+        v2_path = seed_dir / "patent_fto_guard_v2.json"
+        if not v2_path.is_file():
+            raise FileNotFoundError(
+                f"Mandatory patent_fto_guard_v2.json missing at '{v2_path}'; refusing silent downgrade to v1."
+            )
+        return cls(fto_guard=SequenceFTOGuard.from_json_path(v2_path), seed_dir=seed_dir)
 
     def evaluate_bundle(
         self,
@@ -121,12 +127,48 @@ class ScopedConstraintEngine:
         candidate_ref: str | None = None,
         expected_chemistry: UridineChemistry | None = None,
         locked_scopes: dict[str, LockedRegionSpec] | None = None,
+        expected_protein_targets: list[Any] | None = None,
     ) -> ConstraintEvaluationOutcome:
         ref_id = candidate_ref or bundle.bundle_id
         violations: list[FailedCandidateDiagnostic] = []
 
+        if expected_protein_targets is not None and len(expected_protein_targets) >= 1:
+            if len(bundle.molecules) != len(expected_protein_targets):
+                first_len = len(bundle.molecules[0].sequence) if bundle.molecules else 0
+                violations.append(
+                    FailedCandidateDiagnostic(
+                        candidate_ref=ref_id,
+                        violated_requirement_id="intent:target_chain_count",
+                        violated_scope="full_transcript",
+                        transcript_coordinates=(0, first_len),
+                        reason=(
+                            f"Candidate has {len(bundle.molecules)} molecule(s), but DesignIntent requires "
+                            f"{len(expected_protein_targets)} target chain(s)"
+                        ),
+                    )
+                )
+            else:
+                for idx, (mol, tgt) in enumerate(zip(bundle.molecules, expected_protein_targets, strict=True)):
+                    exp_seq = getattr(tgt, "protein_sequence", None) or (
+                        tgt.get("protein_sequence") if isinstance(tgt, dict) else None
+                    )
+                    actual_translated = mol.translate_cds_protein()
+                    if exp_seq and (
+                        mol.effective_translation_target.protein_sequence != exp_seq
+                        or actual_translated != exp_seq
+                    ):
+                        violations.append(
+                            FailedCandidateDiagnostic(
+                                candidate_ref=ref_id,
+                                violated_requirement_id=f"intent:target_chain_{idx + 1}_protein",
+                                violated_scope="cds",
+                                transcript_coordinates=(0, len(mol.sequence)),
+                                reason=f"Chain {idx + 1} translated CDS protein does not match DesignIntent target",
+                            )
+                        )
+
         # Enforce Clean-Room segment license provenance, expected chemistry, and explicit locked_scopes
-        for mol in bundle.molecules:
+        for mol_idx, mol in enumerate(bundle.molecules):
             if expected_chemistry is not None and mol.chemistry_track.uridine_chemistry != expected_chemistry:
                 violations.append(
                     FailedCandidateDiagnostic(
@@ -156,7 +198,11 @@ class ScopedConstraintEngine:
                     )
             for scope_name, lock_spec in (locked_scopes or {}).items():
                 if scope_name == "protein_sequence":
-                    if mol.effective_translation_target.protein_sequence != lock_spec.locked_value:
+                    expected_aa = lock_spec.locked_value
+                    if len(bundle.molecules) > 1 and "|" in expected_aa:
+                        parts = expected_aa.split("|")
+                        expected_aa = parts[mol_idx] if mol_idx < len(parts) else "__MISMATCH__"
+                    if mol.effective_translation_target.protein_sequence != expected_aa:
                         violations.append(
                             FailedCandidateDiagnostic(
                                 candidate_ref=ref_id,
@@ -206,23 +252,41 @@ class ScopedConstraintEngine:
                 max_gc = float(spec.params.get("max_gc", 0.75))
                 win = int(spec.params.get("window", 50))
                 for mol in bundle.molecules:
+                    regions_to_scan: list[tuple[str, int, str]] = []
+                    if "full_transcript" in spec.target_scopes:
+                        regions_to_scan.append(("full_transcript", 0, mol.sequence))
+                    if "cds_utr_junction" in spec.target_scopes:
+                        u5_seg = mol.get_segment("five_prime_utr")
+                        cds_seg = mol.get_segment("cds")
+                        u3_seg = mol.get_segment("three_prime_utr")
+                        if u5_seg is not None and cds_seg is not None:
+                            j1_s = max(u5_seg.start, cds_seg.start - win)
+                            j1_e = min(cds_seg.end, cds_seg.start + win)
+                            regions_to_scan.append(("cds_utr_junction", j1_s, mol.sequence[j1_s:j1_e]))
+                        if cds_seg is not None and u3_seg is not None:
+                            j2_s = max(cds_seg.start, cds_seg.end - win)
+                            j2_e = min(u3_seg.end, u3_seg.start + win)
+                            regions_to_scan.append(("cds_utr_junction", j2_s, mol.sequence[j2_s:j2_e]))
                     for seg in mol.segments:
                         if seg.segment_type in spec.target_scopes:
-                            sub = mol.sequence[seg.start : seg.end]
-                            for i in range(0, max(1, len(sub) - win + 1)):
-                                chunk = sub[i : i + min(win, len(sub))]
-                                gc = (chunk.count("G") + chunk.count("C")) / len(chunk)
-                                if gc < min_gc or gc > max_gc:
-                                    spec_violations.append(
-                                        FailedCandidateDiagnostic(
-                                            candidate_ref=ref_id,
-                                            violated_requirement_id=spec.requirement_id,
-                                            violated_scope=seg.segment_type,
-                                            transcript_coordinates=(seg.start + i, seg.start + i + len(chunk)),
-                                            reason=f"GC fraction {gc:.3f} outside [{min_gc:.2f}, {max_gc:.2f}] in {seg.segment_type}",
-                                        )
+                            regions_to_scan.append((seg.segment_type, seg.start, mol.sequence[seg.start : seg.end]))
+                    for scope_lbl, base_offset, sub in regions_to_scan:
+                        if not sub:
+                            continue
+                        for i in range(0, max(1, len(sub) - win + 1)):
+                            chunk = sub[i : i + min(win, len(sub))]
+                            gc = (chunk.count("G") + chunk.count("C")) / len(chunk)
+                            if gc < min_gc or gc > max_gc:
+                                spec_violations.append(
+                                    FailedCandidateDiagnostic(
+                                        candidate_ref=ref_id,
+                                        violated_requirement_id=spec.requirement_id,
+                                        violated_scope=scope_lbl,  # type: ignore[arg-type]
+                                        transcript_coordinates=(base_offset + i, base_offset + i + len(chunk)),
+                                        reason=f"GC fraction {gc:.3f} outside [{min_gc:.2f}, {max_gc:.2f}] in {scope_lbl}",
                                     )
-                                    break
+                                )
+                                break
             else:
                 raise ValueError(f"Unknown constraint_kind '{kind}'")
 

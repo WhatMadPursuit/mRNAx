@@ -43,9 +43,6 @@ class SequenceFTOGuard:
                 if seg is None:
                     continue
                 sub = mol.sequence[seg.start : seg.end]
-                min_len = int(rule.get("min_total_poly_a_length", 0))
-                if len(sub) < min_len:
-                    continue
                 m = re.search(rule["regex_rna"], sub)
                 if m:
                     blocked = (

@@ -33,7 +33,7 @@ LicenseTrack = Literal[
 
 ComplianceProfile = Literal["research_max", "commercial_clean"]
 
-UridineChemistry = Literal["unmodified_u", "pseudouridine", "m1psi", "custom_mod"]
+UridineChemistry = Literal["unmodified_u", "pseudouridine", "m1psi", "5mou", "custom_mod"]
 
 CapChemistry = Literal[
     "cap1_cleancap_ag",
@@ -69,6 +69,7 @@ RuleStatus = Literal[
 ]
 
 ChemistryEvalMode = Literal[
+    "endogenous_unmodified_proxy",
     "native_chemistry_validated",
     "cross_chemistry_thermodynamic_approximation",
     "not_evaluated",

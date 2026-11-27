@@ -25,6 +25,7 @@ class MetricResult(FrozenSchemaModel):
         "pareto_selection_or_ranking",
         "display_only",
     ]
+    chain_values: list[float] | None = None
     notes: str | None = None
 
 
@@ -47,6 +48,7 @@ class AdvisoryNote(FrozenSchemaModel):
         "cds_internal_pas",
         "crs_safety_layer_boundary",
         "chemistry_approximation",
+        "model_domain_boundary",
     ]
     message: str
     transcript_coordinates: tuple[int, int] | None = None
@@ -98,6 +100,9 @@ class EvaluationReport(FrozenSchemaModel):
     fto_alerts: list[FTOAlert]
     pre_synthesis_advisories: list[AdvisoryNote]
     action_transparency: list[RequirementActionTrace]
+    created_at_ns: int | None = None
+    rule_snapshot_version: str | None = None
+    isolated_sandbox_override: bool = False
 
     @model_validator(mode="after")
     def _enforce_zero_qualified_and_uncomparable_rules(self) -> Self:

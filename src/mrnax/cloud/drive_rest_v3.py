@@ -105,6 +105,7 @@ class InMemoryDriveV3Transport:
             "name": name,
             "mimeType": mime_type,
             "parents": [parent_id],
+            "createdTime": datetime.fromtimestamp(time.time(), timezone.utc).isoformat(),
         }
         if content is not None and mime_type != DRIVE_FOLDER_MIME:
             meta["md5Checksum"] = hashlib.md5(content).hexdigest()
@@ -168,7 +169,7 @@ class HttpDriveV3Transport:
             if mime_type == DRIVE_FOLDER_MIME or content is None:
                 resp = client.post(
                     self.FILES_API,
-                    params={"fields": "id,name,mimeType,parents,md5Checksum,size", "supportsAllDrives": "true"},
+                    params={"fields": "id,name,mimeType,parents,md5Checksum,size,createdTime", "supportsAllDrives": "true"},
                     headers=self._headers(),
                     json=metadata,
                 )
@@ -191,7 +192,7 @@ class HttpDriveV3Transport:
                 self.UPLOAD_API,
                 params={
                     "uploadType": "multipart",
-                    "fields": "id,name,mimeType,parents,md5Checksum,size",
+                    "fields": "id,name,mimeType,parents,md5Checksum,size,createdTime",
                     "supportsAllDrives": "true",
                 },
                 headers=headers,
@@ -211,7 +212,7 @@ class HttpDriveV3Transport:
             while True:
                 params: dict[str, Any] = {
                     "q": " and ".join(q_parts),
-                    "fields": "nextPageToken,files(id,name,mimeType,parents,md5Checksum,size)",
+                    "fields": "nextPageToken,files(id,name,mimeType,parents,md5Checksum,size,createdTime)",
                     "pageSize": 200,
                     "supportsAllDrives": "true",
                     "includeItemsFromAllDrives": "true",
@@ -232,7 +233,7 @@ class HttpDriveV3Transport:
             resp = client.get(
                 f"{self.FILES_API}/{file_id}",
                 params={
-                    "fields": "id,name,mimeType,parents,md5Checksum,size,capabilities(canEdit)",
+                    "fields": "id,name,mimeType,parents,md5Checksum,size,createdTime,capabilities(canEdit)",
                     "supportsAllDrives": "true",
                 },
                 headers=self._headers(),
@@ -272,7 +273,6 @@ class GdriveCliDriveV3Transport:
             raise FileNotFoundError(f"gdrive CLI '{gdrive_bin}' not found on PATH")
         self._bin = resolved
         self._timeout = timeout
-        self._verified_md5_cache: dict[str, tuple[str, str]] = {}
 
     @classmethod
     def _is_rate_limit(cls, err: str) -> bool:
@@ -335,7 +335,6 @@ class GdriveCliDriveV3Transport:
             landed = self.download_bytes(fid)
             md5_hex = hashlib.md5(landed).hexdigest()
             size_str = str(len(landed))
-            self._verified_md5_cache[fid] = (md5_hex, size_str)
             meta = dict(res)
             meta["md5Checksum"] = md5_hex
             meta["size"] = size_str
@@ -355,13 +354,9 @@ class GdriveCliDriveV3Transport:
     def get_metadata(self, file_id: str) -> dict[str, Any]:
         meta = dict(self._run_json(["readonly", "info", file_id]))
         if meta.get("mimeType") != DRIVE_FOLDER_MIME and "md5Checksum" not in meta:
-            if file_id in self._verified_md5_cache:
-                md5_hex, size_str = self._verified_md5_cache[file_id]
-            else:
-                landed = self.download_bytes(file_id)
-                md5_hex = hashlib.md5(landed).hexdigest()
-                size_str = str(len(landed))
-                self._verified_md5_cache[file_id] = (md5_hex, size_str)
+            landed = self.download_bytes(file_id)
+            md5_hex = hashlib.md5(landed).hexdigest()
+            size_str = str(len(landed))
             meta["md5Checksum"] = md5_hex
             meta["size"] = size_str
         return meta

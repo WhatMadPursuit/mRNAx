@@ -4,14 +4,20 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-
-import RNA
+from typing import Any
 
 from mrnax.schemas.common import ChemistryEvalMode, UridineChemistry
 from mrnax.schemas.construct_bundle import RNAMoleculeSpec
 from mrnax.schemas.evaluation_report import AdvisoryNote, MetricResult
 
 RT_37C_KCAL_MOL = 0.616320775  # R * 310.15 K in kcal/mol
+
+
+def _rna() -> Any:
+    """Lazy-load ViennaRNA (`RNA`) only when research_max thermodynamics is actually invoked."""
+    import RNA  # type: ignore[import-untyped]
+
+    return RNA
 
 
 @dataclass(frozen=True)
@@ -43,7 +49,7 @@ def compute_kozak_unpaired_probability(mol: RNAMoleculeSpec) -> float:
 
     w_size = min(len(sub), 70)
     l_span = min(len(sub), 50)
-    up = RNA.pfl_fold_up(sub, 1, l_span, w_size)
+    up = _rna().pfl_fold_up(sub, 1, l_span, w_size)
 
     rel_aug = cds_seg.start - win_start
     probe_lo = max(0, rel_aug - 15)
@@ -55,13 +61,13 @@ def compute_kozak_unpaired_probability(mol: RNAMoleculeSpec) -> float:
 def compute_cds_sliding_window_mfe(cds_rna: str, *, window: int = 120, step: int = 40) -> float:
     """Mean length-normalized local MFE (kcal/mol per 100 nt; more negative = stronger local structure)."""
     if len(cds_rna) <= window:
-        _, mfe = RNA.fold(cds_rna)
+        _, mfe = _rna().fold(cds_rna)
         return round(float(mfe) * (100.0 / max(1, len(cds_rna))), 4)
 
     vals: list[float] = []
     for i in range(0, len(cds_rna) - window + 1, step):
         chunk = cds_rna[i : i + window]
-        _, mfe = RNA.fold(chunk)
+        _, mfe = _rna().fold(chunk)
         vals.append(float(mfe) * (100.0 / window))
     return round(sum(vals) / len(vals), 4)
 
@@ -73,8 +79,8 @@ def compute_junction_interference_mfe(mol: RNAMoleculeSpec) -> float:
         return 0.0
     j5 = mol.sequence[max(0, cds_seg.start - 30) : min(len(mol.sequence), cds_seg.start + 35)]
     j3 = mol.sequence[max(0, cds_seg.end - 35) : min(len(mol.sequence), cds_seg.end + 45)]
-    _, e5 = RNA.fold(j5)
-    _, e3 = RNA.fold(j3)
+    _, e5 = _rna().fold(j5)
+    _, e3 = _rna().fold(j3)
     return round(float(e5) + float(e3), 4)
 
 
@@ -88,13 +94,13 @@ def compute_rnaup_mirna_interaction(
     target_sub = context_rna[
         target_site_start_in_context : target_site_start_in_context + target_site_len
     ]
-    dup = RNA.duplexfold(target_sub, mirna_mature_rna)
+    dup = _rna().duplexfold(target_sub, mirna_mature_rna)
     dg_duplex = float(dup.energy)
 
     u_max = min(target_site_len, 24)
     w_size = min(len(context_rna), 120)
     l_span = min(len(context_rna), 90)
-    up = RNA.pfl_fold_up(context_rna, u_max, l_span, w_size)
+    up = _rna().pfl_fold_up(context_rna, u_max, l_span, w_size)
 
     end_1based = target_site_start_in_context + target_site_len
     p_site_unpaired = max(float(up[end_1based][u_max]), 1e-12)
@@ -145,7 +151,7 @@ def evaluate_molecule_thermodynamics(
             direction="maximize",
             evaluated_scopes=["five_prime_utr", "cds"],
             tool_name="ViennaRNA",
-            tool_version=RNA.__version__,
+            tool_version=_rna().__version__,
             chemistry_evaluation_mode=chem_mode,
             participated_in="generation_guidance",
         ),
@@ -156,7 +162,7 @@ def evaluate_molecule_thermodynamics(
             direction="minimize",
             evaluated_scopes=["cds"],
             tool_name="ViennaRNA",
-            tool_version=RNA.__version__,
+            tool_version=_rna().__version__,
             chemistry_evaluation_mode=chem_mode,
             participated_in="pareto_selection_or_ranking",
         ),
@@ -167,14 +173,14 @@ def evaluate_molecule_thermodynamics(
             direction="maximize",
             evaluated_scopes=["five_prime_utr", "cds", "three_prime_utr"],
             tool_name="ViennaRNA",
-            tool_version=RNA.__version__,
+            tool_version=_rna().__version__,
             chemistry_evaluation_mode=chem_mode,
             participated_in="pareto_selection_or_ranking",
         ),
     ]
 
     if include_full_mfe:
-        _, full_e = RNA.fold(mol.sequence)
+        _, full_e = _rna().fold(mol.sequence)
         metrics.append(
             MetricResult(
                 metric_id="full_transcript_mfe",
@@ -183,7 +189,7 @@ def evaluate_molecule_thermodynamics(
                 direction="informational",
                 evaluated_scopes=["full_transcript"],
                 tool_name="ViennaRNA",
-                tool_version=RNA.__version__,
+                tool_version=_rna().__version__,
                 chemistry_evaluation_mode=chem_mode,
                 participated_in="display_only",
             )
@@ -209,7 +215,7 @@ def evaluate_molecule_thermodynamics(
                     direction="minimize",
                     evaluated_scopes=["cds", "three_prime_utr"],
                     tool_name="ViennaRNA",
-                    tool_version=RNA.__version__,
+                    tool_version=_rna().__version__,
                     chemistry_evaluation_mode=chem_mode,
                     participated_in="generation_guidance",
                     notes=f"seed_8mer_unpaired_prob={acc.seed_8mer_unpaired_prob:.4f}",

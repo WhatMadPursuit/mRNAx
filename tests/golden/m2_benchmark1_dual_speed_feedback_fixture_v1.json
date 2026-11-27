@@ -1,0 +1,1365 @@
+{
+  "fixture_id": "M2_BENCHMARK1_DUAL_SPEED_FEEDBACK_FIXTURE_V1",
+  "version": "1.0.0",
+  "compliance_track": "commercial_clean",
+  "pydantic_validated_against": "mrnax.schemas (ConstructBundle, ExperimentRecord, SequenceFTOGuard)",
+  "bundles": {
+    "B1_REF_A": {
+      "bundle_id": "B1_REF_A",
+      "version_digest": "cf714d2ec216cb056ba242d2a700827c1051d5769d9092e810137dbca07508ba",
+      "parent_bundle_id": null,
+      "derivation_action": "reference_import",
+      "target_stoichiometry": {
+        "mol_rep_A": 1.0
+      },
+      "co_expression_mode": "single_monocistronic",
+      "molecules": [
+        {
+          "molecule_id": "mol_rep_A",
+          "modality": "linear_mrna",
+          "topology": "linear",
+          "chemistry_track": {
+            "uridine_chemistry": "m1psi",
+            "cap_chemistry": "cap1_cleancap_ag",
+            "source": "user_declared",
+            "custom_modification_notes": null
+          },
+          "effective_translation_target": {
+            "protein_sequence": "MVFTLEDFVGDWRQTAGYNLDQVLEQGGVSSLFQNLGVSVTPIQRIVLSG",
+            "transl_table": 1,
+            "accession_or_source": "SYNTHETIC_NON_CLINICAL_REPORTER_50AA",
+            "entry_version": null,
+            "has_signal_peptide": false,
+            "is_secreted_or_membrane": false,
+            "confirmation_status": "confirmed"
+          },
+          "sequence": "AUCUCUCUCGGGUGGAGUCUUCUGACAGCUGGUGCGCCUGCCCGGGAACAUCCUCCUGGACUCAAUCAUGGUCUUCACACUCGAAGAUUUCGUCGGAGAUUGGAGACAAACAGCUGGAUAUAAUCUCGAUCAAGUCCUCGAACAAGGAGGAGUCUCCUCCCUCUUCCAAAAUCUCGGAGUCUCCGUCACACCAAUCCAAAGAAUCGUCCUCUCCGGAUGAAUCUGCUGGCAGAGUAGUUUGAGCCAGCUGGACUGGGCUGGCCGCCUGCCGCUUCUUGAGGGUGGAAGAGGGGUGCUCUGAGAAGACACUCAGGCAGCAGACUCUGCCUCUCACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "segments": [
+            {
+              "segment_type": "five_prime_utr",
+              "start": 0,
+              "end": 67,
+              "component_id": "utr5_lgals1_ENST00000895126",
+              "origin_source": "GENCODE_v49:ENST00000895126",
+              "license_track": "commercial_clean",
+              "action_taken": "selected_from_library"
+            },
+            {
+              "segment_type": "cds",
+              "start": 67,
+              "end": 217,
+              "component_id": "mol_rep_A_cds",
+              "origin_source": "mrnax_synonymous_m1psi_safe",
+              "license_track": "commercial_clean",
+              "action_taken": "generated_novo"
+            },
+            {
+              "segment_type": "stop_cassette",
+              "start": 217,
+              "end": 220,
+              "component_id": "stop_uga",
+              "origin_source": "standard_genetic_code",
+              "license_track": "commercial_clean",
+              "action_taken": "generated_novo"
+            },
+            {
+              "segment_type": "three_prime_utr",
+              "start": 220,
+              "end": 334,
+              "component_id": "utr3_rps21_ENST00000370592",
+              "origin_source": "GENCODE_v49:ENST00000370592",
+              "license_track": "commercial_clean",
+              "action_taken": "selected_from_library"
+            },
+            {
+              "segment_type": "poly_a",
+              "start": 334,
+              "end": 434,
+              "component_id": "polya_unsegmented_100",
+              "origin_source": "commercial_clean_unsegmented_polya",
+              "license_track": "commercial_clean",
+              "action_taken": "generated_novo"
+            }
+          ],
+          "annotations": [
+            {
+              "feature_id": "mol_rep_A_kozak_tis",
+              "feature_key": "regulatory",
+              "intervals": [
+                [
+                  61,
+                  71
+                ]
+              ],
+              "strand": 1,
+              "qualifiers": {
+                "regulatory_class": [
+                  "kozak_tis"
+                ],
+                "note": [
+                  "Span crossing 5'UTR/CDS start junction"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "B1_CAND_B": {
+      "bundle_id": "B1_CAND_B",
+      "version_digest": "36c8d1e69dd41c062af0e06611dcb24e197365842c8a955c4f357c7c141924ac",
+      "parent_bundle_id": "B1_REF_A",
+      "derivation_action": "de_novo_design",
+      "target_stoichiometry": {
+        "mol_rep_B": 1.0
+      },
+      "co_expression_mode": "single_monocistronic",
+      "molecules": [
+        {
+          "molecule_id": "mol_rep_B",
+          "modality": "linear_mrna",
+          "topology": "linear",
+          "chemistry_track": {
+            "uridine_chemistry": "m1psi",
+            "cap_chemistry": "cap1_cleancap_ag",
+            "source": "user_declared",
+            "custom_modification_notes": null
+          },
+          "effective_translation_target": {
+            "protein_sequence": "MVFTLEDFVGDWRQTAGYNLDQVLEQGGVSSLFQNLGVSVTPIQRIVLSG",
+            "transl_table": 1,
+            "accession_or_source": "SYNTHETIC_NON_CLINICAL_REPORTER_50AA",
+            "entry_version": null,
+            "has_signal_peptide": false,
+            "is_secreted_or_membrane": false,
+            "confirmation_status": "confirmed"
+          },
+          "sequence": "GGGAAAAGGGGCGGGGUCCUCAGAGCUGCCGCGCUGGCACAUCUUCCUGGAGAAGGGGAGGGUGCGGCUGCAGAGAAUUGAGACUUAGAAGCUUUGAAUUCCUGUAUCUGAGAACGGAGUCGUUGGGGGUGGUGGAGGGGGUUGGAAUUGGGGACCUACGGAAGGCUCAGCUCUUGCCAGGCCAAAUUGAGACAUGGUGUUCACCCUGGAGGACUUCGUGGGCGACUGGCGGCAGACCGCCGGCUACAACCUGGACCAGGUGCUGGAGCAGGGCGGCGUGAGCAGCCUGUUCCAGAACCUGGGCGUGAGCGUGACCCCCAUCCAGCGGAUCGUGCUGAGCGGCUGAGAGCCUUCUGAGCCCAGCGACUUCUGAAGGGCCCCUUGCAAAGUAAUAGGGCUUCUGCCUAAGCCUCUCCCUCCAGCCAAUAGGCAGCUUUCUUAACUAUCCUAACAAGCCUUGGACCAAAUGGAAAUAAAGCUUUUUGAUGCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "segments": [
+            {
+              "segment_type": "five_prime_utr",
+              "start": 0,
+              "end": 193,
+              "component_id": "utr5_maged2_ENST00000919666",
+              "origin_source": "GENCODE_v49:ENST00000919666",
+              "license_track": "commercial_clean",
+              "action_taken": "selected_from_library"
+            },
+            {
+              "segment_type": "cds",
+              "start": 193,
+              "end": 343,
+              "component_id": "mol_rep_B_cds",
+              "origin_source": "mrnax_synonymous_m1psi_safe",
+              "license_track": "commercial_clean",
+              "action_taken": "synonymous_mutated"
+            },
+            {
+              "segment_type": "stop_cassette",
+              "start": 343,
+              "end": 346,
+              "component_id": "stop_uga",
+              "origin_source": "standard_genetic_code",
+              "license_track": "commercial_clean",
+              "action_taken": "generated_novo"
+            },
+            {
+              "segment_type": "three_prime_utr",
+              "start": 346,
+              "end": 490,
+              "component_id": "utr3_ftl_ENST00000853542",
+              "origin_source": "GENCODE_v49:ENST00000853542",
+              "license_track": "commercial_clean",
+              "action_taken": "selected_from_library"
+            },
+            {
+              "segment_type": "poly_a",
+              "start": 490,
+              "end": 590,
+              "component_id": "polya_unsegmented_100",
+              "origin_source": "commercial_clean_unsegmented_polya",
+              "license_track": "commercial_clean",
+              "action_taken": "generated_novo"
+            }
+          ],
+          "annotations": [
+            {
+              "feature_id": "mol_rep_B_kozak_tis",
+              "feature_key": "regulatory",
+              "intervals": [
+                [
+                  187,
+                  197
+                ]
+              ],
+              "strand": 1,
+              "qualifiers": {
+                "regulatory_class": [
+                  "kozak_tis"
+                ],
+                "note": [
+                  "Span crossing 5'UTR/CDS start junction"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "B1_CHIMERA_5UTR_B_ON_A": {
+      "bundle_id": "B1_CHIMERA_5UTR_B_ON_A",
+      "version_digest": "b274596a6b38e0581dca897c26e8f01408e651f3be7e7150c83a151eddeecdbe",
+      "parent_bundle_id": "B1_REF_A",
+      "derivation_action": "disambiguation_chimera",
+      "target_stoichiometry": {
+        "mol_rep_chimera_5utrB_on_A": 1.0
+      },
+      "co_expression_mode": "single_monocistronic",
+      "molecules": [
+        {
+          "molecule_id": "mol_rep_chimera_5utrB_on_A",
+          "modality": "linear_mrna",
+          "topology": "linear",
+          "chemistry_track": {
+            "uridine_chemistry": "m1psi",
+            "cap_chemistry": "cap1_cleancap_ag",
+            "source": "user_declared",
+            "custom_modification_notes": null
+          },
+          "effective_translation_target": {
+            "protein_sequence": "MVFTLEDFVGDWRQTAGYNLDQVLEQGGVSSLFQNLGVSVTPIQRIVLSG",
+            "transl_table": 1,
+            "accession_or_source": "SYNTHETIC_NON_CLINICAL_REPORTER_50AA",
+            "entry_version": null,
+            "has_signal_peptide": false,
+            "is_secreted_or_membrane": false,
+            "confirmation_status": "confirmed"
+          },
+          "sequence": "GGGAAAAGGGGCGGGGUCCUCAGAGCUGCCGCGCUGGCACAUCUUCCUGGAGAAGGGGAGGGUGCGGCUGCAGAGAAUUGAGACUUAGAAGCUUUGAAUUCCUGUAUCUGAGAACGGAGUCGUUGGGGGUGGUGGAGGGGGUUGGAAUUGGGGACCUACGGAAGGCUCAGCUCUUGCCAGGCCAAAUUGAGACAUGGUCUUCACACUCGAAGAUUUCGUCGGAGAUUGGAGACAAACAGCUGGAUAUAAUCUCGAUCAAGUCCUCGAACAAGGAGGAGUCUCCUCCCUCUUCCAAAAUCUCGGAGUCUCCGUCACACCAAUCCAAAGAAUCGUCCUCUCCGGAUGAAUCUGCUGGCAGAGUAGUUUGAGCCAGCUGGACUGGGCUGGCCGCCUGCCGCUUCUUGAGGGUGGAAGAGGGGUGCUCUGAGAAGACACUCAGGCAGCAGACUCUGCCUCUCACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "segments": [
+            {
+              "segment_type": "five_prime_utr",
+              "start": 0,
+              "end": 193,
+              "component_id": "utr5_maged2_ENST00000919666",
+              "origin_source": "GENCODE_v49:ENST00000919666",
+              "license_track": "commercial_clean",
+              "action_taken": "chimera_spliced"
+            },
+            {
+              "segment_type": "cds",
+              "start": 193,
+              "end": 343,
+              "component_id": "mol_rep_chimera_5utrB_on_A_cds",
+              "origin_source": "mrnax_synonymous_m1psi_safe",
+              "license_track": "commercial_clean",
+              "action_taken": "locked_verbatim"
+            },
+            {
+              "segment_type": "stop_cassette",
+              "start": 343,
+              "end": 346,
+              "component_id": "stop_uga",
+              "origin_source": "standard_genetic_code",
+              "license_track": "commercial_clean",
+              "action_taken": "generated_novo"
+            },
+            {
+              "segment_type": "three_prime_utr",
+              "start": 346,
+              "end": 460,
+              "component_id": "utr3_rps21_ENST00000370592",
+              "origin_source": "GENCODE_v49:ENST00000370592",
+              "license_track": "commercial_clean",
+              "action_taken": "locked_verbatim"
+            },
+            {
+              "segment_type": "poly_a",
+              "start": 460,
+              "end": 560,
+              "component_id": "polya_unsegmented_100",
+              "origin_source": "commercial_clean_unsegmented_polya",
+              "license_track": "commercial_clean",
+              "action_taken": "generated_novo"
+            }
+          ],
+          "annotations": [
+            {
+              "feature_id": "mol_rep_chimera_5utrB_on_A_kozak_tis",
+              "feature_key": "regulatory",
+              "intervals": [
+                [
+                  187,
+                  197
+                ]
+              ],
+              "strand": 1,
+              "qualifiers": {
+                "regulatory_class": [
+                  "kozak_tis"
+                ],
+                "note": [
+                  "Span crossing 5'UTR/CDS start junction"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "B1_CAND_C": {
+      "bundle_id": "B1_CAND_C",
+      "version_digest": "cbb2747e1f4af7f96d3dd78125b13ceea20e49ff4f3b5f25df23a1f7a8722595",
+      "parent_bundle_id": "B1_REF_A",
+      "derivation_action": "de_novo_design",
+      "target_stoichiometry": {
+        "mol_rep_A": 1.0
+      },
+      "co_expression_mode": "single_monocistronic",
+      "molecules": [
+        {
+          "molecule_id": "mol_rep_A",
+          "modality": "linear_mrna",
+          "topology": "linear",
+          "chemistry_track": {
+            "uridine_chemistry": "m1psi",
+            "cap_chemistry": "cap1_cleancap_ag",
+            "source": "user_declared",
+            "custom_modification_notes": null
+          },
+          "effective_translation_target": {
+            "protein_sequence": "MVFTLEDFVGDWRQTAGYNLDQVLEQGGVSSLFQNLGVSVTPIQRIVLSG",
+            "transl_table": 1,
+            "accession_or_source": "SYNTHETIC_NON_CLINICAL_REPORTER_50AA",
+            "entry_version": null,
+            "has_signal_peptide": false,
+            "is_secreted_or_membrane": false,
+            "confirmation_status": "confirmed"
+          },
+          "sequence": "AUCUCUCUCGGGUGGAGUCUUCUGACAGCUGGUGCGCCUGCCCGGGAACAUCCUCCUGGACUCAAUCAUGGUAUUCACCUUGGAGGACUUUGUGGGGGACUGGCGCCAAACCGCAGGUUAUAAUCUUGAUCAGGUUCUCGAGCAAGGUGGAGUAUCGUCCCUAUUCCAGAACUUAGGCGUUUCCGUAACGCCCAUCCAACGGAUUGUCCUGUCAGGGUGAAUCUGCUGGCAGAGUAGUUUGAGCCAGCUGGACUGGGCUGGCCGCCUGCCGCUUCUUGAGGGUGGAAGAGGGGUGCUCUGAGAAGACACUCAGGCAGCAGACUCUGCCUCUCACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "segments": [
+            {
+              "segment_type": "five_prime_utr",
+              "start": 0,
+              "end": 67,
+              "component_id": "b1_u5",
+              "origin_source": "ref_A",
+              "license_track": "commercial_clean",
+              "action_taken": "locked_verbatim"
+            },
+            {
+              "segment_type": "cds",
+              "start": 67,
+              "end": 217,
+              "component_id": null,
+              "origin_source": "mrnax:b1_syn_B1_CAND_C",
+              "license_track": "commercial_clean",
+              "action_taken": "synonymous_mutated"
+            },
+            {
+              "segment_type": "stop_cassette",
+              "start": 217,
+              "end": 220,
+              "component_id": "stop",
+              "origin_source": "ref_A",
+              "license_track": "commercial_clean",
+              "action_taken": "locked_verbatim"
+            },
+            {
+              "segment_type": "three_prime_utr",
+              "start": 220,
+              "end": 334,
+              "component_id": "b1_u3",
+              "origin_source": "ref_A",
+              "license_track": "commercial_clean",
+              "action_taken": "locked_verbatim"
+            },
+            {
+              "segment_type": "poly_a",
+              "start": 334,
+              "end": 434,
+              "component_id": "polya",
+              "origin_source": "ref_A",
+              "license_track": "commercial_clean",
+              "action_taken": "locked_verbatim"
+            }
+          ],
+          "annotations": []
+        }
+      ]
+    },
+    "B1_CAND_D": {
+      "bundle_id": "B1_CAND_D",
+      "version_digest": "ce57e2c98e33a13a41ddc593ee80d9b630f8b0e225162cfdf21aed10c4ad130e",
+      "parent_bundle_id": "B1_REF_A",
+      "derivation_action": "de_novo_design",
+      "target_stoichiometry": {
+        "mol_rep_A": 1.0
+      },
+      "co_expression_mode": "single_monocistronic",
+      "molecules": [
+        {
+          "molecule_id": "mol_rep_A",
+          "modality": "linear_mrna",
+          "topology": "linear",
+          "chemistry_track": {
+            "uridine_chemistry": "m1psi",
+            "cap_chemistry": "cap1_cleancap_ag",
+            "source": "user_declared",
+            "custom_modification_notes": null
+          },
+          "effective_translation_target": {
+            "protein_sequence": "MVFTLEDFVGDWRQTAGYNLDQVLEQGGVSSLFQNLGVSVTPIQRIVLSG",
+            "transl_table": 1,
+            "accession_or_source": "SYNTHETIC_NON_CLINICAL_REPORTER_50AA",
+            "entry_version": null,
+            "has_signal_peptide": false,
+            "is_secreted_or_membrane": false,
+            "confirmation_status": "confirmed"
+          },
+          "sequence": "AUCUCUCUCGGGUGGAGUCUUCUGACAGCUGGUGCGCCUGCCCGGGAACAUCCUCCUGGACUCAAUCAUGGUCUUCACACUCGAAGACUUCGUGGGGGACUGGAGGCAGACCGCGGGUUAUAACUUAGACCAGGUCCUGGAACAAGGCGGUGUCUCGUCUUUGUUCCAGAAUCUAGGCGUCUCGGUAACACCAAUACAACGCAUCGUGUUAUCAGGGUGAAUCUGCUGGCAGAGUAGUUUGAGCCAGCUGGACUGGGCUGGCCGCCUGCCGCUUCUUGAGGGUGGAAGAGGGGUGCUCUGAGAAGACACUCAGGCAGCAGACUCUGCCUCUCACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "segments": [
+            {
+              "segment_type": "five_prime_utr",
+              "start": 0,
+              "end": 67,
+              "component_id": "b1_u5",
+              "origin_source": "ref_A",
+              "license_track": "commercial_clean",
+              "action_taken": "locked_verbatim"
+            },
+            {
+              "segment_type": "cds",
+              "start": 67,
+              "end": 217,
+              "component_id": null,
+              "origin_source": "mrnax:b1_syn_B1_CAND_D",
+              "license_track": "commercial_clean",
+              "action_taken": "synonymous_mutated"
+            },
+            {
+              "segment_type": "stop_cassette",
+              "start": 217,
+              "end": 220,
+              "component_id": "stop",
+              "origin_source": "ref_A",
+              "license_track": "commercial_clean",
+              "action_taken": "locked_verbatim"
+            },
+            {
+              "segment_type": "three_prime_utr",
+              "start": 220,
+              "end": 334,
+              "component_id": "b1_u3",
+              "origin_source": "ref_A",
+              "license_track": "commercial_clean",
+              "action_taken": "locked_verbatim"
+            },
+            {
+              "segment_type": "poly_a",
+              "start": 334,
+              "end": 434,
+              "component_id": "polya",
+              "origin_source": "ref_A",
+              "license_track": "commercial_clean",
+              "action_taken": "locked_verbatim"
+            }
+          ],
+          "annotations": []
+        }
+      ]
+    },
+    "B1_CAND_E": {
+      "bundle_id": "B1_CAND_E",
+      "version_digest": "596b113a50137439aa1b47b9261759892b671a0ff2923c06a071e470bcfa038a",
+      "parent_bundle_id": "B1_REF_A",
+      "derivation_action": "de_novo_design",
+      "target_stoichiometry": {
+        "mol_rep_A": 1.0
+      },
+      "co_expression_mode": "single_monocistronic",
+      "molecules": [
+        {
+          "molecule_id": "mol_rep_A",
+          "modality": "linear_mrna",
+          "topology": "linear",
+          "chemistry_track": {
+            "uridine_chemistry": "m1psi",
+            "cap_chemistry": "cap1_cleancap_ag",
+            "source": "user_declared",
+            "custom_modification_notes": null
+          },
+          "effective_translation_target": {
+            "protein_sequence": "MVFTLEDFVGDWRQTAGYNLDQVLEQGGVSSLFQNLGVSVTPIQRIVLSG",
+            "transl_table": 1,
+            "accession_or_source": "SYNTHETIC_NON_CLINICAL_REPORTER_50AA",
+            "entry_version": null,
+            "has_signal_peptide": false,
+            "is_secreted_or_membrane": false,
+            "confirmation_status": "confirmed"
+          },
+          "sequence": "AUCUCUCUCGGGUGGAGUCUUCUGACAGCUGGUGCGCCUGCCCGGGAACAUCCUCCUGGACUCAAUCAUGGUCUUCACGUUAGAGGAUUUCGUUGGCGACUGGCGCCAAACGGCUGGGUAUAACUUGGAUCAGGUCCUCGAACAGGGCGGGGUGUCAAGCCUCUUCCAAAACUUAGGUGUUUCAGUUACUCCUAUUCAGCGGAUUGUACUCAGUGGGUGAAUCUGCUGGCAGAGUAGUUUGAGCCAGCUGGACUGGGCUGGCCGCCUGCCGCUUCUUGAGGGUGGAAGAGGGGUGCUCUGAGAAGACACUCAGGCAGCAGACUCUGCCUCUCACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "segments": [
+            {
+              "segment_type": "five_prime_utr",
+              "start": 0,
+              "end": 67,
+              "component_id": "b1_u5",
+              "origin_source": "ref_A",
+              "license_track": "commercial_clean",
+              "action_taken": "locked_verbatim"
+            },
+            {
+              "segment_type": "cds",
+              "start": 67,
+              "end": 217,
+              "component_id": null,
+              "origin_source": "mrnax:b1_syn_B1_CAND_E",
+              "license_track": "commercial_clean",
+              "action_taken": "synonymous_mutated"
+            },
+            {
+              "segment_type": "stop_cassette",
+              "start": 217,
+              "end": 220,
+              "component_id": "stop",
+              "origin_source": "ref_A",
+              "license_track": "commercial_clean",
+              "action_taken": "locked_verbatim"
+            },
+            {
+              "segment_type": "three_prime_utr",
+              "start": 220,
+              "end": 334,
+              "component_id": "b1_u3",
+              "origin_source": "ref_A",
+              "license_track": "commercial_clean",
+              "action_taken": "locked_verbatim"
+            },
+            {
+              "segment_type": "poly_a",
+              "start": 334,
+              "end": 434,
+              "component_id": "polya",
+              "origin_source": "ref_A",
+              "license_track": "commercial_clean",
+              "action_taken": "locked_verbatim"
+            }
+          ],
+          "annotations": []
+        }
+      ]
+    }
+  },
+  "surrogate_v2_scores": {
+    "B1_REF_A": {
+      "compliance_track": "commercial_clean",
+      "zero_viennarna": true,
+      "uridine_chemistry": "m1psi",
+      "cpu_heads_chemistry_eval_mode": "cross_chemistry_thermodynamic_approximation",
+      "chemistry_caveat": "All 4 CPU sequence heads were trained on unmodified-U mammalian datasets; for m1Psi/5moU structural accessibility use StructRFMChemistryHead with native Mauger 2019 probes.",
+      "scores": {
+        "utr5_mrl_gse232927": 6.33388,
+        "cds_stability_wu2019": 0.01752,
+        "full_tx_halflife_saluki_pc1": 4.69401,
+        "utr3_stability_fastutr": -0.0143
+      },
+      "utr3_fastutr_domain_flag": "out_of_length_domain_114nt_prefer_saluki_pc1"
+    },
+    "B1_CAND_B": {
+      "compliance_track": "commercial_clean",
+      "zero_viennarna": true,
+      "uridine_chemistry": "m1psi",
+      "cpu_heads_chemistry_eval_mode": "cross_chemistry_thermodynamic_approximation",
+      "chemistry_caveat": "All 4 CPU sequence heads were trained on unmodified-U mammalian datasets; for m1Psi/5moU structural accessibility use StructRFMChemistryHead with native Mauger 2019 probes.",
+      "scores": {
+        "utr5_mrl_gse232927": 6.33801,
+        "cds_stability_wu2019": 0.00291,
+        "full_tx_halflife_saluki_pc1": 2.57709,
+        "utr3_stability_fastutr": 0.00787
+      },
+      "utr3_fastutr_domain_flag": "in_domain_150_170nt"
+    },
+    "B1_CHIMERA_5UTR_B_ON_A": {
+      "compliance_track": "commercial_clean",
+      "zero_viennarna": true,
+      "uridine_chemistry": "m1psi",
+      "cpu_heads_chemistry_eval_mode": "cross_chemistry_thermodynamic_approximation",
+      "chemistry_caveat": "All 4 CPU sequence heads were trained on unmodified-U mammalian datasets; for m1Psi/5moU structural accessibility use StructRFMChemistryHead with native Mauger 2019 probes.",
+      "scores": {
+        "utr5_mrl_gse232927": 6.33801,
+        "cds_stability_wu2019": 0.01752,
+        "full_tx_halflife_saluki_pc1": 3.80743,
+        "utr3_stability_fastutr": -0.0143
+      },
+      "utr3_fastutr_domain_flag": "out_of_length_domain_114nt_prefer_saluki_pc1"
+    }
+  },
+  "experiment_records": {
+    "B1_CASE1_CONFOUND_BLOCKED": {
+      "experiment_id": "EXP_B1_01_CONFOUND",
+      "project_id": "PROJ_M2_BENCHMARK1",
+      "batch_id": "CONFOUNDED_BATCH_MISMATCH_B01_VS_B02",
+      "extraction_state": "verified_structured",
+      "ambiguous_fields": [],
+      "raw_extracted_snapshot": {},
+      "user_corrected_snapshot": {},
+      "assay_type": "reporter_elisa",
+      "readout_name_exact": "reporter_protein_ng_per_ml",
+      "unit": "ng/mL",
+      "timepoint_hours": 24.0,
+      "cell_or_model_context": "HEK293T",
+      "chemistry_track": "m1psi",
+      "delivery_vehicle": "CONFOUNDED_LIPOFECTAMINE_VS_LNP_SM102",
+      "shared_controls": [],
+      "pre_registered_criteria": {
+        "aggregation_method": "mean",
+        "variance_estimator": "ci95",
+        "min_biological_replicates": 3,
+        "min_fold_change": 1.5,
+        "require_non_overlapping_ci": true
+      },
+      "observations": [
+        {
+          "bundle_id": "B1_REF_A",
+          "version_digest": "cf714d2ec216cb056ba242d2a700827c1051d5769d9092e810137dbca07508ba",
+          "source_row_or_figure": "Table1:row1_batch1_6h_lipo",
+          "biological_replicates": [
+            {
+              "bio_rep_id": "B1_REF_A_bio_1",
+              "technical_replicates": [
+                98.0,
+                102.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_REF_A_bio_2",
+              "technical_replicates": [
+                104.0,
+                99.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_REF_A_bio_3",
+              "technical_replicates": [
+                101.0,
+                100.0
+              ]
+            }
+          ]
+        },
+        {
+          "bundle_id": "B1_CAND_B",
+          "version_digest": "36c8d1e69dd41c062af0e06611dcb24e197365842c8a955c4f357c7c141924ac",
+          "source_row_or_figure": "Table1:row2_batch2_24h_lnp",
+          "biological_replicates": [
+            {
+              "bio_rep_id": "B1_CAND_B_bio_1",
+              "technical_replicates": [
+                310.0,
+                325.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_CAND_B_bio_2",
+              "technical_replicates": [
+                318.0,
+                322.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_CAND_B_bio_3",
+              "technical_replicates": [
+                315.0,
+                320.0
+              ]
+            }
+          ]
+        }
+      ],
+      "feedback_decision": {
+        "branch": "experimental_confound_blocked",
+        "new_reference_bundle_id": null,
+        "retained_early_control_bundle_id": null,
+        "weight_update_allowed": false,
+        "held_out_validation_passed": false,
+        "isolated_calibration_proposal_id": null,
+        "sequence_attribution_status": "not_applicable",
+        "spawned_disambiguation_chimera_id": null,
+        "rationale": "Hard blocked: cross-batch, different delivery vehicle (Lipofectamine vs LNP-SM102), and different timepoint (6h vs 24h) with no shared calibrator."
+      }
+    },
+    "B1_CASE2_WITHIN_NOISE": {
+      "experiment_id": "EXP_B1_02_NOISE",
+      "project_id": "PROJ_M2_BENCHMARK1",
+      "batch_id": "BATCH_20261127_01",
+      "extraction_state": "verified_structured",
+      "ambiguous_fields": [],
+      "raw_extracted_snapshot": {},
+      "user_corrected_snapshot": {},
+      "assay_type": "reporter_elisa",
+      "readout_name_exact": "reporter_protein_ng_per_ml",
+      "unit": "ng/mL",
+      "timepoint_hours": 24.0,
+      "cell_or_model_context": "HEK293T",
+      "chemistry_track": "m1psi",
+      "delivery_vehicle": "LNP_SM102",
+      "shared_controls": [
+        "vehicle_blank",
+        "B1_REF_A"
+      ],
+      "pre_registered_criteria": {
+        "aggregation_method": "mean",
+        "variance_estimator": "ci95",
+        "min_biological_replicates": 3,
+        "min_fold_change": 1.5,
+        "require_non_overlapping_ci": true
+      },
+      "observations": [
+        {
+          "bundle_id": "B1_REF_A",
+          "version_digest": "cf714d2ec216cb056ba242d2a700827c1051d5769d9092e810137dbca07508ba",
+          "source_row_or_figure": "Plate1:A1-A9",
+          "biological_replicates": [
+            {
+              "bio_rep_id": "B1_REF_A_bio_1",
+              "technical_replicates": [
+                95.0,
+                102.0,
+                99.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_REF_A_bio_2",
+              "technical_replicates": [
+                112.0,
+                118.0,
+                115.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_REF_A_bio_3",
+              "technical_replicates": [
+                103.0,
+                107.0,
+                105.0
+              ]
+            }
+          ]
+        },
+        {
+          "bundle_id": "B1_CAND_B",
+          "version_digest": "36c8d1e69dd41c062af0e06611dcb24e197365842c8a955c4f357c7c141924ac",
+          "source_row_or_figure": "Plate1:B1-B9",
+          "biological_replicates": [
+            {
+              "bio_rep_id": "B1_CAND_B_bio_1",
+              "technical_replicates": [
+                108.0,
+                114.0,
+                111.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_CAND_B_bio_2",
+              "technical_replicates": [
+                122.0,
+                128.0,
+                125.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_CAND_B_bio_3",
+              "technical_replicates": [
+                116.0,
+                120.0,
+                118.0
+              ]
+            }
+          ]
+        }
+      ],
+      "feedback_decision": {
+        "branch": "within_noise_undecided",
+        "new_reference_bundle_id": null,
+        "retained_early_control_bundle_id": null,
+        "weight_update_allowed": false,
+        "held_out_validation_passed": false,
+        "isolated_calibration_proposal_id": null,
+        "sequence_attribution_status": "not_applicable",
+        "spawned_disambiguation_chimera_id": null,
+        "rationale": "Fold-change ~1.12x (<1.5x threshold) with overlapping 95% CI across n_bio=3; retain B1_REF_A unchanged."
+      }
+    },
+    "B1_CASE3_KINETIC_DIVERGENCE": {
+      "experiment_id": "EXP_B1_03_KINETIC_48H",
+      "project_id": "PROJ_M2_BENCHMARK1",
+      "batch_id": "BATCH_20261127_02",
+      "extraction_state": "verified_structured",
+      "ambiguous_fields": [],
+      "raw_extracted_snapshot": {},
+      "user_corrected_snapshot": {},
+      "assay_type": "reporter_elisa_timecourse",
+      "readout_name_exact": "reporter_protein_ng_per_ml",
+      "unit": "ng/mL",
+      "timepoint_hours": 48.0,
+      "cell_or_model_context": "HEK293T",
+      "chemistry_track": "m1psi",
+      "delivery_vehicle": "LNP_SM102",
+      "shared_controls": [
+        "vehicle_blank",
+        "B1_REF_A_6h_early_peak"
+      ],
+      "pre_registered_criteria": {
+        "aggregation_method": "mean",
+        "variance_estimator": "ci95",
+        "min_biological_replicates": 3,
+        "min_fold_change": 1.5,
+        "require_non_overlapping_ci": true
+      },
+      "observations": [
+        {
+          "bundle_id": "B1_REF_A",
+          "version_digest": "cf714d2ec216cb056ba242d2a700827c1051d5769d9092e810137dbca07508ba",
+          "source_row_or_figure": "Timecourse48h:A",
+          "biological_replicates": [
+            {
+              "bio_rep_id": "B1_REF_A_bio_1",
+              "technical_replicates": [
+                82.0,
+                86.0,
+                84.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_REF_A_bio_2",
+              "technical_replicates": [
+                88.0,
+                91.0,
+                89.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_REF_A_bio_3",
+              "technical_replicates": [
+                85.0,
+                87.0,
+                86.0
+              ]
+            }
+          ]
+        },
+        {
+          "bundle_id": "B1_CAND_B",
+          "version_digest": "36c8d1e69dd41c062af0e06611dcb24e197365842c8a955c4f357c7c141924ac",
+          "source_row_or_figure": "Timecourse48h:B",
+          "biological_replicates": [
+            {
+              "bio_rep_id": "B1_CAND_B_bio_1",
+              "technical_replicates": [
+                205.0,
+                212.0,
+                208.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_CAND_B_bio_2",
+              "technical_replicates": [
+                218.0,
+                224.0,
+                221.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_CAND_B_bio_3",
+              "technical_replicates": [
+                210.0,
+                215.0,
+                212.0
+              ]
+            }
+          ]
+        }
+      ],
+      "feedback_decision": {
+        "branch": "kinetic_divergence_update",
+        "new_reference_bundle_id": "B1_CAND_B",
+        "retained_early_control_bundle_id": "B1_REF_A",
+        "weight_update_allowed": false,
+        "held_out_validation_passed": false,
+        "isolated_calibration_proposal_id": null,
+        "sequence_attribution_status": "multi_region_ambiguous",
+        "spawned_disambiguation_chimera_id": "B1_CHIMERA_5UTR_B_ON_A",
+        "rationale": "Same-batch n_bio=3: B1_REF_A peaked early at 6h while B1_CAND_B wins at 48h (2.47x, non-overlapping 95% CI). Switch active sustained-expression reference to B1_CAND_B and retain B1_REF_A as early-peak control."
+      }
+    },
+    "B1_CASE4_N2_REVERSAL_CHIMERA": {
+      "experiment_id": "EXP_B1_04_N2_REVERSAL",
+      "project_id": "PROJ_M2_BENCHMARK1",
+      "batch_id": "BATCH_20261127_03",
+      "extraction_state": "verified_structured",
+      "ambiguous_fields": [],
+      "raw_extracted_snapshot": {},
+      "user_corrected_snapshot": {},
+      "assay_type": "reporter_elisa",
+      "readout_name_exact": "reporter_protein_24h_ng_per_ml",
+      "unit": "ng/mL",
+      "timepoint_hours": 24.0,
+      "cell_or_model_context": "HEK293T",
+      "chemistry_track": "m1psi",
+      "delivery_vehicle": "LNP_SM102",
+      "shared_controls": [
+        "vehicle_blank",
+        "B1_REF_A"
+      ],
+      "pre_registered_criteria": {
+        "aggregation_method": "mean",
+        "variance_estimator": "ci95",
+        "min_biological_replicates": 3,
+        "min_fold_change": 1.5,
+        "require_non_overlapping_ci": true
+      },
+      "observations": [
+        {
+          "bundle_id": "B1_REF_A",
+          "version_digest": "cf714d2ec216cb056ba242d2a700827c1051d5769d9092e810137dbca07508ba",
+          "source_row_or_figure": "Plate3:A",
+          "biological_replicates": [
+            {
+              "bio_rep_id": "B1_REF_A_bio_1",
+              "technical_replicates": [
+                100.0,
+                104.0,
+                102.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_REF_A_bio_2",
+              "technical_replicates": [
+                108.0,
+                112.0,
+                110.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_REF_A_bio_3",
+              "technical_replicates": [
+                104.0,
+                106.0,
+                105.0
+              ]
+            }
+          ]
+        },
+        {
+          "bundle_id": "B1_CAND_B",
+          "version_digest": "36c8d1e69dd41c062af0e06611dcb24e197365842c8a955c4f357c7c141924ac",
+          "source_row_or_figure": "Plate3:B",
+          "biological_replicates": [
+            {
+              "bio_rep_id": "B1_CAND_B_bio_1",
+              "technical_replicates": [
+                262.0,
+                270.0,
+                266.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_CAND_B_bio_2",
+              "technical_replicates": [
+                274.0,
+                282.0,
+                278.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_CAND_B_bio_3",
+              "technical_replicates": [
+                268.0,
+                272.0,
+                270.0
+              ]
+            }
+          ]
+        }
+      ],
+      "feedback_decision": {
+        "branch": "rank_reversal_switch_reference",
+        "new_reference_bundle_id": "B1_CAND_B",
+        "retained_early_control_bundle_id": null,
+        "weight_update_allowed": false,
+        "held_out_validation_passed": false,
+        "isolated_calibration_proposal_id": null,
+        "sequence_attribution_status": "multi_region_ambiguous",
+        "spawned_disambiguation_chimera_id": "B1_CHIMERA_5UTR_B_ON_A",
+        "rationale": "Same-batch n_bio=3 reversal (2.57x, non-overlapping CI). Switch active reference to B1_CAND_B immediately. STRICT N=2 ZERO-TUNING: weight_update_allowed=False. Multi-region diff (5'UTR+CDS+3'UTR) triggers zero-junction-edit verbatim chimera B1_CHIMERA_5UTR_B_ON_A (default priority 5'UTR > 3'UTR > CDS)."
+      }
+    },
+    "B1_CASE5_DRAFT_EXTRACTION_UNIT_TRAP": {
+      "experiment_id": "EXP_B1_05_DRAFT_UNIT_TRAP",
+      "project_id": "PROJ_M2_BENCHMARK1",
+      "batch_id": "BATCH_20261127_OCR_IMG",
+      "extraction_state": "draft_extraction",
+      "ambiguous_fields": [
+        "unit"
+      ],
+      "raw_extracted_snapshot": {
+        "header": "Signal Value (unit unspecified)",
+        "B1_REF_A": 12000,
+        "B1_CAND_B": 24500
+      },
+      "user_corrected_snapshot": {
+        "pending_confirmation": true,
+        "candidate_units": [
+          "RLU",
+          "pg/mL"
+        ]
+      },
+      "assay_type": "reporter_ocr_table",
+      "readout_name_exact": "signal_value_unconfirmed",
+      "unit": "AMBIGUOUS_PENDING_CONFIRMATION",
+      "timepoint_hours": 24.0,
+      "cell_or_model_context": "HEK293T",
+      "chemistry_track": "m1psi",
+      "delivery_vehicle": "LNP_SM102",
+      "shared_controls": [],
+      "pre_registered_criteria": {
+        "aggregation_method": "mean",
+        "variance_estimator": "ci95",
+        "min_biological_replicates": 3,
+        "min_fold_change": 1.5,
+        "require_non_overlapping_ci": true
+      },
+      "observations": [
+        {
+          "bundle_id": "B1_REF_A",
+          "version_digest": "cf714d2ec216cb056ba242d2a700827c1051d5769d9092e810137dbca07508ba",
+          "source_row_or_figure": "OCR_Screenshot:row1",
+          "biological_replicates": [
+            {
+              "bio_rep_id": "B1_REF_A_bio_1",
+              "technical_replicates": [
+                12000.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_REF_A_bio_2",
+              "technical_replicates": [
+                11800.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_REF_A_bio_3",
+              "technical_replicates": [
+                12200.0
+              ]
+            }
+          ]
+        },
+        {
+          "bundle_id": "B1_CAND_B",
+          "version_digest": "36c8d1e69dd41c062af0e06611dcb24e197365842c8a955c4f357c7c141924ac",
+          "source_row_or_figure": "OCR_Screenshot:row2",
+          "biological_replicates": [
+            {
+              "bio_rep_id": "B1_CAND_B_bio_1",
+              "technical_replicates": [
+                24500.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_CAND_B_bio_2",
+              "technical_replicates": [
+                24900.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_CAND_B_bio_3",
+              "technical_replicates": [
+                24100.0
+              ]
+            }
+          ]
+        }
+      ],
+      "feedback_decision": null
+    },
+    "B1_CASE6_N6_HELD_OUT_CALIBRATION_UNLOCKED": {
+      "experiment_id": "EXP_B1_06_N6_CALIBRATION",
+      "project_id": "PROJ_M2_BENCHMARK1",
+      "batch_id": "BATCH_20261127_PANEL6",
+      "extraction_state": "verified_structured",
+      "ambiguous_fields": [],
+      "raw_extracted_snapshot": {},
+      "user_corrected_snapshot": {},
+      "assay_type": "reporter_elisa",
+      "readout_name_exact": "reporter_protein_24h_ng_per_ml",
+      "unit": "ng/mL",
+      "timepoint_hours": 24.0,
+      "cell_or_model_context": "HEK293T",
+      "chemistry_track": "m1psi",
+      "delivery_vehicle": "LNP_SM102",
+      "shared_controls": [
+        "vehicle_blank",
+        "B1_REF_A"
+      ],
+      "pre_registered_criteria": {
+        "aggregation_method": "mean",
+        "variance_estimator": "ci95",
+        "min_biological_replicates": 3,
+        "min_fold_change": 1.5,
+        "require_non_overlapping_ci": true
+      },
+      "observations": [
+        {
+          "bundle_id": "B1_REF_A",
+          "version_digest": "cf714d2ec216cb056ba242d2a700827c1051d5769d9092e810137dbca07508ba",
+          "source_row_or_figure": "Panel6:1",
+          "biological_replicates": [
+            {
+              "bio_rep_id": "B1_REF_A_bio_1",
+              "technical_replicates": [
+                100.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_REF_A_bio_2",
+              "technical_replicates": [
+                105.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_REF_A_bio_3",
+              "technical_replicates": [
+                102.0
+              ]
+            }
+          ]
+        },
+        {
+          "bundle_id": "B1_CAND_B",
+          "version_digest": "36c8d1e69dd41c062af0e06611dcb24e197365842c8a955c4f357c7c141924ac",
+          "source_row_or_figure": "Panel6:2",
+          "biological_replicates": [
+            {
+              "bio_rep_id": "B1_CAND_B_bio_1",
+              "technical_replicates": [
+                270.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_CAND_B_bio_2",
+              "technical_replicates": [
+                278.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_CAND_B_bio_3",
+              "technical_replicates": [
+                272.0
+              ]
+            }
+          ]
+        },
+        {
+          "bundle_id": "B1_CHIMERA_5UTR_B_ON_A",
+          "version_digest": "b274596a6b38e0581dca897c26e8f01408e651f3be7e7150c83a151eddeecdbe",
+          "source_row_or_figure": "Panel6:3",
+          "biological_replicates": [
+            {
+              "bio_rep_id": "B1_CHIMERA_5UTR_B_ON_A_bio_1",
+              "technical_replicates": [
+                195.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_CHIMERA_5UTR_B_ON_A_bio_2",
+              "technical_replicates": [
+                202.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_CHIMERA_5UTR_B_ON_A_bio_3",
+              "technical_replicates": [
+                198.0
+              ]
+            }
+          ]
+        },
+        {
+          "bundle_id": "B1_CAND_C",
+          "version_digest": "cbb2747e1f4af7f96d3dd78125b13ceea20e49ff4f3b5f25df23a1f7a8722595",
+          "source_row_or_figure": "Panel6:4",
+          "biological_replicates": [
+            {
+              "bio_rep_id": "B1_CAND_C_bio_1",
+              "technical_replicates": [
+                145.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_CAND_C_bio_2",
+              "technical_replicates": [
+                150.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_CAND_C_bio_3",
+              "technical_replicates": [
+                148.0
+              ]
+            }
+          ]
+        },
+        {
+          "bundle_id": "B1_CAND_D",
+          "version_digest": "ce57e2c98e33a13a41ddc593ee80d9b630f8b0e225162cfdf21aed10c4ad130e",
+          "source_row_or_figure": "Panel6:5",
+          "biological_replicates": [
+            {
+              "bio_rep_id": "B1_CAND_D_bio_1",
+              "technical_replicates": [
+                220.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_CAND_D_bio_2",
+              "technical_replicates": [
+                228.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_CAND_D_bio_3",
+              "technical_replicates": [
+                224.0
+              ]
+            }
+          ]
+        },
+        {
+          "bundle_id": "B1_CAND_E",
+          "version_digest": "596b113a50137439aa1b47b9261759892b671a0ff2923c06a071e470bcfa038a",
+          "source_row_or_figure": "Panel6:6",
+          "biological_replicates": [
+            {
+              "bio_rep_id": "B1_CAND_E_bio_1",
+              "technical_replicates": [
+                310.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_CAND_E_bio_2",
+              "technical_replicates": [
+                318.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_CAND_E_bio_3",
+              "technical_replicates": [
+                312.0
+              ]
+            }
+          ]
+        }
+      ],
+      "feedback_decision": {
+        "branch": "rank_reversal_switch_reference",
+        "new_reference_bundle_id": "B1_CAND_E",
+        "retained_early_control_bundle_id": null,
+        "weight_update_allowed": true,
+        "held_out_validation_passed": true,
+        "isolated_calibration_proposal_id": "CAL-GP-PROJ-B1-001",
+        "sequence_attribution_status": "single_region_resolved",
+        "spawned_disambiguation_chimera_id": null,
+        "rationale": "N=6 independent constructs with n_bio=3 and held-out residual GP cross-validation improvement confirmed; project-scoped reversible calibration proposal unlocked."
+      }
+    },
+    "B1_CASE3_EARLY_CONTROL": {
+      "experiment_id": "EXP_B1_03_KINETIC_6H",
+      "project_id": "PROJ_M2_BENCHMARK1",
+      "batch_id": "BATCH_20261127_02",
+      "extraction_state": "verified_structured",
+      "ambiguous_fields": [],
+      "raw_extracted_snapshot": {
+        "fixture_source": "Synthetic early timepoint for deterministic timecourse replay."
+      },
+      "user_corrected_snapshot": {},
+      "assay_type": "reporter_elisa_timecourse",
+      "readout_name_exact": "reporter_protein_ng_per_ml",
+      "unit": "ng/mL",
+      "timepoint_hours": 6.0,
+      "cell_or_model_context": "HEK293T",
+      "chemistry_track": "m1psi",
+      "delivery_vehicle": "LNP_SM102",
+      "shared_controls": [
+        "vehicle_blank",
+        "B1_REF_A_6h_early_peak"
+      ],
+      "pre_registered_criteria": {
+        "aggregation_method": "mean",
+        "variance_estimator": "ci95",
+        "min_biological_replicates": 3,
+        "min_fold_change": 1.5,
+        "require_non_overlapping_ci": true
+      },
+      "observations": [
+        {
+          "bundle_id": "B1_REF_A",
+          "version_digest": "cf714d2ec216cb056ba242d2a700827c1051d5769d9092e810137dbca07508ba",
+          "source_row_or_figure": "Timecourse6h:A",
+          "biological_replicates": [
+            {
+              "bio_rep_id": "B1_REF_A_bio_1",
+              "technical_replicates": [
+                185.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_REF_A_bio_2",
+              "technical_replicates": [
+                190.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_REF_A_bio_3",
+              "technical_replicates": [
+                187.0
+              ]
+            }
+          ]
+        },
+        {
+          "bundle_id": "B1_CAND_B",
+          "version_digest": "36c8d1e69dd41c062af0e06611dcb24e197365842c8a955c4f357c7c141924ac",
+          "source_row_or_figure": "Timecourse6h:B",
+          "biological_replicates": [
+            {
+              "bio_rep_id": "B1_CAND_B_bio_1",
+              "technical_replicates": [
+                96.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_CAND_B_bio_2",
+              "technical_replicates": [
+                99.0
+              ]
+            },
+            {
+              "bio_rep_id": "B1_CAND_B_bio_3",
+              "technical_replicates": [
+                97.0
+              ]
+            }
+          ]
+        }
+      ],
+      "feedback_decision": null
+    }
+  },
+  "negative_guardrail_proofs": {
+    "draft_extraction_blocks_reference_switch": true,
+    "n2_blocks_weight_update": true,
+    "n6_requires_held_out_validation": true
+  }
+}

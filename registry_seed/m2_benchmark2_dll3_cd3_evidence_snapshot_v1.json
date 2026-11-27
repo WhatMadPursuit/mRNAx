@@ -1,0 +1,802 @@
+{
+  "benchmark_id": "M2_BENCHMARK2_DLL3_CD3_FEDERATED_EVIDENCE_V1",
+  "generated_at_utc": "2026-11-26T20:53:06Z",
+  "license_track": "commercial_clean",
+  "guardrail_negative_tests": {
+    "block_gtex_mature_mirna": {
+      "passed": true,
+      "blocked_reason": "GTEx MUST NOT be queried for mature miRNA expression (query='hsa-miR-122-5p'). Use mirna_rbp_commercial_v2.json (miRBase CC0 + FANTOM5 CC-BY-4.0) instead."
+    },
+    "block_thera_sabdab_commercial": {
+      "passed": true,
+      "blocked_reason": "Thera-SAbDab is classified as needs_vendor_license / research_only and is BLOCKED in commercial_clean. Use WHO INN + RCSB PDB (CC0) + ChEMBL instead."
+    },
+    "block_chembl_ccbysa_training_export": {
+      "passed": true,
+      "blocked_reason": "Source 'ChEMBL' (license=CC-BY-SA-3.0, tier=lookup_only_sharealike_boundary) is BLOCKED from 'commercial_training'. Keep as internal lookup-only evidence pointer with explicit release-version attribution."
+    }
+  },
+  "live_api_snapshots": {
+    "uniprot_DLL3": {
+      "source_name": "UniProt",
+      "license_spdx": "CC-BY-4.0",
+      "license_tier": "commercial_clean",
+      "request_url": "https://rest.uniprot.org/uniprotkb/Q9NYJ7.json",
+      "retrieved_at_utc": "2026-11-26T20:53:07Z",
+      "payload_sha256": "0bdb52529ad579c3563a074683c9b55bad59b8e2e5dd414eed4a96b859382463",
+      "summary": {
+        "primary_accession": "Q9NYJ7",
+        "uniProtkbId": "DLL3_HUMAN",
+        "protein_name": "Delta-like protein 3",
+        "aa_length": 618,
+        "starts_with_met": true,
+        "has_signal_peptide": true,
+        "signal_peptide_coords_1based": [
+          {
+            "start": 1,
+            "end": 26
+          }
+        ],
+        "transmembrane_coords_1based": [
+          {
+            "start": 493,
+            "end": 513,
+            "desc": "Helical"
+          }
+        ],
+        "ensembl_gene_ids": [
+          "ENSG00000090932.12"
+        ],
+        "sequence_sha256": "08655e45c9c70122a1320e3ba4b74aa9d81f6e2598e67d546a928ae5498e801e",
+        "sequence_prefix_30aa": "MVSPRMSGLLSQTVILALIFLPQTRPAGVF"
+      },
+      "raw_excerpt": {
+        "domains_sample": [
+          {
+            "type": "Chain",
+            "start": 27,
+            "end": 618,
+            "desc": "Delta-like protein 3"
+          },
+          {
+            "type": "Topological domain",
+            "start": 27,
+            "end": 492,
+            "desc": "Extracellular"
+          },
+          {
+            "type": "Topological domain",
+            "start": 514,
+            "end": 618,
+            "desc": "Cytoplasmic"
+          },
+          {
+            "type": "Domain",
+            "start": 176,
+            "end": 215,
+            "desc": "DSL"
+          },
+          {
+            "type": "Domain",
+            "start": 216,
+            "end": 249,
+            "desc": "EGF-like 1"
+          },
+          {
+            "type": "Domain",
+            "start": 274,
+            "end": 310,
+            "desc": "EGF-like 2"
+          },
+          {
+            "type": "Domain",
+            "start": 312,
+            "end": 351,
+            "desc": "EGF-like 3"
+          },
+          {
+            "type": "Domain",
+            "start": 353,
+            "end": 389,
+            "desc": "EGF-like 4"
+          },
+          {
+            "type": "Domain",
+            "start": 391,
+            "end": 427,
+            "desc": "EGF-like 5"
+          },
+          {
+            "type": "Domain",
+            "start": 429,
+            "end": 465,
+            "desc": "EGF-like 6"
+          }
+        ],
+        "full_aa_sequence": "MVSPRMSGLLSQTVILALIFLPQTRPAGVFELQIHSFGPGPGPGAPRSPCSARLPCRLFFRVCLKPGLSEEAAESPCALGAALSARGPVYTEQPGAPAPDLPLPDGLLQVPFRDAWPGTFSFIIETWREELGDQIGGPAWSLLARVAGRRRLAAGGPWARDIQRAGAWELRFSYRARCEPPAVGTACTRLCRPRSAPSRCGPGLRPCAPLEDECEAPLVCRAGCSPEHGFCEQPGECRCLEGWTGPLCTVPVSTSSCLSPRGPSSATTGCLVPGPGPCDGNPCANGGSCSETPRSFECTCPRGFYGLRCEVSGVTCADGPCFNGGLCVGGADPDSAYICHCPPGFQGSNCEKRVDRCSLQPCRNGGLCLDLGHALRCRCRAGFAGPRCEHDLDDCAGRACANGGTCVEGGGAHRCSCALGFGGRDCRERADPCAARPCAHGGRCYAHFSGLVCACAPGYMGARCEFPVHPDGASALPAAPPGLRPGDPQRYLLPPALGLLVAAGVAGAALLLVHVRRRGHSQDAGSRLLAGTPEPSVHALPDALNNLRTQEGSGDGPSSSVDWNRPEDVDPQGIYVISAPSIYAREVATPLFPPLHTGRAGQRQHLLFPYPSSILSVK"
+      },
+      "latency_ms": 1290.7,
+      "status": "ok"
+    },
+    "uniprot_CD3E": {
+      "source_name": "UniProt",
+      "license_spdx": "CC-BY-4.0",
+      "license_tier": "commercial_clean",
+      "request_url": "https://rest.uniprot.org/uniprotkb/P07766.json",
+      "retrieved_at_utc": "2026-11-26T20:53:08Z",
+      "payload_sha256": "5be6e9c210245f20a985406e90c674c91741f437a51e55798342fe843cfac801",
+      "summary": {
+        "primary_accession": "P07766",
+        "uniProtkbId": "CD3E_HUMAN",
+        "protein_name": "T-cell surface glycoprotein CD3 epsilon chain",
+        "aa_length": 207,
+        "starts_with_met": true,
+        "has_signal_peptide": true,
+        "signal_peptide_coords_1based": [
+          {
+            "start": 1,
+            "end": 22
+          }
+        ],
+        "transmembrane_coords_1based": [
+          {
+            "start": 127,
+            "end": 152,
+            "desc": "Helical"
+          }
+        ],
+        "ensembl_gene_ids": [
+          "ENSG00000198851.11"
+        ],
+        "sequence_sha256": "5a043cd319d3f196bb50c385f5bb4932472256a7646c6cca861f2ef9f4b032fe",
+        "sequence_prefix_30aa": "MQSGTHWRVLGLCLLSVGVWGQDGNEEMGG"
+      },
+      "raw_excerpt": {
+        "domains_sample": [
+          {
+            "type": "Chain",
+            "start": 23,
+            "end": 207,
+            "desc": "T-cell surface glycoprotein CD3 epsilon chain"
+          },
+          {
+            "type": "Topological domain",
+            "start": 23,
+            "end": 126,
+            "desc": "Extracellular"
+          },
+          {
+            "type": "Topological domain",
+            "start": 153,
+            "end": 207,
+            "desc": "Cytoplasmic"
+          },
+          {
+            "type": "Domain",
+            "start": 32,
+            "end": 112,
+            "desc": "Ig-like"
+          },
+          {
+            "type": "Domain",
+            "start": 178,
+            "end": 205,
+            "desc": "ITAM"
+          }
+        ],
+        "full_aa_sequence": "MQSGTHWRVLGLCLLSVGVWGQDGNEEMGGITQTPYKVSISGTTVILTCPQYPGSEILWQHNDKNIGGDEDDKNIGSDEDHLSLKEFSELEQSGYYVCYPRGSKPEDANFYLYLRARVCENCMEMDVMSVATIVIVDICITGGLLLLVYYWSKNRKAKAKPVTRGAGAGGRQRGQNKERPPPVPNPDYEPIRKGQRDLYSGLNQRRI"
+      },
+      "latency_ms": 1406.0,
+      "status": "ok"
+    },
+    "ensembl_DLL3": {
+      "source_name": "Ensembl",
+      "license_spdx": "Apache-2.0_Public_Data",
+      "license_tier": "commercial_clean",
+      "request_url": "https://rest.ensembl.org/lookup/symbol/homo_sapiens/DLL3?expand=1",
+      "retrieved_at_utc": "2026-11-26T20:53:10Z",
+      "payload_sha256": "52bd410cda62cbcb4fbf3f6f51e1387e2d484f779c51b5c2e21e1fb697d813ba",
+      "summary": {
+        "ensembl_gene_id": "ENSG00000090932",
+        "display_name": "DLL3",
+        "biotype": "protein_coding",
+        "canonical_transcript_id": "ENST00000356433",
+        "canonical_transcript_version": 10,
+        "n_exons": 9,
+        "assembly_name": "GRCh38"
+      },
+      "raw_excerpt": {
+        "canonical_transcript_id": "ENST00000356433"
+      },
+      "latency_ms": 1745.2,
+      "status": "ok"
+    },
+    "rcsb_pdb_CD3E_Fab": {
+      "source_name": "RCSB_PDB",
+      "license_spdx": "CC0-1.0",
+      "license_tier": "commercial_clean",
+      "request_url": "https://search.rcsb.org/rcsbsearch/v2/query",
+      "retrieved_at_utc": "2026-11-26T20:53:14Z",
+      "payload_sha256": "238c6180cf15708ed61a2f5d60947b833d5c27c7ee4e74f2ed6d3e389ee0810f",
+      "summary": {
+        "query": "CD3 epsilon antibody",
+        "total_hits": 16,
+        "top_entries": [
+          {
+            "pdb_id": "1XIW",
+            "score": 1.0,
+            "title": "Crystal structure of human CD3-e/d dimer in complex with a UCHT1 single-chain antibody fragment",
+            "method": "X-RAY DIFFRACTION",
+            "resolution_angstrom": 1.9,
+            "release_date": "2004-11-16T00:00:00.000+00:00"
+          },
+          {
+            "pdb_id": "8F0L",
+            "score": 0.887,
+            "title": "Crystal Structure of the Human T cell Receptor CD3(EPSILON) N-Terminal Peptide Complexed with ADI-26906 FAB",
+            "method": "X-RAY DIFFRACTION",
+            "resolution_angstrom": 1.81,
+            "release_date": "2023-03-29T00:00:00.000+00:00"
+          },
+          {
+            "pdb_id": "1SY6",
+            "score": 0.832,
+            "title": "Crystal Structure of CD3gammaepsilon Heterodimer in Complex with OKT3 Fab Fragment",
+            "method": "X-RAY DIFFRACTION",
+            "resolution_angstrom": 2.1,
+            "release_date": "2004-05-25T00:00:00.000+00:00"
+          },
+          {
+            "pdb_id": "3R08",
+            "score": 0.796,
+            "title": "Crystal structure of mouse cd3epsilon in complex with antibody 2C11 Fab",
+            "method": "X-RAY DIFFRACTION",
+            "resolution_angstrom": 4.1,
+            "release_date": "2012-01-25T00:00:00.000+00:00"
+          }
+        ]
+      },
+      "raw_excerpt": [
+        {
+          "pdb_id": "1XIW",
+          "score": 1.0,
+          "title": "Crystal structure of human CD3-e/d dimer in complex with a UCHT1 single-chain antibody fragment",
+          "method": "X-RAY DIFFRACTION",
+          "resolution_angstrom": 1.9,
+          "release_date": "2004-11-16T00:00:00.000+00:00"
+        },
+        {
+          "pdb_id": "8F0L",
+          "score": 0.887,
+          "title": "Crystal Structure of the Human T cell Receptor CD3(EPSILON) N-Terminal Peptide Complexed with ADI-26906 FAB",
+          "method": "X-RAY DIFFRACTION",
+          "resolution_angstrom": 1.81,
+          "release_date": "2023-03-29T00:00:00.000+00:00"
+        },
+        {
+          "pdb_id": "1SY6",
+          "score": 0.832,
+          "title": "Crystal Structure of CD3gammaepsilon Heterodimer in Complex with OKT3 Fab Fragment",
+          "method": "X-RAY DIFFRACTION",
+          "resolution_angstrom": 2.1,
+          "release_date": "2004-05-25T00:00:00.000+00:00"
+        },
+        {
+          "pdb_id": "3R08",
+          "score": 0.796,
+          "title": "Crystal structure of mouse cd3epsilon in complex with antibody 2C11 Fab",
+          "method": "X-RAY DIFFRACTION",
+          "resolution_angstrom": 4.1,
+          "release_date": "2012-01-25T00:00:00.000+00:00"
+        }
+      ],
+      "latency_ms": 3548.6,
+      "status": "ok"
+    },
+    "chembl_tarlatamab": {
+      "source_name": "ChEMBL",
+      "license_spdx": "CC-BY-SA-3.0",
+      "license_tier": "lookup_only_sharealike_boundary",
+      "request_url": "https://www.ebi.ac.uk/chembl/api/data/molecule/search.json?q=tarlatamab&limit=3",
+      "retrieved_at_utc": "2026-11-26T20:53:18Z",
+      "payload_sha256": "bce27a59f72cdbaaf3a4bf8aea26a32ec9d279f201a2a09cf8ee3c00af884817",
+      "summary": {
+        "query": "tarlatamab",
+        "chembl_db_version": "ChEMBL_37",
+        "chembl_release_date": "2026-05-01",
+        "attribution_url": "https://chembl.github.io/chembl-licensing/",
+        "n_returned": 1,
+        "molecules": [
+          {
+            "chembl_id": "CHEMBL5095292",
+            "pref_name": "TARLATAMAB",
+            "molecule_type": "Antibody",
+            "max_phase": "4.0",
+            "first_approval": null,
+            "biotherapeutic_components": 2
+          }
+        ],
+        "license_note": "ChEMBL ChEMBL_37 is CC-BY-SA-3.0; strictly lookup-only internal reference pointer. Blocked from commercial training/redistribution exports via guard_export_to_commercial_bundle."
+      },
+      "raw_excerpt": {
+        "pointer_only_no_raw_redistribution": true
+      },
+      "latency_ms": 4102.3,
+      "status": "ok"
+    },
+    "opentargets_DLL3": {
+      "source_name": "OpenTargets",
+      "license_spdx": "CC0-1.0_Public_Platform",
+      "license_tier": "commercial_clean",
+      "request_url": "https://api.platform.opentargets.org/api/v4/graphql",
+      "retrieved_at_utc": "2026-11-26T20:53:18Z",
+      "payload_sha256": "47082f991e61b16e8dab15d762ab9e9e8011d46d2b436ec779ce222fb1d0334c",
+      "summary": {
+        "ensembl_id": "ENSG00000090932",
+        "approved_symbol": "DLL3",
+        "total_associated_diseases": 1445,
+        "antibody_tractability_buckets": [
+          "UniProt SigP or TMHMM",
+          "GO CC med conf",
+          "Human Protein Atlas loc"
+        ],
+        "top_diseases": [
+          {
+            "disease_id": "MONDO_0020692",
+            "name": "spondylocostal dysostosis 1, autosomal recessive",
+            "score": 0.7227
+          },
+          {
+            "disease_id": "MONDO_0008433",
+            "name": "small cell lung carcinoma",
+            "score": 0.5931
+          },
+          {
+            "disease_id": "MONDO_0010180",
+            "name": "autosomal recessive spondylocostal dysostosis",
+            "score": 0.5296
+          },
+          {
+            "disease_id": "MONDO_0005559",
+            "name": "neurodegenerative disease",
+            "score": 0.5261
+          },
+          {
+            "disease_id": "MONDO_0004992",
+            "name": "cancer",
+            "score": 0.4589
+          },
+          {
+            "disease_id": "MONDO_0005070",
+            "name": "neoplasm",
+            "score": 0.418
+          },
+          {
+            "disease_id": "MONDO_0003847",
+            "name": "hereditary disease",
+            "score": 0.4166
+          },
+          {
+            "disease_id": "MONDO_0000359",
+            "name": "spondylocostal dysostosis",
+            "score": 0.3756
+          }
+        ]
+      },
+      "raw_excerpt": [
+        {
+          "disease_id": "MONDO_0020692",
+          "name": "spondylocostal dysostosis 1, autosomal recessive",
+          "score": 0.7227
+        },
+        {
+          "disease_id": "MONDO_0008433",
+          "name": "small cell lung carcinoma",
+          "score": 0.5931
+        },
+        {
+          "disease_id": "MONDO_0010180",
+          "name": "autosomal recessive spondylocostal dysostosis",
+          "score": 0.5296
+        },
+        {
+          "disease_id": "MONDO_0005559",
+          "name": "neurodegenerative disease",
+          "score": 0.5261
+        },
+        {
+          "disease_id": "MONDO_0004992",
+          "name": "cancer",
+          "score": 0.4589
+        },
+        {
+          "disease_id": "MONDO_0005070",
+          "name": "neoplasm",
+          "score": 0.418
+        },
+        {
+          "disease_id": "MONDO_0003847",
+          "name": "hereditary disease",
+          "score": 0.4166
+        },
+        {
+          "disease_id": "MONDO_0000359",
+          "name": "spondylocostal dysostosis",
+          "score": 0.3756
+        }
+      ],
+      "latency_ms": 773.3,
+      "status": "ok"
+    },
+    "clinicaltrials_DLL3_CD3": {
+      "source_name": "ClinicalTrials.gov",
+      "license_spdx": "US-Public-Domain",
+      "license_tier": "commercial_clean",
+      "request_url": "https://clinicaltrials.gov/api/v2/studies?query.term=DLL3%20CD3%20T-cell%20engager&pageSize=4",
+      "retrieved_at_utc": "2026-11-26T20:53:19Z",
+      "payload_sha256": "b44113c1ff6f2eb7533301910d2637233c03098e9075c9c14bc3d0b9e90ff6c2",
+      "summary": {
+        "query": "DLL3 CD3 T-cell engager",
+        "n_returned": 4,
+        "studies": [
+          {
+            "nct_id": "NCT07699237",
+            "brief_title_sandboxed": {
+              "untrusted_external_data": true,
+              "must_not_modify_locked_constraints": true,
+              "source_id": "CTgov:NCT07699237",
+              "text_excerpt": "A Multicenter Phase II Trial to Evaluate Rechallenge With Platinum-based Chemotherapy (Carboplatin, Etoposide) for Progression During Tarlatamab Therapy in Relapsed Extensive Disease Small-cell Lung Cancer (SCLC)"
+            },
+            "overall_status": "NOT_YET_RECRUITING",
+            "phases": [
+              "PHASE2"
+            ],
+            "lead_sponsor": "University of Cologne"
+          },
+          {
+            "nct_id": "NCT07423585",
+            "brief_title_sandboxed": {
+              "untrusted_external_data": true,
+              "must_not_modify_locked_constraints": true,
+              "source_id": "CTgov:NCT07423585",
+              "text_excerpt": "Tarlatamab for the Treatment of Extensive Stage Small-cell Lung Cancer"
+            },
+            "overall_status": "RECRUITING",
+            "phases": [
+              "PHASE2"
+            ],
+            "lead_sponsor": "Asrar Alahmadi"
+          },
+          {
+            "nct_id": "NCT06816394",
+            "brief_title_sandboxed": {
+              "untrusted_external_data": true,
+              "must_not_modify_locked_constraints": true,
+              "source_id": "CTgov:NCT06816394",
+              "text_excerpt": "Tarlatamab for Advanced Extrapulmonary Small Cell Carcinoma and Neuroendocrine Carcinoma (TAURUS)"
+            },
+            "overall_status": "RECRUITING",
+            "phases": [
+              "PHASE2"
+            ],
+            "lead_sponsor": "National Taiwan University Hospital"
+          },
+          {
+            "nct_id": "NCT06830694",
+            "brief_title_sandboxed": {
+              "untrusted_external_data": true,
+              "must_not_modify_locked_constraints": true,
+              "source_id": "CTgov:NCT06830694",
+              "text_excerpt": "Clinical Trial for Safety and Effectiveness Evaluation of Tarlatamab (AMG757) With Etoposide, Carboplatin and Atezolizumab in Transformed Small Cell Lung Cancer Patients From Adenocarcinoma After EGFR TKI Treatment"
+            },
+            "overall_status": "RECRUITING",
+            "phases": [
+              "PHASE2"
+            ],
+            "lead_sponsor": "Sehhoon Park"
+          }
+        ]
+      },
+      "raw_excerpt": [
+        {
+          "nct_id": "NCT07699237",
+          "brief_title_sandboxed": {
+            "untrusted_external_data": true,
+            "must_not_modify_locked_constraints": true,
+            "source_id": "CTgov:NCT07699237",
+            "text_excerpt": "A Multicenter Phase II Trial to Evaluate Rechallenge With Platinum-based Chemotherapy (Carboplatin, Etoposide) for Progression During Tarlatamab Therapy in Relapsed Extensive Disease Small-cell Lung Cancer (SCLC)"
+          },
+          "overall_status": "NOT_YET_RECRUITING",
+          "phases": [
+            "PHASE2"
+          ],
+          "lead_sponsor": "University of Cologne"
+        },
+        {
+          "nct_id": "NCT07423585",
+          "brief_title_sandboxed": {
+            "untrusted_external_data": true,
+            "must_not_modify_locked_constraints": true,
+            "source_id": "CTgov:NCT07423585",
+            "text_excerpt": "Tarlatamab for the Treatment of Extensive Stage Small-cell Lung Cancer"
+          },
+          "overall_status": "RECRUITING",
+          "phases": [
+            "PHASE2"
+          ],
+          "lead_sponsor": "Asrar Alahmadi"
+        },
+        {
+          "nct_id": "NCT06816394",
+          "brief_title_sandboxed": {
+            "untrusted_external_data": true,
+            "must_not_modify_locked_constraints": true,
+            "source_id": "CTgov:NCT06816394",
+            "text_excerpt": "Tarlatamab for Advanced Extrapulmonary Small Cell Carcinoma and Neuroendocrine Carcinoma (TAURUS)"
+          },
+          "overall_status": "RECRUITING",
+          "phases": [
+            "PHASE2"
+          ],
+          "lead_sponsor": "National Taiwan University Hospital"
+        },
+        {
+          "nct_id": "NCT06830694",
+          "brief_title_sandboxed": {
+            "untrusted_external_data": true,
+            "must_not_modify_locked_constraints": true,
+            "source_id": "CTgov:NCT06830694",
+            "text_excerpt": "Clinical Trial for Safety and Effectiveness Evaluation of Tarlatamab (AMG757) With Etoposide, Carboplatin and Atezolizumab in Transformed Small Cell Lung Cancer Patients From Adenocarcinoma After EGFR TKI Treatment"
+          },
+          "overall_status": "RECRUITING",
+          "phases": [
+            "PHASE2"
+          ],
+          "lead_sponsor": "Sehhoon Park"
+        }
+      ],
+      "latency_ms": 670.3,
+      "status": "ok"
+    },
+    "gtex_DLL3": {
+      "source_name": "GTEx",
+      "license_spdx": "Public_Aggregate_TPM",
+      "license_tier": "commercial_clean",
+      "request_url": "https://gtexportal.org/api/v2/expression/medianGeneExpression?gencodeId=ENSG00000090932.10&datasetId=gtex_v8",
+      "retrieved_at_utc": "2026-11-26T20:53:21Z",
+      "payload_sha256": "19d4dd5694fb5b9636ba9dd02cc926da836a8c0a2db35a5aabbcad63102fe8a2",
+      "summary": {
+        "gene_symbol": "DLL3",
+        "gencode_id": "ENSG00000090932.10",
+        "n_tissues": 54,
+        "top_10_normal_tissues_tpm": [
+          {
+            "tissue": "Brain_Nucleus_accumbens_basal_ganglia",
+            "median_tpm": 11.429
+          },
+          {
+            "tissue": "Brain_Hypothalamus",
+            "median_tpm": 8.555
+          },
+          {
+            "tissue": "Brain_Amygdala",
+            "median_tpm": 8.268
+          },
+          {
+            "tissue": "Brain_Anterior_cingulate_cortex_BA24",
+            "median_tpm": 6.841
+          },
+          {
+            "tissue": "Brain_Caudate_basal_ganglia",
+            "median_tpm": 6.469
+          },
+          {
+            "tissue": "Brain_Hippocampus",
+            "median_tpm": 6.239
+          },
+          {
+            "tissue": "Brain_Frontal_Cortex_BA9",
+            "median_tpm": 6.196
+          },
+          {
+            "tissue": "Brain_Cortex",
+            "median_tpm": 5.527
+          },
+          {
+            "tissue": "Brain_Putamen_basal_ganglia",
+            "median_tpm": 5.452
+          },
+          {
+            "tissue": "Pituitary",
+            "median_tpm": 4.951
+          }
+        ],
+        "liver_tpm": 0.01
+      },
+      "raw_excerpt": [
+        {
+          "tissue": "Brain_Nucleus_accumbens_basal_ganglia",
+          "median_tpm": 11.429
+        },
+        {
+          "tissue": "Brain_Hypothalamus",
+          "median_tpm": 8.555
+        },
+        {
+          "tissue": "Brain_Amygdala",
+          "median_tpm": 8.268
+        },
+        {
+          "tissue": "Brain_Anterior_cingulate_cortex_BA24",
+          "median_tpm": 6.841
+        },
+        {
+          "tissue": "Brain_Caudate_basal_ganglia",
+          "median_tpm": 6.469
+        },
+        {
+          "tissue": "Brain_Hippocampus",
+          "median_tpm": 6.239
+        },
+        {
+          "tissue": "Brain_Frontal_Cortex_BA9",
+          "median_tpm": 6.196
+        },
+        {
+          "tissue": "Brain_Cortex",
+          "median_tpm": 5.527
+        },
+        {
+          "tissue": "Brain_Putamen_basal_ganglia",
+          "median_tpm": 5.452
+        },
+        {
+          "tissue": "Pituitary",
+          "median_tpm": 4.951
+        },
+        {
+          "tissue": "Brain_Substantia_nigra",
+          "median_tpm": 4.478
+        },
+        {
+          "tissue": "Testis",
+          "median_tpm": 3.281
+        },
+        {
+          "tissue": "Brain_Spinal_cord_cervical_c-1",
+          "median_tpm": 3.144
+        },
+        {
+          "tissue": "Brain_Cerebellar_Hemisphere",
+          "median_tpm": 2.89
+        },
+        {
+          "tissue": "Brain_Cerebellum",
+          "median_tpm": 2.474
+        }
+      ],
+      "latency_ms": 1528.9,
+      "status": "ok"
+    },
+    "gtex_CD3E": {
+      "source_name": "GTEx",
+      "license_spdx": "Public_Aggregate_TPM",
+      "license_tier": "commercial_clean",
+      "request_url": "https://gtexportal.org/api/v2/expression/medianGeneExpression?gencodeId=ENSG00000198851.9&datasetId=gtex_v8",
+      "retrieved_at_utc": "2026-11-26T20:53:22Z",
+      "payload_sha256": "d96cd5d15e937d302ee330e2c570b00e27d115df2ef8c3cfea5a24d29d681f58",
+      "summary": {
+        "gene_symbol": "CD3E",
+        "gencode_id": "ENSG00000198851.9",
+        "n_tissues": 54,
+        "top_10_normal_tissues_tpm": [
+          {
+            "tissue": "Whole_Blood",
+            "median_tpm": 103.362
+          },
+          {
+            "tissue": "Spleen",
+            "median_tpm": 94.825
+          },
+          {
+            "tissue": "Small_Intestine_Terminal_Ileum",
+            "median_tpm": 45.8
+          },
+          {
+            "tissue": "Lung",
+            "median_tpm": 23.802
+          },
+          {
+            "tissue": "Colon_Transverse",
+            "median_tpm": 9.942
+          },
+          {
+            "tissue": "Bladder",
+            "median_tpm": 9.867
+          },
+          {
+            "tissue": "Fallopian_Tube",
+            "median_tpm": 8.923
+          },
+          {
+            "tissue": "Stomach",
+            "median_tpm": 8.85
+          },
+          {
+            "tissue": "Adipose_Visceral_Omentum",
+            "median_tpm": 8.732
+          },
+          {
+            "tissue": "Thyroid",
+            "median_tpm": 7.892
+          }
+        ],
+        "liver_tpm": 2.704
+      },
+      "raw_excerpt": [
+        {
+          "tissue": "Whole_Blood",
+          "median_tpm": 103.362
+        },
+        {
+          "tissue": "Spleen",
+          "median_tpm": 94.825
+        },
+        {
+          "tissue": "Small_Intestine_Terminal_Ileum",
+          "median_tpm": 45.8
+        },
+        {
+          "tissue": "Lung",
+          "median_tpm": 23.802
+        },
+        {
+          "tissue": "Colon_Transverse",
+          "median_tpm": 9.942
+        },
+        {
+          "tissue": "Bladder",
+          "median_tpm": 9.867
+        },
+        {
+          "tissue": "Fallopian_Tube",
+          "median_tpm": 8.923
+        },
+        {
+          "tissue": "Stomach",
+          "median_tpm": 8.85
+        },
+        {
+          "tissue": "Adipose_Visceral_Omentum",
+          "median_tpm": 8.732
+        },
+        {
+          "tissue": "Thyroid",
+          "median_tpm": 7.892
+        },
+        {
+          "tissue": "Vagina",
+          "median_tpm": 7.725
+        },
+        {
+          "tissue": "Cervix_Endocervix",
+          "median_tpm": 7.629
+        },
+        {
+          "tissue": "Prostate",
+          "median_tpm": 7.139
+        },
+        {
+          "tissue": "Esophagus_Mucosa",
+          "median_tpm": 6.009
+        },
+        {
+          "tissue": "Cervix_Ectocervix",
+          "median_tpm": 5.65
+        }
+      ],
+      "latency_ms": 1545.3,
+      "status": "ok"
+    }
+  }
+}

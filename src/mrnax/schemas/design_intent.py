@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from typing import Any, Literal, Self
 
 from pydantic import Field, field_validator, model_validator
 
 from mrnax.schemas.common import ComplianceProfile, ConstraintScope, SegmentScope, UridineChemistry
-from mrnax.schemas.construct_bundle import FrozenSchemaModel, ProteinTargetSpec
+from mrnax.schemas.construct_bundle import FrozenSchemaModel, ProteinTargetSpec, SegmentSpan
 
 
 class LockedRegionSpec(FrozenSchemaModel):
@@ -17,6 +18,21 @@ class LockedRegionSpec(FrozenSchemaModel):
     locked_value: str
     reason: str
     locked_at_turn_id: str
+
+
+class BundleSegmentLock(LockedRegionSpec):
+    source_bundle_id: str
+    source_bundle_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    source_molecule_id: str
+    source_segment: SegmentSpan
+
+    @model_validator(mode="after")
+    def _check_source_scope(self) -> Self:
+        if self.scope != self.source_segment.segment_type:
+            raise ValueError("Selected segment does not match lock scope")
+        if len(self.locked_value) != self.source_segment.end - self.source_segment.start:
+            raise ValueError("Selected segment length does not match lock value")
+        return self
 
 
 class ConstraintSpec(FrozenSchemaModel):
@@ -48,6 +64,14 @@ class ObjectiveSpec(FrozenSchemaModel):
     ]
     source_utterance: str = Field(min_length=1)
     target_band: tuple[float, float] | None = None
+
+    @model_validator(mode="after")
+    def _validate_target_band_bounds(self) -> Self:
+        if self.target_band is not None:
+            lo, hi = self.target_band
+            if lo is None or hi is None or not math.isfinite(lo) or not math.isfinite(hi) or lo > hi:
+                raise ValueError(f"target_band must contain finite ordered bounds (lo <= hi), got {self.target_band!r}")
+        return self
 
 
 class CellExpressionSpec(FrozenSchemaModel):
@@ -101,7 +125,7 @@ class DesignIntent(FrozenSchemaModel):
     blocking_questions: list[str] = Field(default_factory=list)
     protein_targets: list[ProteinTargetSpec] = Field(min_length=1)
     reference_bundle_id: str | None = None
-    locked_scopes: dict[str, LockedRegionSpec] = Field(default_factory=dict)
+    locked_scopes: dict[str, BundleSegmentLock | LockedRegionSpec] = Field(default_factory=dict)
     mutable_scopes: list[SegmentScope] = Field(
         default_factory=lambda: ["five_prime_utr", "cds", "three_prime_utr"]
     )

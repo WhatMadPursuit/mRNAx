@@ -25,6 +25,8 @@ class FixedPoolScorerReplayResult:
     rank_participating_ordered_ids: list[str]
     order_changed_in_group3: bool
     display_only_evaluations: list[BundleEvaluation]
+    candidate_digests: dict[str, str]
+    candidate_scores: dict[str, float]
     honesty_banner: str = "本次未改善生成器"
 
 
@@ -36,6 +38,8 @@ def run_fixed_pool_scorer_replay(
     scorer_fn: Callable[[ConstructBundle], float],
 ) -> FixedPoolScorerReplayResult:
     """Replay a fixed candidate pool across 3 modes with deterministic tie-breaking."""
+    if not candidate_pool:
+        raise ValueError("Fixed-pool scorer replay requires at least one qualified candidate in candidate_pool")
     eval_by_id = {e.bundle_id: e for e in base_evaluations}
     for b in candidate_pool:
         if b.bundle_id not in eval_by_id:
@@ -100,6 +104,8 @@ def run_fixed_pool_scorer_replay(
         rank_participating_ordered_ids=ranked_ids,
         order_changed_in_group3=(ranked_ids != baseline_ids),
         display_only_evaluations=display_evals,
+        candidate_digests={b.bundle_id: b.version_digest for b in candidate_pool},
+        candidate_scores={bid: round(val, 6) for bid, val in scores.items()},
         honesty_banner="本次未改善生成器",
     )
 
@@ -231,6 +237,8 @@ def run_three_way_upstream_attribution(
 @dataclass(frozen=True)
 class PairedSeedSurrogateSwitchRow:
     seed: int
+    unguided_trial_count: int
+    guided_trial_count: int
     unguided_best_utr5_mrl: float
     unguided_best_cds_stability: float
     unguided_best_halflife: float
@@ -275,8 +283,8 @@ def run_paired_seed_surrogate_switch_ablation(
             enabled_evaluators=[],
         )
         t0 = time.perf_counter()
-        bundles_off, _, _ = run_design_pipeline(
-            intent.model_copy_validated(runtime_policy=pol_off), seed_dir=seed_dir
+        bundles_off, rep_off, man_off = run_design_pipeline(
+            intent.model_copy_validated(runtime_policy=pol_off, objectives=[]), seed_dir=seed_dir
         )
         dt_off = time.perf_counter() - t0
 
@@ -285,16 +293,34 @@ def run_paired_seed_surrogate_switch_ablation(
             enabled_evaluators=["surrogate_v1_clean"],
         )
         t1 = time.perf_counter()
-        bundles_on, _, _ = run_design_pipeline(
+        bundles_on, rep_on, man_on = run_design_pipeline(
             intent.model_copy_validated(runtime_policy=pol_on), seed_dir=seed_dir
         )
         dt_on = time.perf_counter() - t1
+
+        if rep_off.outcome_status.startswith("UNCOMPARABLE") or rep_on.outcome_status.startswith("UNCOMPARABLE"):
+            raise ValueError(
+                f"Cannot run paired ablation when an arm is uncomparable ({rep_off.outcome_status} vs {rep_on.outcome_status})"
+            )
+        if not bundles_off or not bundles_on:
+            raise ValueError(
+                f"Paired ablation produced zero qualified candidates on seed={sd} ({len(bundles_off)} vs {len(bundles_on)})"
+            )
+
+        trials_off = sum(c.attempt_count for c in man_off.invoked_components if c.role == "generator")
+        trials_on = sum(c.attempt_count for c in man_on.invoked_components if c.role == "generator")
+        if trials_off != trials_on:
+            raise AssertionError(
+                f"Equal-work budget violated on seed={sd}: unguided_trial_count={trials_off} != guided_trial_count={trials_on}"
+            )
 
         u_mrl, u_stab, u_hl = _measure_pool(bundles_off)
         g_mrl, g_stab, g_hl = _measure_pool(bundles_on)
         rows.append(
             PairedSeedSurrogateSwitchRow(
                 seed=sd,
+                unguided_trial_count=trials_off,
+                guided_trial_count=trials_on,
                 unguided_best_utr5_mrl=u_mrl,
                 unguided_best_cds_stability=u_stab,
                 unguided_best_halflife=u_hl,

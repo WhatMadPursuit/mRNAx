@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import time
 import uuid
@@ -10,6 +11,11 @@ from pathlib import Path
 
 import httpx
 import pytest
+
+pytestmark = pytest.mark.skipif(
+    os.environ.get("MRNAX_RUN_LIVE_CLOUD_E2E") != "1",
+    reason="Live cloud E2E & production process recovery drill requires MRNAX_RUN_LIVE_CLOUD_E2E=1",
+)
 
 PAGES_URL = "https://whatmadpursuit.github.io/mRNAx/"
 VULTR_API = "https://149-248-39-200.sslip.io:8443"
@@ -183,7 +189,12 @@ def test_live_github_pages_and_vultr_full_loop_with_crash_recovery() -> None:
             assert new_pid != old_pid and int(new_pid) > 0
             systemd_resilience_verified = True
 
-        # 8. Verify session state & 4-file INSDC export survived the server process crash 100% intact!
+        # 8. Verify session state & 4-file INSDC export survived the server process crash 100% intact,
+        #    while an unauthenticated third-party client without the project capability key gets 403!
+        with httpx.Client(timeout=15.0) as snooper:
+            assert snooper.get(f"{VULTR_API}/v1/projects/{proj}/state").status_code == 403
+            assert snooper.get(f"{VULTR_API}/v1/projects/{proj}/bundles/{top_bundle}/export").status_code == 403
+
         recovered_state = client.get(f"{VULTR_API}/v1/projects/{proj}/state").json()
         assert recovered_state["intent_count"] == 2
         exp = client.get(f"{VULTR_API}/v1/projects/{proj}/bundles/{top_bundle}/export").json()

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Literal, Self
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from mrnax.schemas.construct_bundle import FrozenSchemaModel
 
@@ -23,6 +24,7 @@ class BiologicalReplicate(FrozenSchemaModel):
 class ConstructObservation(FrozenSchemaModel):
     bundle_id: str = Field(min_length=1)
     version_digest: str = Field(min_length=64, max_length=64)
+    physical_construct_digest: str | None = Field(default=None, min_length=64, max_length=64)
     source_row_or_figure: str = Field(min_length=1)
     biological_replicates: list[BiologicalReplicate] = Field(min_length=1)
 
@@ -72,8 +74,17 @@ class FeedbackDecisionRecord(FrozenSchemaModel):
 
 
 class ExperimentRecord(FrozenSchemaModel):
-    experiment_id: str = Field(min_length=1)
+    experiment_id: str = Field(min_length=1, max_length=128)
     project_id: str = Field(min_length=1)
+
+    @field_validator("experiment_id")
+    @classmethod
+    def _validate_safe_experiment_id(cls, v: str) -> str:
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", v):
+            raise ValueError(
+                "experiment_id must be a single safe filename component matching [A-Za-z0-9][A-Za-z0-9._-]{0,127}"
+            )
+        return v
     batch_id: str = Field(min_length=1)
     extraction_state: Literal["verified_structured", "draft_extraction"]
     ambiguous_fields: list[str] = Field(default_factory=list)
@@ -92,10 +103,11 @@ class ExperimentRecord(FrozenSchemaModel):
     )
     observations: list[ConstructObservation] = Field(min_length=1)
     feedback_decision: FeedbackDecisionRecord | None = None
+    ingested_at_ns: int | None = None
 
     @property
     def n_independent_constructs(self) -> int:
-        return len({obs.bundle_id for obs in self.observations})
+        return len({obs.physical_construct_digest or obs.version_digest for obs in self.observations})
 
     @model_validator(mode="after")
     def _enforce_statistical_honesty_and_draft_quarantine(self) -> Self:

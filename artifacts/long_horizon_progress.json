@@ -1,0 +1,25 @@
+{
+  "schema_version": "2.0",
+  "updated_at_utc": "2026-11-27T02:21:00Z",
+  "active_phase": "Phase A",
+  "status": "IN_PROGRESS",
+  "gates": {
+    "G1": {
+      "passed": true,
+      "evidence": "All audit findings remediated across engine, CAS store, state_machine, gateway, federated adapter, rules ledger, wheel assets, and hybrid Web UI; 154/154 unit & 3/3 browser logic tests GREEN."
+    },
+    "G2": {
+      "passed": true,
+      "evidence": "SIGN-OFF READY (0 Critical, 0 Important) verified by independent gpt-6.2-astra ultra Round-8 audit (/tmp/mrnax_audit_r8/working-tree-reverification-round8.md); 154/154 pytest, 3/3 Node UI, 30/30 golden intent, M2 B1/B2 fixtures, offline wheel, and 320-390px Safari checks all PASS."
+    },
+    "G3": { "passed": false, "evidence": "" },
+    "G4": { "passed": false, "evidence": "" },
+    "G5": { "passed": false, "evidence": "" },
+    "G6": { "passed": false, "evidence": "" },
+    "G7": { "passed": false, "evidence": "" },
+    "G8": { "passed": false, "evidence": "" },
+    "G9": { "passed": false, "evidence": "" }
+  },
+  "last_commit_sha": "744d1fd",
+  "colab_idle_vms": 0
+}

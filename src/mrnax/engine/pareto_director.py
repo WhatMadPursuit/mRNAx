@@ -4,18 +4,23 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
+import os
 import platform
 import random
 import subprocess
 import sys
 import time
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 from mrnax.constraints.frameshift_m1psi import remediate_m1psi_slippery_runs
 from mrnax.constraints.registry import ScopedConstraintEngine
 from mrnax.engine.cell_expression import (
+    MissingTissueMeasurement,
+    select_detarget_mirna_entry,
     assemble_detargeted_3utr,
     build_crs_and_tissue_safety_advisory,
 )
@@ -25,11 +30,13 @@ from mrnax.engine.stage0_baseline import (
     generate_random_synonymous_cds,
     mutate_cds_region_synonymously,
 )
-from mrnax.engine.surrogates import CommercialCleanSurrogateV1
+from mrnax.engine.surrogates import CommercialCleanSurrogateV1, StructRFMNativeScorer
 from mrnax.engine.thermodynamics import (
     compute_cds_sliding_window_mfe,
     evaluate_molecule_thermodynamics,
 )
+from mrnax.rules.tribunal import RuleRegistry
+from mrnax.schemas.common import LicenseTrack, SegmentScope
 from mrnax.schemas.construct_bundle import (
     ChemistryTrackSpec,
     ConstructBundle,
@@ -38,7 +45,7 @@ from mrnax.schemas.construct_bundle import (
     RNAMoleculeSpec,
     SegmentSpan,
 )
-from mrnax.schemas.design_intent import DesignIntent
+from mrnax.schemas.design_intent import BundleSegmentLock, DesignIntent, ObjectiveSpec
 from mrnax.schemas.evaluation_report import (
     AdvisoryNote,
     BundleEvaluation,
@@ -77,28 +84,29 @@ def _git_sha(repo_dir: Path) -> str:
         return "unknown"
 
 
-def _build_single_molecule_bundle(
+@dataclass(frozen=True)
+class _Origin:
+    component_id: str | None
+    source: str
+    tier: LicenseTrack
+
+
+def _build_molecule_spec(
     *,
-    bundle_id: str,
-    parent_bundle_id: str | None,
-    derivation_action: DerivationAction,
+    molecule_id: str,
+    target: Any,
     intent: DesignIntent,
+    origins: dict[SegmentScope, _Origin],
     utr5_seq: str,
-    utr5_id: str | None,
-    utr5_source: str,
     utr5_action: str,
     cds_seq: str,
-    cds_source: str,
     cds_action: str,
     stop_seq: str,
     utr3_seq: str,
-    utr3_id: str | None,
-    utr3_source: str,
     utr3_action: str,
     polya_seq: str,
     extra_utr3_annotations: list[FeatureAnnotation] | None = None,
-) -> ConstructBundle:
-    target = intent.protein_targets[0]
+) -> RNAMoleculeSpec:
     c0 = 0
     c1 = len(utr5_seq)
     c2 = c1 + len(cds_seq)
@@ -120,8 +128,8 @@ def _build_single_molecule_bundle(
             shifted = [(c3 + s, c3 + e) for s, e in a.intervals]
             anns.append(a.model_copy_validated(intervals=shifted))
 
-    mol = RNAMoleculeSpec(
-        molecule_id="mol_primary",
+    return RNAMoleculeSpec(
+        molecule_id=molecule_id,
         modality="linear_mrna",
         topology="linear",
         chemistry_track=ChemistryTrackSpec(
@@ -136,56 +144,97 @@ def _build_single_molecule_bundle(
                 segment_type="five_prime_utr",
                 start=c0,
                 end=c1,
-                component_id=utr5_id,
-                origin_source=utr5_source,
-                license_track="commercial_clean",
+                component_id=origins["five_prime_utr"].component_id,
+                origin_source=origins["five_prime_utr"].source,
+                license_track=origins["five_prime_utr"].tier,
                 action_taken=utr5_action,  # type: ignore[arg-type]
             ),
             SegmentSpan(
                 segment_type="cds",
                 start=c1,
                 end=c2,
-                component_id=None,
-                origin_source=cds_source,
-                license_track="commercial_clean",
+                component_id=origins["cds"].component_id,
+                origin_source=origins["cds"].source,
+                license_track=origins["cds"].tier,
                 action_taken=cds_action,  # type: ignore[arg-type]
             ),
             SegmentSpan(
                 segment_type="stop_cassette",
                 start=c2,
                 end=c3,
-                component_id="stop_uga_uaa",
-                origin_source="mrnax:standard",
-                license_track="commercial_clean",
+                component_id=origins["stop_cassette"].component_id,
+                origin_source=origins["stop_cassette"].source,
+                license_track=origins["stop_cassette"].tier,
                 action_taken="locked_verbatim",
             ),
             SegmentSpan(
                 segment_type="three_prime_utr",
                 start=c3,
                 end=c4,
-                component_id=utr3_id,
-                origin_source=utr3_source,
-                license_track="commercial_clean",
+                component_id=origins["three_prime_utr"].component_id,
+                origin_source=origins["three_prime_utr"].source,
+                license_track=origins["three_prime_utr"].tier,
                 action_taken=utr3_action,  # type: ignore[arg-type]
             ),
             SegmentSpan(
                 segment_type="poly_a",
                 start=c4,
                 end=c5,
-                component_id=f"polya_a{len(polya_seq)}",
-                origin_source="mrnax:homopolymer_tail",
-                license_track="commercial_clean",
+                component_id=origins["poly_a"].component_id,
+                origin_source=origins["poly_a"].source,
+                license_track=origins["poly_a"].tier,
                 action_taken="locked_verbatim",
             ),
         ],
         annotations=anns,
     )
+
+
+def _build_single_molecule_bundle(
+    *,
+    bundle_id: str,
+    parent: ConstructBundle | None,
+    derivation_action: DerivationAction,
+    intent: DesignIntent,
+    origins: dict[SegmentScope, _Origin],
+    utr5_seq: str,
+    utr5_action: str,
+    cds_seq: str,
+    cds_action: str,
+    stop_seq: str,
+    utr3_seq: str,
+    utr3_action: str,
+    polya_seq: str,
+    extra_utr3_annotations: list[FeatureAnnotation] | None = None,
+    secondary_molecules: list[RNAMoleculeSpec] | None = None,
+) -> ConstructBundle:
+    mol_id_0 = "mol_primary" if not secondary_molecules else "chain_01"
+    mol0 = _build_molecule_spec(
+        molecule_id=mol_id_0,
+        target=intent.protein_targets[0],
+        intent=intent,
+        origins=origins,
+        utr5_seq=utr5_seq,
+        utr5_action=utr5_action,
+        cds_seq=cds_seq,
+        cds_action=cds_action,
+        stop_seq=stop_seq,
+        utr3_seq=utr3_seq,
+        utr3_action=utr3_action,
+        polya_seq=polya_seq,
+        extra_utr3_annotations=extra_utr3_annotations,
+    )
+    all_mols = [mol0, *(secondary_molecules or [])]
+    stoich = {m.molecule_id: 1.0 for m in all_mols}
+    co_mode = "lnp_co_encapsulation" if len(all_mols) > 1 else "single_monocistronic"
     return ConstructBundle.create(
         bundle_id=bundle_id,
-        parent_bundle_id=parent_bundle_id,
+        parent_bundle_id=parent.bundle_id if parent else None,
+        external_evidence=parent.external_evidence if parent else [],
         derivation_action=derivation_action,
-        target_stoichiometry={"mol_primary": 1.0},
-        molecules=[mol],
+        target_stoichiometry=stoich,
+        co_expression_mode=co_mode,  # type: ignore[arg-type]
+        molecules=all_mols,
     )
 
 
@@ -216,18 +265,318 @@ def _assign_pareto_ranks(obj_vectors: list[list[float]]) -> list[int]:
     return ranks
 
 
+def _rank_and_order_pareto_candidates(obj_vectors: list[list[float]]) -> tuple[list[int], list[int]]:
+    """Assign Pareto ranks and order candidates using strictly scale-invariant rank percentiles & crowding distance."""
+    n = len(obj_vectors)
+    if n == 0:
+        return [], []
+    if not obj_vectors[0]:
+        return [1] * n, list(range(n))
+    ranks = _assign_pareto_ranks(obj_vectors)
+    dims = len(obj_vectors[0])
+
+    # Per-axis rank percentile in [0, 1] — invariant to ANY strictly increasing rescaling of any axis!
+    quantiles = [[0.5] * dims for _ in range(n)]
+    if n > 1:
+        for d in range(dims):
+            vals = [vec[d] for vec in obj_vectors]
+            sorted_idx = sorted(range(n), key=lambda i: vals[i])
+            pos = 0
+            while pos < n:
+                end = pos + 1
+                while end < n and vals[sorted_idx[end]] == vals[sorted_idx[pos]]:
+                    end += 1
+                avg_rank = 0.5 * (pos + end - 1) / (n - 1)
+                for k in range(pos, end):
+                    quantiles[sorted_idx[k]][d] = avg_rank
+                pos = end
+
+    mean_quantile = [sum(q) / max(dims, 1) for q in quantiles]
+    crowding = [0.0] * n
+    by_rank: dict[int, list[int]] = {}
+    for idx, rk in enumerate(ranks):
+        by_rank.setdefault(rk, []).append(idx)
+
+    for front in by_rank.values():
+        if len(front) <= 2 or dims == 1:
+            for idx in front:
+                crowding[idx] = mean_quantile[idx]
+            continue
+        for d in range(dims):
+            f_sorted = sorted(front, key=lambda i: quantiles[i][d])
+            span = quantiles[f_sorted[-1]][d] - quantiles[f_sorted[0]][d]
+            if span <= 1e-12:
+                continue
+            crowding[f_sorted[0]] += 2.0
+            crowding[f_sorted[-1]] += 2.0
+            for j in range(1, len(f_sorted) - 1):
+                crowding[f_sorted[j]] += (
+                    quantiles[f_sorted[j + 1]][d] - quantiles[f_sorted[j - 1]][d]
+                ) / span
+
+    ordered_indices = sorted(
+        range(n),
+        key=lambda i: (ranks[i], -round(mean_quantile[i], 9), -round(crowding[i], 9), i),
+    )
+    return ranks, ordered_indices
+
+
+_REPORT_NS_LOCK = __import__("threading").Lock()
+_LAST_REPORT_NS = 0
+
+
+def next_report_timestamp_ns() -> int:
+    global _LAST_REPORT_NS
+    with _REPORT_NS_LOCK:
+        now = time.time_ns()
+        if now <= _LAST_REPORT_NS:
+            now = _LAST_REPORT_NS + 1
+        _LAST_REPORT_NS = now
+        return now
+
+
+def score_objective_value(val: float, obj: ObjectiveSpec) -> float | None:
+    """Convert raw metric value into maximize-normalized objective score; returns None if bounds are missing/invalid."""
+    if not math.isfinite(val):
+        return None
+    if obj.direction == "maximize":
+        return float(val)
+    if obj.direction == "minimize":
+        return -float(val)
+    if obj.direction == "target_band":
+        if obj.target_band is None or len(obj.target_band) != 2:
+            return None
+        lo_raw, hi_raw = obj.target_band
+        if lo_raw is None or hi_raw is None:
+            return None
+        lo, hi = float(lo_raw), float(hi_raw)
+        if not math.isfinite(lo) or not math.isfinite(hi) or lo > hi:
+            return None
+        mid = 0.5 * (lo + hi)
+        span = max(hi - lo, 1.0)
+        if lo <= val <= hi:
+            return 0.0 if hi == lo else -0.25 * (abs(val - mid) / (0.5 * (hi - lo)))
+        return -(1.0 + min(abs(val - lo), abs(val - hi)) / span)
+    return None
+
+
+def project_report_for_intent(
+    report: EvaluationReport,
+    bundles_by_id: dict[str, ConstructBundle],
+    intent: DesignIntent | None,
+    *,
+    seed_dir: Path | None = None,
+    disallow_sandbox_override: bool = False,
+) -> EvaluationReport:
+    """Project stored EvaluationReport against active DesignIntent target proteins, chains, rules, and measured objectives."""
+    if intent is not None and intent.compliance_track == "commercial_clean":
+        if disallow_sandbox_override and report.isolated_sandbox_override:
+            return report.model_copy_validated(
+                outcome_status="UNCOMPARABLE_MISSING_APPROVED_COMPONENT",
+                uncomparable_reason="Sandbox-override report cannot be served as a production commercial_clean recommendation.",
+                candidate_evaluations=[],
+                recommended_bundle_ids=[],
+            )
+        if report.rule_snapshot_version is not None and not report.rule_snapshot_version.startswith(
+            "rules_commercial_clean@"
+        ):
+            return report.model_copy_validated(
+                outcome_status="UNCOMPARABLE_MISSING_APPROVED_COMPONENT",
+                uncomparable_reason=(
+                    f"Report rule snapshot '{report.rule_snapshot_version}' is incompatible with commercial_clean."
+                ),
+                candidate_evaluations=[],
+                recommended_bundle_ids=[],
+            )
+        if seed_dir is not None:
+            cc_rules_path = seed_dir / "rules_commercial_v1.json"
+            if not cc_rules_path.is_file():
+                return report.model_copy_validated(
+                    outcome_status="UNCOMPARABLE_MISSING_APPROVED_COMPONENT",
+                    uncomparable_reason=f"Required commercial rule registry '{cc_rules_path.name}' is missing.",
+                    candidate_evaluations=[],
+                    recommended_bundle_ids=[],
+                )
+            try:
+                RuleRegistry(cc_rules_path, track="commercial_clean").snapshot_version()
+            except ValueError as exc:
+                return report.model_copy_validated(
+                    outcome_status="UNCOMPARABLE_MISSING_APPROVED_COMPONENT",
+                    uncomparable_reason=str(exc),
+                    candidate_evaluations=[],
+                    recommended_bundle_ids=[],
+                )
+
+    if not report.candidate_evaluations:
+        return report
+
+    expected_proteins = [t.protein_sequence for t in intent.protein_targets] if (intent and intent.protein_targets) else None
+    rankable_objs = (
+        [o for o in intent.objectives if o.evidence_status != "unverified_target_for_wetlab"]
+        if intent is not None
+        else None
+    )
+
+    surviving: list[tuple[BundleEvaluation, list[float]]] = []
+    for ev in report.candidate_evaluations:
+        bundle = bundles_by_id.get(ev.bundle_id)
+        if bundle is None:
+            continue
+        if expected_proteins is not None:
+            if len(bundle.molecules) != len(expected_proteins):
+                continue
+            if [m.effective_translation_target.protein_sequence for m in bundle.molecules] != expected_proteins:
+                continue
+            if [m.translate_cds_protein() for m in bundle.molecules] != expected_proteins:
+                continue
+        partial_ids = {
+            m.metric_id
+            for m in ev.metrics
+            if len(bundle.molecules) > 1
+            and "inter_chain" not in m.evaluated_scopes
+            and (
+                m.chain_values is None
+                or len(m.chain_values) != len(bundle.molecules)
+                or not all(math.isfinite(v) for v in m.chain_values)
+            )
+        }
+        if partial_ids:
+            continue
+        m_map: dict[str, float] = {}
+        conflicting_dup = False
+        for m in ev.metrics:
+            if (
+                m.participated_in != "display_only"
+                and m.value is not None
+                and math.isfinite(m.value)
+                and m.metric_id not in partial_ids
+            ):
+                fval = float(m.value)
+                if m.metric_id in m_map and m_map[m.metric_id] != fval:
+                    conflicting_dup = True
+                    break
+                m_map[m.metric_id] = fval
+        if conflicting_dup or not m_map:
+            continue
+        if rankable_objs is not None:
+            if not rankable_objs:
+                continue
+            vec: list[float] = []
+            ok = True
+            for obj in rankable_objs:
+                if obj.metric_id not in m_map:
+                    ok = False
+                    break
+                sc = score_objective_value(m_map[obj.metric_id], obj)
+                if sc is None:
+                    ok = False
+                    break
+                vec.append(sc)
+            if not ok:
+                continue
+            surviving.append((ev, vec))
+        else:
+            surviving.append((ev, []))
+
+    if not surviving:
+        return report.model_copy_validated(
+            outcome_status="UNCOMPARABLE_MISSING_APPROVED_COMPONENT",
+            uncomparable_reason=report.uncomparable_reason
+            or "Stored candidates lack complete objective, target-protein, or chain measurement coverage.",
+            candidate_evaluations=[],
+            recommended_bundle_ids=[],
+        )
+
+    if rankable_objs:
+        vectors = [vec for _, vec in surviving]
+        ranks, order = _rank_and_order_pareto_candidates(vectors)
+        recomputed_evals = [
+            surviving[idx][0].model_copy_validated(
+                pareto_rank=ranks[idx],
+                selection_rationale=[f"Pareto rank {ranks[idx]} under {report.compliance_track} profile"],
+            )
+            for idx in order
+        ]
+        rank_by_bid = {e.bundle_id: e.pareto_rank for e in recomputed_evals}
+        kept_recs = [bid for bid in report.recommended_bundle_ids if rank_by_bid.get(bid) == 1]
+        if not kept_recs:
+            kept_recs = [e.bundle_id for e in recomputed_evals if e.pareto_rank == 1][:3]
+        is_tie = len(vectors) > 1 and all(v == vectors[0] for v in vectors[1:])
+        status = "COMPLETED_TIE" if is_tie else "COMPLETED_WITH_CANDIDATES"
+        if (
+            [e.bundle_id for e in report.candidate_evaluations] != [e.bundle_id for e in recomputed_evals]
+            or [e.pareto_rank for e in report.candidate_evaluations] != [e.pareto_rank for e in recomputed_evals]
+            or kept_recs != report.recommended_bundle_ids
+            or status != report.outcome_status
+        ):
+            return report.model_copy_validated(
+                outcome_status=status,  # type: ignore[arg-type]
+                candidate_evaluations=recomputed_evals,
+                recommended_bundle_ids=kept_recs,
+            )
+        return report
+
+    valid_ids = {ev.bundle_id for ev, _ in surviving}
+    desired_recs = [] if intent is not None else [bid for bid in report.recommended_bundle_ids if bid in valid_ids]
+    if valid_ids != {e.bundle_id for e in report.candidate_evaluations} or desired_recs != report.recommended_bundle_ids:
+        status = "COMPLETED_WITH_CANDIDATES" if len(surviving) == 1 and report.outcome_status == "COMPLETED_TIE" else report.outcome_status
+        return report.model_copy_validated(
+            outcome_status=status,
+            candidate_evaluations=[ev for ev, _ in surviving],
+            recommended_bundle_ids=desired_recs,
+        )
+    return report
+
+
+def _aggregate_chain_metrics(chain_metric_lists: list[list[MetricResult]]) -> tuple[list[MetricResult], bool]:
+    n_chains = len(chain_metric_lists)
+    if n_chains == 1:
+        return chain_metric_lists[0], True
+    chain_maps = [{m.metric_id: m for m in chain} for chain in chain_metric_lists]
+    merged = []
+    complete = True
+    for mid in dict.fromkeys(m.metric_id for chain in chain_metric_lists for m in chain):
+        items = [chain[mid] for chain in chain_maps if mid in chain]
+        first = items[0]
+        values = [m.value for m in items if m.value is not None and math.isfinite(m.value)
+                  and (m.direction, m.unit, m.participated_in) == (first.direction, first.unit, first.participated_in)]
+        if len(values) != n_chains:
+            complete = False
+            result = first.model_copy_validated(
+                value=None,
+                chain_values=None,
+                notes=f"incomplete_chain_coverage({len(values)}/{n_chains})",
+            )
+        else:
+            if first.direction == "maximize":
+                value = min(values)
+            elif first.direction == "minimize":
+                value = max(values)
+            else:
+                value = sum(values) / n_chains
+            policy = "worst_case" if first.direction in {"maximize", "minimize"} else "mean"
+            result = first.model_copy_validated(
+                value=round(value, 6),
+                chain_values=[round(float(v), 6) for v in values],
+                notes=f"aggregated_{n_chains}_chains({policy})",
+            )
+        merged.append(result)
+    return merged, complete
+
+
 def run_design_pipeline(
     intent: DesignIntent,
     *,
     reference_bundle: ConstructBundle | None = None,
     cached_candidates: list[ConstructBundle] | None = None,
     seed_dir: Path,
-    rule_snapshot_version: str = "rules_research_v1@1.0.0",
+    rule_snapshot_version: str | None = None,
     isolated_sandbox_override: bool = False,
+    structrfm_scorer: StructRFMNativeScorer | None = None,
 ) -> tuple[list[ConstructBundle], EvaluationReport, RunManifest]:
     """Execute Stage 0 + Sliding-Window CDS<->UTR Pareto Optimization with shared scoped constraints."""
-    exec_id = f"exec_{uuid.uuid4().hex[:12]}"
-    att_id = f"att_{exec_id[-6:]}_001"
+    exec_id = f"exec_{uuid.uuid4().hex}"
+    att_id = f"att_{exec_id}_001"
     repo_root = seed_dir.parent
 
     if intent.status != "ready":
@@ -240,17 +589,20 @@ def run_design_pipeline(
                 "enabled_generators is empty and no cached_candidates were supplied; refusing silent zero-candidate fallback."
             )
 
+    resolved_rule_snapshot = rule_snapshot_version or (
+        "rules_commercial_clean@missing" if intent.compliance_track == "commercial_clean" else "rules_research_v1@1.0.0"
+    )
+
     # 2. Clean-Room profile readiness check (`commercial_clean` vs `research_max`)
-    readiness = check_profile_readiness(intent)
-    if not readiness.is_runnable:
+    def unavailable(reason: str) -> tuple[list[ConstructBundle], EvaluationReport, RunManifest]:
         report = EvaluationReport(
-            report_id=f"rep_{exec_id[-8:]}",
+            report_id=f"rep_{exec_id.removeprefix('exec_')}",
             execution_id=exec_id,
             intent_id=intent.intent_id,
             intent_version=intent.intent_version,
             compliance_track=intent.compliance_track,
             outcome_status="UNCOMPARABLE_MISSING_APPROVED_COMPONENT",
-            uncomparable_reason=readiness.uncomparable_reason,
+            uncomparable_reason=reason,
             recommended_bundle_ids=[],
             candidate_evaluations=[],
             failed_diagnostics=[],
@@ -262,10 +614,13 @@ def run_design_pipeline(
                     stage_applied="recorded_only",
                     eliminated_count=0,
                     changed_candidate_ids=[],
-                    proof_diff_summary=readiness.uncomparable_reason or "Blocked by commercial_clean gate",
+                    proof_diff_summary=reason,
                 )
-                for c in intent.constraints
+                for c in [*intent.constraints, *intent.objectives]
             ],
+            created_at_ns=next_report_timestamp_ns(),
+            rule_snapshot_version=resolved_rule_snapshot,
+            isolated_sandbox_override=isolated_sandbox_override,
         )
         manifest = RunManifest(
             submission_id=f"sub_{intent.intent_id}",
@@ -277,7 +632,7 @@ def run_design_pipeline(
             platform_info=platform.platform(),
             compliance_track=intent.compliance_track,
             invoked_components=[],
-            rule_snapshot_version=rule_snapshot_version,
+            rule_snapshot_version=resolved_rule_snapshot,
             isolated_sandbox_override=isolated_sandbox_override,
             prng_state_digest="not_executed",
             input_intent_digest=intent.digest(),
@@ -287,12 +642,96 @@ def run_design_pipeline(
         )
         return [], report, manifest
 
+    if intent.compliance_track == "commercial_clean":
+        cc_rules_path = seed_dir / "rules_commercial_v1.json"
+        if not cc_rules_path.is_file():
+            resolved_rule_snapshot = "rules_commercial_clean@missing"
+            return unavailable(
+                f"Required commercial rule registry '{cc_rules_path.name}' is missing; refusing fallback or unverified snapshot override."
+            )
+        try:
+            verified_cc_snapshot = RuleRegistry(
+                cc_rules_path, track="commercial_clean"
+            ).snapshot_version()
+        except ValueError as exc:
+            resolved_rule_snapshot = "rules_commercial_clean@invalid"
+            return unavailable(str(exc))
+        if rule_snapshot_version is not None and rule_snapshot_version != verified_cc_snapshot:
+            resolved_rule_snapshot = verified_cc_snapshot
+            return unavailable(
+                f"Requested rule_snapshot_version '{rule_snapshot_version}' does not match verified commercial rule registry '{verified_cc_snapshot}'."
+            )
+        resolved_rule_snapshot = verified_cc_snapshot
+    elif rule_snapshot_version is None:
+        resolved_rule_snapshot = "rules_research_v1@1.0.0"
+    rule_snapshot_version = resolved_rule_snapshot
+
+    readiness = check_profile_readiness(intent)
+    if not readiness.is_runnable:
+        return unavailable(readiness.uncomparable_reason or "Profile is unavailable")
+
+    mir_v2_path = seed_dir / "mirna_rbp_commercial_v2.json"
+    mir_reg = json.loads(
+        (mir_v2_path if mir_v2_path.is_file() else (seed_dir / "mirna_rbp_commercial_v1.json")).read_text(
+            encoding="utf-8"
+        )
+    )
+    control = intent.cell_expression_control
+    if control and control.detarget_tissues and control.protected_tissues:
+        try:
+            select_detarget_mirna_entry(control.detarget_tissues, control.protected_tissues, mir_reg)
+        except MissingTissueMeasurement as exc:
+            return unavailable(str(exc))
+
     use_surrogate_v1 = "surrogate_v1_clean" in intent.runtime_policy.enabled_evaluators
     surrogate_v1 = CommercialCleanSurrogateV1.from_seed_dir(seed_dir) if use_surrogate_v1 else None
 
+    use_orthrus = "orthrus_mamba_rna_foundation" in intent.runtime_policy.enabled_evaluators
+    active_orthrus_model: Any = None
+    active_orthrus_probe: dict[str, Any] | None = None
+    if use_orthrus:
+        orth_env = os.environ.get("MRNAX_ORTHRUS_CKPT_DIR", "").strip()
+        orth_dir = Path(orth_env) if orth_env else None
+        if (
+            orth_dir is None
+            or not (orth_dir / "config.json").is_file()
+            or not (orth_dir / "model.safetensors").is_file()
+        ):
+            missing_orth = (
+                "无法比较：已请求 orthrus_mamba_rna_foundation 评估器，但当前节点未挂载有效的 Orthrus-6-track 权重目录 "
+                "(需设置 MRNAX_ORTHRUS_CKPT_DIR 包含 config.json 与 model.safetensors；参见 RC-003-orthrus-v1.0.yaml)"
+            )
+            return unavailable(missing_orth)
+        from mrnax.engine.orthrus_portable_pytorch import PortableOrthrusModel
+        from mrnax.engine.surrogates import _load_verified_joblib
+
+        active_orthrus_model = PortableOrthrusModel.from_local_checkpoint(
+            orth_dir, allow_sandbox_override=isolated_sandbox_override, device="cpu"
+        )
+        active_orthrus_probe = _load_verified_joblib(
+            seed_dir / "surrogate_v1", "orthrus6_saluki_halflife_probe.joblib"
+        )
+
+    use_structrfm = "structrfm_rna_foundation" in intent.runtime_policy.enabled_evaluators
+    active_structrfm: StructRFMNativeScorer | None = None
+    if use_structrfm:
+        if structrfm_scorer is not None:
+            active_structrfm = structrfm_scorer
+        else:
+            ckpt_env = os.environ.get("MRNAX_STRUCTRFM_CKPT_DIR", "").strip()
+            if not ckpt_env:
+                missing_msg = (
+                    "无法比较：已请求 structrfm_rna_foundation 评估器，但当前节点未挂载 structRFM GPU 权重 "
+                    "(需设置 MRNAX_STRUCTRFM_CKPT_DIR 指向 checkpoints/structRFM_checkpoint 或在 Colab GPU 节点执行)"
+                )
+                return unavailable(missing_msg)
+            active_structrfm = StructRFMNativeScorer.from_checkpoint_and_seed_dir(
+                Path(ckpt_env), seed_dir, allow_sandbox_override=isolated_sandbox_override
+            )
+
     utr_v1_reg = json.loads((seed_dir / "utr_components_v1.json").read_text(encoding="utf-8"))
     utr_v2_path = seed_dir / "utr_components_commercial_v2.json"
-    if use_surrogate_v1 and utr_v2_path.is_file():
+    if (use_surrogate_v1 or intent.compliance_track == "commercial_clean") and utr_v2_path.is_file():
         utr_v2_reg = json.loads(utr_v2_path.read_text(encoding="utf-8"))
         seen_u5: set[str] = set()
         merged_u5 = []
@@ -309,7 +748,6 @@ def run_design_pipeline(
         utr_reg = {"five_prime_utrs": merged_u5, "three_prime_utrs": merged_u3}
     else:
         utr_reg = utr_v1_reg
-    mir_reg = json.loads((seed_dir / "mirna_rbp_commercial_v1.json").read_text(encoding="utf-8"))
     constraint_engine = ScopedConstraintEngine.from_seed_dir(seed_dir)
 
     rng = random.Random(intent.runtime_policy.random_seed)
@@ -334,16 +772,59 @@ def run_design_pipeline(
         default_stop = ref_mol.get_segment_sequence("stop_cassette") or "UAA"
         default_utr3 = ref_mol.get_segment_sequence("three_prime_utr")
         default_polya = ref_mol.get_segment_sequence("poly_a") or ("A" * 100)
-        parent_id = reference_bundle.bundle_id
     else:
         default_utr5 = clean_utr5s[0]["sequence"]
         default_cds = ""
         default_stop = "UGA"
         default_utr3 = clean_utr3s[0]["sequence"]
         default_polya = "A" * 100
-        parent_id = None
 
+    if stop_lock := intent.locked_scopes.get("stop_cassette"):
+        default_stop = stop_lock.locked_value
     polya_seq = locked_polya.locked_value if locked_polya else default_polya
+
+    library_origins = {}
+    for end in ("five_prime_utrs", "three_prime_utrs"):
+        for row in utr_reg[end]:
+            origin = _Origin(row["component_id"], row["origin_source"], row["license_track"])
+            if library_origins.setdefault(origin.component_id, origin) != origin:
+                raise ValueError(f"Conflicting library provenance for {origin.component_id}")
+
+    # Every new chain uses the primary input's shared UTRs, stop and tail.
+    primary = reference_bundle.molecules[0] if reference_bundle else None
+
+    def inherited(scope: SegmentScope, default: _Origin | None = None) -> _Origin:
+        ref = primary.get_segment(scope) if primary else None
+        lock = intent.locked_scopes.get(scope)
+        if isinstance(lock, BundleSegmentLock):
+            source = lock.source_segment
+            return _Origin(source.component_id, source.origin_source, source.license_track)
+        if lock and (ref is None or primary.get_segment_sequence(scope) != lock.locked_value):
+            return _Origin(None, f"user_lock:{lock.locked_at_turn_id}", "commercial_clearance_pending")
+        if ref is not None:
+            return _Origin(ref.component_id, ref.origin_source, ref.license_track)
+        if default is None:
+            raise ValueError(f"Missing origin for inherited segment {scope}")
+        return default
+
+    def origins_for(
+        utr5_id: str | None, utr3_id: str | None, cds_source: str, annotations: list[FeatureAnnotation],
+        *, minimal: bool = False, secondary: bool = False,
+    ) -> dict[SegmentScope, _Origin]:
+        u3 = inherited("three_prime_utr") if minimal or locked_utr3 else library_origins[utr3_id]
+        if annotations:
+            cassette = annotations[0].qualifiers
+            tiers = [u3.tier, *cassette["mrnax_license_track"]]
+            tier = max(tiers, key=get_args(LicenseTrack).index)
+            u3 = _Origin(u3.component_id, f"{u3.source} + {cassette['mrnax_origin_source'][0]}", tier)
+        return {
+            "five_prime_utr": inherited("five_prime_utr") if minimal or locked_utr5 else library_origins[utr5_id],
+            "three_prime_utr": u3,
+            "cds": inherited("cds") if (minimal or locked_cds) and not secondary
+                   else _Origin(None, cds_source, "commercial_clean"),
+            "stop_cassette": inherited("stop_cassette", _Origin(None, "mrnax:standard", "commercial_clean")),
+            "poly_a": inherited("poly_a", _Origin(f"polya_a{len(polya_seq)}", "mrnax:homopolymer_tail", "commercial_clean")),
+        }
 
     # Prepare optional CellExpressionController 3'UTR cassette
     mirna_mature: str | None = None
@@ -366,35 +847,104 @@ def run_design_pipeline(
 
     raw_candidates: list[ConstructBundle] = list(cached_candidates or [])
     comp_records: list[ComponentInvocationRecord] = []
+    exec_tag = exec_id.removeprefix("exec_")
+
+    used_endogenous_atlas = False
+
+    def mutate_with_atlas(cds: str, protein: str, random_source: random.Random, **options: Any) -> str:
+        nonlocal used_endogenous_atlas
+        used_endogenous_atlas = True
+        return mutate_cds_region_synonymously(cds, protein, random_source, **options)
+
+    def _make_secondary_chains(
+        *,
+        utr5_seq: str,
+        utr5_id: str | None,
+        utr5_action: str,
+        utr3_seq: str,
+        utr3_id: str | None,
+        utr3_action: str,
+        extra_anns: list[FeatureAnnotation],
+        use_dnachisel: bool = False,
+        seed_offset: int = 0,
+    ) -> list[RNAMoleculeSpec]:
+        if len(intent.protein_targets) <= 1:
+            return []
+        sec_mols: list[RNAMoleculeSpec] = []
+        for ch_idx, pt in enumerate(intent.protein_targets[1:], start=2):
+            sec_rng = random.Random(intent.runtime_policy.random_seed + 1009 * ch_idx + seed_offset)
+            if use_dnachisel:
+                sec_cds = generate_dnachisel_cds(
+                    pt.protein_sequence,
+                    intent.constraints,
+                    seed=intent.runtime_policy.random_seed + ch_idx + seed_offset,
+                    chemistry=intent.uridine_chemistry,
+                )
+                sec_src = "mrnax:dnachisel_v3.2.16"
+                sec_act = "generated_novo"
+            else:
+                sec_cds = generate_random_synonymous_cds(
+                    pt.protein_sequence,
+                    sec_rng,
+                    chemistry=intent.uridine_chemistry,
+                )
+                if seed_offset > 0 and len(pt.protein_sequence) > 15:
+                    sec_cds = mutate_with_atlas(
+                        sec_cds,
+                        pt.protein_sequence,
+                        sec_rng,
+                        codon_start=10,
+                        codon_end=len(pt.protein_sequence) - 5,
+                        prefer_open_au=False,
+                        chemistry=intent.uridine_chemistry,
+                    )
+                sec_src = "mrnax:pareto_multi_chain" if seed_offset > 0 else "mrnax:stage0_random"
+                sec_act = "synonymous_mutated" if seed_offset > 0 else "generated_novo"
+            sec_mols.append(
+                _build_molecule_spec(
+                    molecule_id=f"chain_{ch_idx:02d}",
+                    target=pt,
+                    intent=intent,
+                    origins=origins_for(utr5_id, utr3_id, sec_src, extra_anns, secondary=True),
+                    utr5_seq=utr5_seq,
+                    utr5_action=utr5_action,
+                    cds_seq=sec_cds,
+                    cds_action=sec_act,
+                    stop_seq=default_stop,
+                    utr3_seq=utr3_seq,
+                    utr3_action=utr3_action,
+                    polya_seq=polya_seq,
+                    extra_utr3_annotations=extra_anns,
+                )
+            )
+        return sec_mols
 
     # Include reference R verbatim or minimally adapted A when reference_bundle provided
     if reference_bundle is not None:
         raw_candidates.append(reference_bundle)
         if "minimal_change_vs_r" in intent.portfolio_tracks:
+
             min_cds = locked_cds.locked_value if locked_cds else default_cds
             if not locked_cds and intent.uridine_chemistry in {"m1psi", "pseudouridine"}:
                 min_cds, _ = remediate_m1psi_slippery_runs(min_cds)
             u3_min, anns_min = _prepare_utr3(default_utr3)
             raw_candidates.append(
                 _build_single_molecule_bundle(
-                    bundle_id=f"bnd_{exec_id[-4:]}_minA",
-                    parent_bundle_id=parent_id,
+                    bundle_id=f"bnd_{exec_tag}_minA",
+                    parent=reference_bundle,
                     derivation_action="locked_refinement",
                     intent=intent,
+                    origins=origins_for(None, None, "", anns_min, minimal=True),
                     utr5_seq=locked_utr5.locked_value if locked_utr5 else default_utr5,
-                    utr5_id="ref_utr5",
-                    utr5_source="reference_R",
                     utr5_action="locked_verbatim",
                     cds_seq=min_cds,
-                    cds_source="reference_R_remediated",
                     cds_action="locked_verbatim" if locked_cds else "synonymous_mutated",
                     stop_seq=default_stop,
                     utr3_seq=u3_min,
-                    utr3_id="ref_utr3",
-                    utr3_source="reference_R",
                     utr3_action="locked_verbatim" if not anns_min else "selected_from_library",
                     polya_seq=polya_seq,
                     extra_utr3_annotations=anns_min,
+                    secondary_molecules=list(reference_bundle.molecules[1:]) if len(reference_bundle.molecules) > 1 else None,
                 )
             )
 
@@ -413,26 +963,35 @@ def run_design_pipeline(
         )
         u5 = locked_utr5.locked_value if locked_utr5 else clean_utr5s[0]["sequence"]
         u3, anns_u3 = _prepare_utr3(clean_utr3s[0]["sequence"])
+        u5_id_s0 = None if locked_utr5 else clean_utr5s[0]["component_id"]
+        u5_act_s0 = "locked_verbatim" if locked_utr5 else "selected_from_library"
+        u3_id_s0 = None if locked_utr3 else clean_utr3s[0]["component_id"]
+        u3_act_s0 = "locked_verbatim" if locked_utr3 else "selected_from_library"
         raw_candidates.append(
             _build_single_molecule_bundle(
-                bundle_id=f"bnd_{exec_id[-4:]}_stage0_ref",
-                parent_bundle_id=parent_id,
+                bundle_id=f"bnd_{exec_tag}_stage0_ref",
+                parent=reference_bundle,
                 derivation_action="computational_reference" if reference_bundle is None else "de_novo_design",
                 intent=intent,
+                origins=origins_for(u5_id_s0, u3_id_s0, "mrnax:stage0_random", anns_u3),
                 utr5_seq=u5,
-                utr5_id=None if locked_utr5 else clean_utr5s[0]["component_id"],
-                utr5_source="locked" if locked_utr5 else clean_utr5s[0]["origin_source"],
-                utr5_action="locked_verbatim" if locked_utr5 else "selected_from_library",
+                utr5_action=u5_act_s0,
                 cds_seq=cds_rand,
-                cds_source="mrnax:stage0_random",
                 cds_action="locked_verbatim" if locked_cds else "generated_novo",
                 stop_seq=default_stop,
                 utr3_seq=u3,
-                utr3_id=None if locked_utr3 else clean_utr3s[0]["component_id"],
-                utr3_source="locked" if locked_utr3 else clean_utr3s[0]["origin_source"],
-                utr3_action="locked_verbatim" if locked_utr3 else "selected_from_library",
+                utr3_action=u3_act_s0,
                 polya_seq=polya_seq,
                 extra_utr3_annotations=anns_u3,
+                secondary_molecules=_make_secondary_chains(
+                    utr5_seq=u5,
+                    utr5_id=u5_id_s0,
+                    utr5_action=u5_act_s0,
+                    utr3_seq=u3,
+                    utr3_id=u3_id_s0,
+                    utr3_action=u3_act_s0,
+                    extra_anns=anns_u3,
+                ),
             )
         )
         spec_s0 = COMPONENT_CATALOG["stage0_random"]
@@ -464,26 +1023,36 @@ def run_design_pipeline(
             )
         u5 = locked_utr5.locked_value if locked_utr5 else clean_utr5s[0]["sequence"]
         u3, anns_u3 = _prepare_utr3(clean_utr3s[0]["sequence"])
+        u5_id_dc = None if locked_utr5 else clean_utr5s[0]["component_id"]
+        u5_act_dc = "locked_verbatim" if locked_utr5 else "selected_from_library"
+        u3_id_dc = None if locked_utr3 else clean_utr3s[0]["component_id"]
+        u3_act_dc = "locked_verbatim" if locked_utr3 else "selected_from_library"
         raw_candidates.append(
             _build_single_molecule_bundle(
-                bundle_id=f"bnd_{exec_id[-4:]}_dnachisel",
-                parent_bundle_id=parent_id,
+                bundle_id=f"bnd_{exec_tag}_dnachisel",
+                parent=reference_bundle,
                 derivation_action="de_novo_design",
                 intent=intent,
+                origins=origins_for(u5_id_dc, u3_id_dc, "mrnax:dnachisel_v3.2.16", anns_u3),
                 utr5_seq=u5,
-                utr5_id=None if locked_utr5 else clean_utr5s[0]["component_id"],
-                utr5_source="locked" if locked_utr5 else clean_utr5s[0]["origin_source"],
-                utr5_action="locked_verbatim" if locked_utr5 else "selected_from_library",
+                utr5_action=u5_act_dc,
                 cds_seq=dc_seed_cds,
-                cds_source="mrnax:dnachisel_v3.2.16",
                 cds_action="locked_verbatim" if locked_cds else "generated_novo",
                 stop_seq=default_stop,
                 utr3_seq=u3,
-                utr3_id=None if locked_utr3 else clean_utr3s[0]["component_id"],
-                utr3_source="locked" if locked_utr3 else clean_utr3s[0]["origin_source"],
-                utr3_action="locked_verbatim" if locked_utr3 else "selected_from_library",
+                utr3_action=u3_act_dc,
                 polya_seq=polya_seq,
                 extra_utr3_annotations=anns_u3,
+                secondary_molecules=_make_secondary_chains(
+                    utr5_seq=u5,
+                    utr5_id=u5_id_dc,
+                    utr5_action=u5_act_dc,
+                    utr3_seq=u3,
+                    utr3_id=u3_id_dc,
+                    utr3_action=u3_act_dc,
+                    extra_anns=anns_u3,
+                    use_dnachisel=True,
+                ),
             )
         )
         spec_dc = COMPONENT_CATALOG["dnachisel_cds"]
@@ -512,17 +1081,23 @@ def run_design_pipeline(
         budget_n = max(3, min(intent.runtime_policy.max_evaluations - len(raw_candidates), 8))
         pareto_utr5s = clean_utr5s
         pareto_utr3s = clean_utr3s
-        if surrogate_v1 is not None:
-            all_u5 = [u for u in utr_reg["five_prime_utrs"] if not u["has_uaug"] and u["max_homopolymer_run"] <= 7]
-            all_u3 = [u for u in utr_reg["three_prime_utrs"] if u["max_homopolymer_run"] <= 7]
-            n5 = min(80, len(all_u5))
-            n3 = min(80, len(all_u3))
-            # Build a deterministic high-stability synonymous probe CDS on a cloned RNG so we don't perturb main RNG
+        total_inner_trials = 0
+        all_u5 = [u for u in utr_reg["five_prime_utrs"] if not u["has_uaug"] and u["max_homopolymer_run"] <= 7]
+        all_u3 = [u for u in utr_reg["three_prime_utrs"] if u["max_homopolymer_run"] <= 7]
+        if intent.compliance_track == "commercial_clean" or surrogate_v1 is not None:
+            # Equal-work candidate universe across unguided OFF and surrogate ON!
+            pool_rng = random.Random(intent.runtime_policy.random_seed + 31337)
+            k5 = min(24, len(all_u5))
+            k3 = min(24, len(all_u3))
+            sampled_u5 = pool_rng.sample(all_u5, k5)
+            sampled_u3 = pool_rng.sample(all_u3, k3)
+
             probe_rng = random.Random(intent.runtime_policy.random_seed + 7919)
-            probe_cds = base_cds
+            probe_trials = [base_cds]
+            cur_p = base_cds
             for _ in range(4):
-                cand_p = mutate_cds_region_synonymously(
-                    probe_cds,
+                cur_p = mutate_with_atlas(
+                    cur_p,
                     protein_seq,
                     probe_rng,
                     codon_start=10,
@@ -530,38 +1105,58 @@ def run_design_pipeline(
                     prefer_open_au=False,
                     chemistry=intent.uridine_chemistry,
                 )
-                if float(surrogate_v1.score_cds_stability([cand_p])[0]) > float(surrogate_v1.score_cds_stability([probe_cds])[0]):
-                    probe_cds = cand_p
-            base_cds = probe_cds if not locked_cds else base_cds
+                probe_trials.append(cur_p)
+                total_inner_trials += 1
 
-            scored_mrl = surrogate_v1.score_5utr_mrl([u["sequence"] for u in all_u5[:n5]])
-            top_mrl_idx = sorted(range(n5), key=lambda i: -float(scored_mrl[i]))
-            # Jointly find the top (u5, u3) pair for consensus half-life among top candidates
-            best_hl_pair = (-1e9, 0, 0)
-            cand_u5_indices = list(dict.fromkeys([*range(min(6, n5)), *top_mrl_idx[:8]]))
-            for i5 in cand_u5_indices:
-                u5_s = all_u5[i5]["sequence"]
-                for i3 in range(min(30, n3)):
-                    hl_s = surrogate_v1.score_consensus_halflife(u5_s, probe_cds, all_u3[i3]["sequence"])
-                    if hl_s > best_hl_pair[0]:
-                        best_hl_pair = (hl_s, i5, i3)
-            _, best_hl_i5, best_hl_i3 = best_hl_pair
-            scored_u3 = [
-                surrogate_v1.score_consensus_halflife(all_u5[best_hl_i5]["sequence"], probe_cds, u["sequence"])
-                for u in all_u3[:n3]
-            ]
-            top_u3_idx = sorted(range(n3), key=lambda i: -float(scored_u3[i]))
-            # Index 0 & 1 are guaranteed visited with u3_idx=0 (idx=0 and idx=1 in budget_n>=3)!
-            pareto_utr5s = [all_u5[top_mrl_idx[0]], all_u5[best_hl_i5], all_u5[top_mrl_idx[1]]]
-            pareto_utr3s = [all_u3[best_hl_i3], all_u3[top_u3_idx[1 % len(top_u3_idx)]], all_u3[top_u3_idx[2 % len(top_u3_idx)]]]
+            if surrogate_v1 is not None:
+                p_scores = surrogate_v1.score_cds_stability(probe_trials)
+                best_p_idx = max(range(len(probe_trials)), key=lambda i: float(p_scores[i]))
+                probe_cds = probe_trials[best_p_idx]
+                base_cds = probe_cds if not locked_cds else base_cds
+
+                scored_mrl = surrogate_v1.score_5utr_mrl([u["sequence"] for u in sampled_u5])
+                top_mrl_idx = sorted(range(k5), key=lambda i: -float(scored_mrl[i]))
+                triplets = [
+                    (sampled_u5[i5]["sequence"], probe_cds, sampled_u3[i3]["sequence"])
+                    for i5 in top_mrl_idx[:6]
+                    for i3 in range(k3)
+                ]
+                pair_coords = [
+                    (i5, i3) for i5 in top_mrl_idx[:6] for i3 in range(k3)
+                ]
+                hl_preds = surrogate_v1.score_consensus_halflife_batch(triplets)
+                u3_preds = (
+                    surrogate_v1.score_3utr_stability([sampled_u3[i3]["sequence"] for _, i3 in pair_coords])
+                    if "3utr_mpra_stability" in surrogate_v1.loaded_heads
+                    else hl_preds
+                )
+                pair_vecs = [
+                    [float(scored_mrl[i5]), float(hl_preds[idx_p]), float(u3_preds[idx_p])]
+                    for idx_p, (i5, _) in enumerate(pair_coords)
+                ]
+                _, pair_order = _rank_and_order_pareto_candidates(pair_vecs)
+                chosen_u5: list[dict[str, Any]] = []
+                chosen_u3: list[dict[str, Any]] = []
+                for p_idx in pair_order:
+                    i5, i3 = pair_coords[p_idx]
+                    if sampled_u5[i5] not in chosen_u5 and len(chosen_u5) < 3:
+                        chosen_u5.append(sampled_u5[i5])
+                    if sampled_u3[i3] not in chosen_u3 and len(chosen_u3) < 3:
+                        chosen_u3.append(sampled_u3[i3])
+                    if len(chosen_u5) >= 3 and len(chosen_u3) >= 3:
+                        break
+                pareto_utr5s = chosen_u5 or sampled_u5[:3]
+                pareto_utr3s = chosen_u3 or sampled_u3[:3]
+            else:
+                base_cds = probe_trials[-1] if not locked_cds else base_cds
+                pareto_utr5s = sampled_u5[:3]
+                pareto_utr3s = sampled_u3[:3]
 
         utr5_pool = [locked_utr5.locked_value] if locked_utr5 else [u["sequence"] for u in pareto_utr5s[:3]]
         utr5_ids = [None] if locked_utr5 else [u["component_id"] for u in pareto_utr5s[:3]]
-        utr5_srcs = ["locked"] if locked_utr5 else [u["origin_source"] for u in pareto_utr5s[:3]]
 
         utr3_pool_raw = [locked_utr3.locked_value] if locked_utr3 else [u["sequence"] for u in pareto_utr3s[:3]]
         utr3_ids = [None] if locked_utr3 else [u["component_id"] for u in pareto_utr3s[:3]]
-        utr3_srcs = ["locked"] if locked_utr3 else [u["origin_source"] for u in pareto_utr3s[:3]]
 
         for idx in range(budget_n):
             u5_idx = idx % len(utr5_pool)
@@ -573,7 +1168,7 @@ def run_design_pipeline(
                 cds_act = "locked_verbatim"
             else:
                 # Step A: Open 5' initiation codons [1..12] while stabilizing body codons [12..n_codons-10]
-                cand_cds = mutate_cds_region_synonymously(
+                cand_cds = mutate_with_atlas(
                     base_cds,
                     protein_seq,
                     rng,
@@ -583,19 +1178,13 @@ def run_design_pipeline(
                     chemistry=intent.uridine_chemistry,
                 )
                 if n_codons > 15:
-                    # Inner-loop greedy hill-climb (3 trials per candidate) via ViennaRNA or CommercialCleanSurrogateV1
-                    best_body = cand_cds
+                    # Equal-work inner-loop search (always 3 mutation trials per candidate slot; true multi-axis selection)
                     has_vienna_inner = "viennarna_thermo" in intent.runtime_policy.enabled_evaluators
-                    best_mfe = compute_cds_sliding_window_mfe(best_body) if has_vienna_inner else 0.0
-                    best_surr = (
-                        float(surrogate_v1.score_cds_stability([best_body])[0])
-                        + 0.5 * surrogate_v1.score_consensus_halflife(utr5_pool[u5_idx], best_body, u3_seq)
-                        if (not has_vienna_inner and surrogate_v1 is not None)
-                        else 0.0
-                    )
+                    trial_bodies = [cand_cds]
+                    cur_body = cand_cds
                     for _trial in range(3):
-                        trial_cds = mutate_cds_region_synonymously(
-                            best_body,
+                        cur_body = mutate_with_atlas(
+                            cur_body,
                             protein_seq,
                             rng,
                             codon_start=12,
@@ -603,25 +1192,25 @@ def run_design_pipeline(
                             prefer_open_au=False,
                             chemistry=intent.uridine_chemistry,
                         )
-                        if has_vienna_inner:
-                            trial_mfe = compute_cds_sliding_window_mfe(trial_cds)
-                            if trial_mfe < best_mfe:
-                                best_body = trial_cds
-                                best_mfe = trial_mfe
-                        elif surrogate_v1 is not None:
-                            trial_surr = float(surrogate_v1.score_cds_stability([trial_cds])[0]) + 0.5 * (
-                                surrogate_v1.score_consensus_halflife(utr5_pool[u5_idx], trial_cds, u3_seq)
-                            )
-                            if trial_surr > best_surr:
-                                best_body = trial_cds
-                                best_surr = trial_surr
-                        else:
-                            best_body = trial_cds
-                            break
-                    cand_cds = best_body
+                        trial_bodies.append(cur_body)
+                        total_inner_trials += 1
+
+                    if has_vienna_inner:
+                        mfes = [compute_cds_sliding_window_mfe(tb) for tb in trial_bodies]
+                        cand_cds = trial_bodies[min(range(len(trial_bodies)), key=lambda i: mfes[i])]
+                    elif surrogate_v1 is not None:
+                        stabs = surrogate_v1.score_cds_stability(trial_bodies)
+                        hls = surrogate_v1.score_consensus_halflife_batch(
+                            [(utr5_pool[u5_idx], tb, u3_seq) for tb in trial_bodies]
+                        )
+                        t_vecs = [[float(stabs[i]), float(hls[i])] for i in range(len(trial_bodies))]
+                        _, t_order = _rank_and_order_pareto_candidates(t_vecs)
+                        cand_cds = trial_bodies[t_order[0]]
+                    else:
+                        cand_cds = trial_bodies[-1]
                 # Step B: Co-adapt 3' CDS tail if de-targeting miRNA site is occluded
                 if mirna_mature is not None and n_codons > 10:
-                    cand_cds = mutate_cds_region_synonymously(
+                    cand_cds = mutate_with_atlas(
                         cand_cds,
                         protein_seq,
                         rng,
@@ -641,26 +1230,34 @@ def run_design_pipeline(
                                 cand_cds = dc_seed_cds or cand_cds
                 cds_act = "synonymous_mutated"
 
+            u5_act_p = "locked_verbatim" if locked_utr5 else "selected_from_library"
+            u3_act_p = "locked_verbatim" if locked_utr3 else "selected_from_library"
             raw_candidates.append(
                 _build_single_molecule_bundle(
-                    bundle_id=f"bnd_{exec_id[-4:]}_pareto_{idx + 1:02d}",
-                    parent_bundle_id=parent_id,
+                    bundle_id=f"bnd_{exec_tag}_pareto_{idx + 1:02d}",
+                    parent=reference_bundle,
                     derivation_action="de_novo_design" if not locked_cds else "locked_refinement",
                     intent=intent,
+                    origins=origins_for(utr5_ids[u5_idx], utr3_ids[u3_idx], "mrnax:pareto_cds_utr_coopt", anns_u3),
                     utr5_seq=utr5_pool[u5_idx],
-                    utr5_id=utr5_ids[u5_idx],
-                    utr5_source=utr5_srcs[u5_idx],
-                    utr5_action="locked_verbatim" if locked_utr5 else "selected_from_library",
+                    utr5_action=u5_act_p,
                     cds_seq=cand_cds,
-                    cds_source="mrnax:pareto_cds_utr_coopt",
                     cds_action=cds_act,
                     stop_seq=default_stop,
                     utr3_seq=u3_seq,
-                    utr3_id=utr3_ids[u3_idx],
-                    utr3_source=utr3_srcs[u3_idx],
-                    utr3_action="locked_verbatim" if locked_utr3 else "selected_from_library",
+                    utr3_action=u3_act_p,
                     polya_seq=polya_seq,
                     extra_utr3_annotations=anns_u3,
+                    secondary_molecules=_make_secondary_chains(
+                        utr5_seq=utr5_pool[u5_idx],
+                        utr5_id=utr5_ids[u5_idx],
+                        utr5_action=u5_act_p,
+                        utr3_seq=u3_seq,
+                        utr3_id=utr3_ids[u3_idx],
+                        utr3_action=u3_act_p,
+                        extra_anns=anns_u3,
+                        seed_offset=idx + 1,
+                    ),
                 )
             )
         spec_p = COMPONENT_CATALOG["pareto_nsga2"]
@@ -674,7 +1271,7 @@ def run_design_pipeline(
                 data_license=spec_p.data_license,
                 license_track=spec_p.license_track,
                 wall_seconds=round(time.perf_counter() - t0, 5),
-                attempt_count=budget_n,
+                attempt_count=budget_n + total_inner_trials,
                 failure_count=0,
             )
         )
@@ -701,6 +1298,7 @@ def run_design_pipeline(
             compliance_track=intent.compliance_track,
             expected_chemistry=intent.uridine_chemistry,
             locked_scopes=intent.locked_scopes,
+            expected_protein_targets=intent.protein_targets,
         )
         all_fto_alerts.extend(outcome.fto_alerts)
         if outcome.passed_all_hard_gates:
@@ -718,64 +1316,133 @@ def run_design_pipeline(
     if intent.cell_expression_control and intent.cell_expression_control.detarget_tissues:
         all_advisories.append(build_crs_and_tissue_safety_advisory())
 
+    if used_endogenous_atlas:
+        all_advisories.append(
+            AdvisoryNote(
+                advisory_id="adv_bicodon_atlas_endogenous_scope",
+                category="model_domain_boundary",
+                message=(
+                    f"Codon/bicodon mutation guidance uses endogenous cellular unmodified-mRNA human stability coefficients "
+                    f"(human_codon_bicodon_stability_atlas_v1.json, Saluki+GENCODE v49) as a heuristic prior for synthetic IVT constructs "
+                    f"(declared chemistry '{intent.uridine_chemistry}'); native m1Psi slippery-run gates remain strictly enforced."
+                ),
+            )
+        )
+
     # 4. Thermodynamic / Surrogate Evaluation & Pareto Non-Dominated Ranking on Qualified Candidates
     eval_wall = 0.0
     surr_wall = 0.0
+    srfm_wall = 0.0
+    orth_wall = 0.0
     use_vienna = "viennarna_thermo" in intent.runtime_policy.enabled_evaluators
     raw_metrics_per_bundle: list[list[MetricResult]] = []
     obj_vectors: list[list[float]] = []
+    complete_chain_coverage = []
 
     for b in qualified:
-        m_list: list[MetricResult] = []
-        if use_vienna:
-            t_ev = time.perf_counter()
-            th_list, th_adv = evaluate_molecule_thermodynamics(
-                b.molecules[0],
-                mirna_mature_for_detarget=mirna_mature,
-                include_full_mfe=True,
-            )
-            eval_wall += time.perf_counter() - t_ev
-            m_list.extend(th_list)
-            for adv in th_adv:
-                if adv.advisory_id not in {a.advisory_id for a in all_advisories}:
-                    all_advisories.append(adv)
-        if surrogate_v1 is not None:
-            t_sr = time.perf_counter()
-            sr_list, sr_adv = surrogate_v1.evaluate_molecule(b.molecules[0])
-            surr_wall += time.perf_counter() - t_sr
-            m_list.extend(sr_list)
-            for adv in sr_adv:
-                if adv.advisory_id not in {a.advisory_id for a in all_advisories}:
-                    all_advisories.append(adv)
-        if not m_list:
-            cds_s = b.molecules[0].get_segment_sequence("cds")
-            gc_val = round((cds_s.count("G") + cds_s.count("C")) / max(1, len(cds_s)), 4)
-            m_list = [
-                MetricResult(
-                    metric_id="cds_gc_fraction",
-                    value=gc_val,
-                    unit="fraction",
-                    direction="informational",
-                    evaluated_scopes=["cds"],
-                    tool_name="mRNAxSeqStats",
-                    tool_version="0.1.0",
-                    chemistry_evaluation_mode="native_chemistry_validated",
-                    participated_in="display_only",
+        per_chain_lists: list[list[MetricResult]] = []
+        for mol in b.molecules:
+            mol_m: list[MetricResult] = []
+            if use_vienna:
+                t_ev = time.perf_counter()
+                th_list, th_adv = evaluate_molecule_thermodynamics(
+                    mol,
+                    mirna_mature_for_detarget=mirna_mature,
+                    include_full_mfe=False,
                 )
-            ]
+                eval_wall += time.perf_counter() - t_ev
+                mol_m.extend(th_list)
+                for adv in th_adv:
+                    if adv.advisory_id not in {a.advisory_id for a in all_advisories}:
+                        all_advisories.append(adv)
+            if surrogate_v1 is not None:
+                t_sr = time.perf_counter()
+                sr_list, sr_adv = surrogate_v1.evaluate_molecule(mol)
+                surr_wall += time.perf_counter() - t_sr
+                mol_m.extend(sr_list)
+                for adv in sr_adv:
+                    if adv.advisory_id not in {a.advisory_id for a in all_advisories}:
+                        all_advisories.append(adv)
+            if active_structrfm is not None:
+                t_sf = time.perf_counter()
+                sf_list, sf_adv = active_structrfm.evaluate_molecule(mol)
+                srfm_wall += time.perf_counter() - t_sf
+                mol_m.extend(sf_list)
+                for adv in sf_adv:
+                    if adv.advisory_id not in {a.advisory_id for a in all_advisories}:
+                        all_advisories.append(adv)
+            if active_orthrus_model is not None and active_orthrus_probe is not None:
+                import torch  # type: ignore[import-not-found]
+                from mrnax.engine.orthrus_portable_pytorch import PortableOrthrusModel
+
+                t_or = time.perf_counter()
+                arr6 = PortableOrthrusModel.encode_6track(
+                    mol.get_segment_sequence("five_prime_utr"),
+                    mol.get_segment_sequence("cds") + mol.get_segment_sequence("stop_cassette"),
+                    mol.get_segment_sequence("three_prime_utr"),
+                )
+                with torch.no_grad():
+                    encoded = torch.from_numpy(arr6)
+                    max_len = active_orthrus_probe["max_len"]
+                    if len(encoded) > max_len:
+                        head = max_len // 2
+                        encoded = torch.cat((encoded[:head], encoded[-(max_len - head):]))
+                    x_t = encoded.unsqueeze(0)
+                    lengths_t = torch.tensor([len(encoded)], dtype=torch.long)
+                    emb = active_orthrus_model.representation(x_t, lengths_t).cpu().numpy()
+                calibrated = active_orthrus_probe["scaler"].transform(emb)
+                pred_hl = float(active_orthrus_probe["model"].predict(calibrated)[0])
+                orth_wall += time.perf_counter() - t_or
+                mol_m.append(
+                    MetricResult(
+                        metric_id="orthrus_halflife_pred",
+                        value=round(pred_hl, 5),
+                        unit="saluki_pc1_z",
+                        direction="maximize",
+                        evaluated_scopes=["five_prime_utr", "cds", "three_prime_utr"],
+                        tool_name="Orthrus6TrackMIT",
+                        tool_version=COMPONENT_CATALOG["orthrus_mamba_rna_foundation"].version,
+                        chemistry_evaluation_mode="endogenous_unmodified_proxy",
+                        participated_in="pareto_selection_or_ranking",
+                    )
+                )
+            if not mol_m:
+                cds_s = mol.get_segment_sequence("cds")
+                gc_val = round((cds_s.count("G") + cds_s.count("C")) / max(1, len(cds_s)), 4)
+                mol_m = [
+                    MetricResult(
+                        metric_id="cds_gc_fraction",
+                        value=gc_val,
+                        unit="fraction",
+                        direction="informational",
+                        evaluated_scopes=["cds"],
+                        tool_name="mRNAxSeqStats",
+                        tool_version="0.1.0",
+                        chemistry_evaluation_mode="native_chemistry_validated",
+                        participated_in="display_only",
+                    )
+                ]
+            per_chain_lists.append(mol_m)
+
+        m_list, complete = _aggregate_chain_metrics(per_chain_lists)
+        complete_chain_coverage.append(complete)
         raw_metrics_per_bundle.append(m_list)
 
-        m_map = {m.metric_id: m.value for m in m_list if m.value is not None}
+        m_map = {
+            m.metric_id: m.value
+            for m in m_list
+            if m.value is not None and math.isfinite(m.value) and m.participated_in != "display_only"
+        }
         vec: list[float] = []
         for obj in intent.objectives:
             if obj.evidence_status == "unverified_target_for_wetlab" or obj.metric_id not in m_map:
                 continue
-            val = float(m_map[obj.metric_id])
-            vec.append(val if obj.direction == "maximize" else -val)
-        if not vec:
-            vec = [0.0]
+            sc = score_objective_value(float(m_map[obj.metric_id]), obj)
+            if sc is not None:
+                vec.append(sc)
         obj_vectors.append(vec)
 
+    total_evaluated_mols = sum(len(b.molecules) for b in qualified)
     if use_vienna and qualified:
         spec_v = COMPONENT_CATALOG["viennarna_thermo"]
         comp_records.append(
@@ -788,7 +1455,7 @@ def run_design_pipeline(
                 data_license=spec_v.data_license,
                 license_track=spec_v.license_track,
                 wall_seconds=round(eval_wall, 5),
-                attempt_count=len(qualified),
+                attempt_count=total_evaluated_mols,
                 failure_count=0,
             )
         )
@@ -804,7 +1471,39 @@ def run_design_pipeline(
                 data_license=spec_s.data_license,
                 license_track=spec_s.license_track,
                 wall_seconds=round(surr_wall, 5),
-                attempt_count=len(qualified),
+                attempt_count=total_evaluated_mols,
+                failure_count=0,
+            )
+        )
+    if active_structrfm is not None and qualified:
+        spec_sf = COMPONENT_CATALOG["structrfm_rna_foundation"]
+        comp_records.append(
+            ComponentInvocationRecord(
+                name=spec_sf.display_name,
+                version=spec_sf.version,
+                role="evaluator",
+                code_license=spec_sf.code_license,
+                weights_license=spec_sf.weights_license,
+                data_license=spec_sf.data_license,
+                license_track=spec_sf.license_track,
+                wall_seconds=round(srfm_wall, 5),
+                attempt_count=total_evaluated_mols,
+                failure_count=0,
+            )
+        )
+    if active_orthrus_model is not None and qualified:
+        spec_or = COMPONENT_CATALOG["orthrus_mamba_rna_foundation"]
+        comp_records.append(
+            ComponentInvocationRecord(
+                name=spec_or.display_name,
+                version=spec_or.version,
+                role="evaluator",
+                code_license=spec_or.code_license,
+                weights_license=spec_or.weights_license,
+                data_license=spec_or.data_license,
+                license_track=spec_or.license_track,
+                wall_seconds=round(orth_wall, 5),
+                attempt_count=total_evaluated_mols,
                 failure_count=0,
             )
         )
@@ -826,36 +1525,50 @@ def run_design_pipeline(
             )
         )
 
+    rankable_objectives = [
+        o for o in intent.objectives if o.evidence_status != "unverified_target_for_wetlab"
+    ]
+    uncomparable_missing_msg: str | None = None
+
     if not qualified:
         outcome_status = "COMPLETED_ZERO_QUALIFIED"
         recommended_ids: list[str] = []
         bundle_evals: list[BundleEvaluation] = []
         ordered_qualified: list[ConstructBundle] = []
     else:
-        ranks = _assign_pareto_ranks(obj_vectors)
-        indexed = list(enumerate(qualified))
-        indexed.sort(key=lambda pair: (ranks[pair[0]], -sum(obj_vectors[pair[0]]), pair[0]))
-        ordered_qualified = [b for _, b in indexed]
-        bundle_evals = []
-        for orig_idx, b in indexed:
-            rk = ranks[orig_idx]
-            bundle_evals.append(
+        if intent.objectives and not rankable_objectives:
+            comparable = []
+        else:
+            comparable = [
+                i for i, vector in enumerate(obj_vectors)
+                if len(vector) == len(rankable_objectives)
+                and complete_chain_coverage[i]
+            ]
+        if comparable:
+            vectors = [obj_vectors[i] for i in comparable]
+            ranks, order = _rank_and_order_pareto_candidates(vectors)
+            ordered_qualified = [qualified[comparable[i]] for i in order]
+            bundle_evals = [
                 BundleEvaluation(
-                    bundle_id=b.bundle_id,
-                    version_digest=b.version_digest,
-                    passed_all_hard_gates=True,
-                    pareto_rank=rk,
-                    metrics=raw_metrics_per_bundle[orig_idx],
-                    selection_rationale=[
-                        f"Pareto rank {rk} under {intent.compliance_track} profile ({b.derivation_action})"
-                    ],
-                )
+                    bundle_id=qualified[comparable[i]].bundle_id,
+                    version_digest=qualified[comparable[i]].version_digest,
+                    passed_all_hard_gates=True, pareto_rank=ranks[i],
+                    metrics=raw_metrics_per_bundle[comparable[i]],
+                    selection_rationale=[f"Pareto rank {ranks[i]} under {intent.compliance_track} profile"],
+                ) for i in order
+            ]
+            is_tie = len(vectors) > 1 and all(v == vectors[0] for v in vectors[1:])
+            outcome_status = "COMPLETED_TIE" if is_tie else "COMPLETED_WITH_CANDIDATES"
+            recommended_ids = [e.bundle_id for e in bundle_evals if e.pareto_rank == 1][:3] if rankable_objectives else []
+        else:
+            outcome_status = "UNCOMPARABLE_MISSING_APPROVED_COMPONENT"
+            missing_names = [o.metric_id for o in (rankable_objectives or intent.objectives)]
+            uncomparable_missing_msg = "Missing complete measurements for requested objectives: " + ", ".join(
+                missing_names
             )
-        is_tie = len(obj_vectors) > 1 and all(v == obj_vectors[0] for v in obj_vectors[1:])
-        outcome_status = "COMPLETED_TIE" if is_tie else "COMPLETED_WITH_CANDIDATES"
-        recommended_ids = [e.bundle_id for e in bundle_evals if e.pareto_rank == 1][:3]
-        if not recommended_ids:
-            recommended_ids = [bundle_evals[0].bundle_id]
+            recommended_ids = []
+            bundle_evals = []
+            ordered_qualified = []
 
     for obj in intent.objectives:
         if obj.evidence_status == "unverified_target_for_wetlab":
@@ -871,6 +1584,19 @@ def run_design_pipeline(
                     ),
                 )
             )
+        elif not ordered_qualified:
+            action_traces.append(
+                RequirementActionTrace(
+                    requirement_id=obj.requirement_id,
+                    stage_applied="recorded_only",
+                    eliminated_count=0,
+                    changed_candidate_ids=[],
+                    proof_diff_summary=(
+                        f"Objective '{obj.metric_id}' could not be ranked with complete measurements from "
+                        f"{intent.runtime_policy.enabled_evaluators}; recorded without participating in ranking."
+                    ),
+                )
+            )
         else:
             action_traces.append(
                 RequirementActionTrace(
@@ -879,24 +1605,28 @@ def run_design_pipeline(
                     eliminated_count=0,
                     changed_candidate_ids=recommended_ids,
                     proof_diff_summary=(
-                        f"Objective '{obj.metric_id}' ({obj.direction}) participated in Pareto selection across {len(qualified)} qualified bundles."
+                        f"Objective '{obj.metric_id}' ({obj.direction}) participated in Pareto selection across {len(ordered_qualified)} fully measured bundles."
                     ),
                 )
             )
 
     report = EvaluationReport(
-        report_id=f"rep_{exec_id[-8:]}",
+        report_id=f"rep_{exec_id.removeprefix('exec_')}",
         execution_id=exec_id,
         intent_id=intent.intent_id,
         intent_version=intent.intent_version,
         compliance_track=intent.compliance_track,
         outcome_status=outcome_status,  # type: ignore[arg-type]
+        uncomparable_reason=uncomparable_missing_msg,
         recommended_bundle_ids=recommended_ids,
         candidate_evaluations=bundle_evals,
         failed_diagnostics=all_diagnostics,
         fto_alerts=all_fto_alerts,
         pre_synthesis_advisories=all_advisories,
         action_transparency=action_traces,
+        created_at_ns=next_report_timestamp_ns(),
+        rule_snapshot_version=rule_snapshot_version,
+        isolated_sandbox_override=isolated_sandbox_override,
     )
 
     rep_bytes = (json.dumps(report.model_dump(mode="json"), indent=2, sort_keys=True) + "\n").encode("utf-8")

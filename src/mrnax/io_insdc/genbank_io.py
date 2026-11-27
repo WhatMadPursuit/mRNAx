@@ -12,8 +12,9 @@ from Bio.Seq import Seq
 from Bio.SeqFeature import CompoundLocation, FeatureLocation, SeqFeature
 from Bio.SeqRecord import SeqRecord
 
+from mrnax.federated.external_evidence_adapter import ExternalEvidenceAdapterV2
 from mrnax.constraints.registry import ScopedConstraintEngine
-from mrnax.schemas.common import ComplianceProfile
+from mrnax.schemas.common import ComplianceProfile, SegmentScope, UridineChemistry
 from mrnax.schemas.construct_bundle import (
     ChemistryTrackSpec,
     ConstructBundle,
@@ -22,7 +23,7 @@ from mrnax.schemas.construct_bundle import (
     RNAMoleculeSpec,
     SegmentSpan,
 )
-from mrnax.schemas.design_intent import ConstraintSpec
+from mrnax.schemas.design_intent import ConstraintSpec, LockedRegionSpec
 
 _SEGMENT_TO_INSDC_KEY: dict[str, str] = {
     "five_prime_utr": "5'UTR",
@@ -48,12 +49,33 @@ def export_construct_package(
     constraint_engine: ScopedConstraintEngine,
     constraints: list[ConstraintSpec],
     compliance_track: ComplianceProfile,
+    expected_chemistry: UridineChemistry | None = None,
+    locked_scopes: dict[SegmentScope, LockedRegionSpec] | None = None,
+    expected_protein_targets: list[ProteinTargetSpec] | None = None,
 ) -> dict[str, Any]:
     """Re-verify with the exact shared `ScopedConstraintEngine` then export INSDC 4-file package."""
+    if compliance_track == "commercial_clean":
+        if constraint_engine.seed_dir is not None:
+            from mrnax.federated.external_evidence_adapter import CleanRoomPolicyError
+            from mrnax.rules.tribunal import RuleRegistry
+
+            cc_rules_path = constraint_engine.seed_dir / "rules_commercial_v1.json"
+            if not cc_rules_path.is_file():
+                raise CleanRoomPolicyError(
+                    f"Commercial export blocked: required '{cc_rules_path.name}' is missing."
+                )
+            try:
+                RuleRegistry(cc_rules_path, track="commercial_clean").snapshot_version()
+            except ValueError as exc:
+                raise CleanRoomPolicyError(f"Commercial export blocked by invalid rule registry: {exc}") from exc
+        ExternalEvidenceAdapterV2().filter_and_export_commercial_records(bundle.external_evidence)
     outcome = constraint_engine.evaluate_bundle(
         bundle,
         constraints,
         compliance_track=compliance_track,
+        expected_chemistry=expected_chemistry,
+        locked_scopes=locked_scopes,
+        expected_protein_targets=expected_protein_targets,
     )
     if not outcome.passed_all_hard_gates:
         reasons = "; ".join(f"{v.violated_requirement_id}@{v.violated_scope}:{v.reason}" for v in outcome.violations)
@@ -134,6 +156,7 @@ def export_construct_package(
 
     chem_manifest: dict[str, Any] = {
         "schema": "mrnax.export_package.v1",
+        "external_evidence": bundle.external_evidence,
         "bundle_id": bundle.bundle_id,
         "version_digest": bundle.version_digest,
         "parent_bundle_id": bundle.parent_bundle_id,
@@ -241,6 +264,7 @@ def import_construct_from_genbank_package(pkg_dir: Path) -> ConstructBundle:
         )
 
     reconstructed = ConstructBundle.create(
+        external_evidence=chem_meta.get("external_evidence", []),
         bundle_id=chem_meta["bundle_id"],
         parent_bundle_id=chem_meta.get("parent_bundle_id"),
         derivation_action=chem_meta["derivation_action"],

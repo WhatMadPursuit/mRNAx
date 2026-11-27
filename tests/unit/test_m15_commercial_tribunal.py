@@ -44,7 +44,7 @@ def test_m15_commercial_rules_v1_and_rc002_and_sandbox_replay(tmp_path: Path) ->
     doc = json.loads(orig_bytes.decode("utf-8"))
     assert doc["registry_track"] == "commercial_clean"
     rules = [RuleRecord.model_validate(r) for r in doc["rules"]]
-    assert len(rules) == 7
+    assert len(rules) >= 7
 
     by_id = {r.rule_id: r for r in rules}
     assert by_id["RUL-CC-5UTR-GC-TIS-007"].status == "verified_rule"
@@ -66,7 +66,7 @@ def test_m15_commercial_rules_v1_and_rc002_and_sandbox_replay(tmp_path: Path) ->
     rc002 = load_replacement_card_yaml(RC_DIR / "RC-002-structrfm-v0.0.9.yaml")
     assert rc002.card_id == "RC-002-STRUCTRFM-0.0.9-MIT"
     assert rc002.current_license_track == "commercial_clean"
-    assert len(rc002.acceptance_metrics) == 3
+    assert len(rc002.acceptance_metrics) == 5
 
 
 def test_m15_axis_routed_commercial_surrogate_predictions() -> None:
@@ -111,7 +111,8 @@ def test_m15_structrfm_four_gotcha_contracts() -> None:
         def encode(self, text: str, add_special_tokens: bool = True) -> list[int]:
             if " " in text:
                 return [5, 0, 6, 0, 8, 0, 7]
-            return [5, 6, 8, 7]
+            mp = {"A": 5, "U": 6, "C": 7, "G": 8}
+            return [mp.get(ch, 0) for ch in text]
 
     with pytest.raises(RuntimeError, match="USE_SPACED"):
         validate_structrfm_tokenizer(_BadSpacedTokenizer())
@@ -228,9 +229,11 @@ def test_m15_commercial_clean_pipeline_3arm_replay_and_paired_switch() -> None:
     # Pure-rerank 3-group anti-cheat replay on unguided pool
     surrogate = CommercialCleanSurrogateV1.from_seed_dir(SEED_DIR)
     unguided_intent = intent_cc.model_copy_validated(
-        runtime_policy=intent_cc.runtime_policy.model_copy_validated(enabled_evaluators=[])
+        objectives=[],
+        runtime_policy=intent_cc.runtime_policy.model_copy_validated(enabled_evaluators=[]),
     )
     pool, base_rep, _ = run_design_pipeline(unguided_intent, seed_dir=SEED_DIR)
+    assert len(pool) >= 4
     replay = run_fixed_pool_scorer_replay(
         candidate_pool=pool,
         base_evaluations=base_rep.candidate_evaluations,

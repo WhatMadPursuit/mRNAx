@@ -1,0 +1,314 @@
+{
+  "cao2021_5utr_mpra.parquet": {
+    "dataset_id": "GSE176581_Cao2021_5UTR_MPRA",
+    "expected_doi": "10.1038/s41467-021-24436-7",
+    "expected_pmcid": "PMC8260622",
+    "external_evidence": [
+      {
+        "license_spdx": "CC0-1.0_Metadata",
+        "license_tier": "commercial_clean",
+        "payload_sha256": "3375e8269ffc4da7733cd5b57e7c8d47d42b023189ddea9e573273fd62fd11bf",
+        "raw_excerpt": {
+          "dataset_id": "GSE176581_Cao2021_5UTR_MPRA",
+          "doi": "10.1038/s41467-021-24436-7",
+          "license_tier": "commercial_clean",
+          "pmcid": "PMC8260622"
+        },
+        "request_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=PMCID%3APMC8260622&format=json&resultType=core&pageSize=1",
+        "retrieved_at_utc": "2026-11-27T00:37:30Z",
+        "source_name": "EuropePMC",
+        "summary": {
+          "commercial_clean_article_eligible": true,
+          "doi": "10.1038/s41467-021-24436-7",
+          "is_open_access": true,
+          "journal": "Nature communications",
+          "license_raw": "cc by",
+          "pmcid": "PMC8260622",
+          "pmid": "34230498",
+          "pub_year": "2021",
+          "query": "PMCID:PMC8260622",
+          "title_sandboxed": {
+            "must_not_modify_locked_constraints": true,
+            "source_id": "EuropePMC:34230498",
+            "text_excerpt": "High-throughput 5' UTR engineering for enhanced protein production in non-viral gene therapies.",
+            "untrusted_external_data": true
+          }
+        }
+      }
+    ],
+    "sha256": "274487f1a50f214092d38d9aa5facb8ef177a2b268af2519df82399107a5e704"
+  },
+  "fastutr_3utr_mpra_beas2b_jurkat_v1.parquet": {
+    "dataset_id": "Siegel2022_fastUTR_3UTR_MPRA",
+    "expected_doi": "10.1093/g3journal/jkab404",
+    "expected_pmcid": "PMC8728028",
+    "external_evidence": [
+      {
+        "license_spdx": "CC0-1.0_Metadata",
+        "license_tier": "commercial_clean",
+        "payload_sha256": "3c3c308a592c90e700723f2d7c9f24e98fb3d10b7ce508be35b9886f868d914e",
+        "raw_excerpt": {
+          "dataset_id": "Siegel2022_fastUTR_3UTR_MPRA",
+          "doi": "10.1093/g3journal/jkab404",
+          "license_tier": "commercial_clean",
+          "pmcid": "PMC8728028"
+        },
+        "request_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=PMCID%3APMC8728028&format=json&resultType=core&pageSize=1",
+        "retrieved_at_utc": "2026-11-27T00:37:31Z",
+        "source_name": "EuropePMC",
+        "summary": {
+          "commercial_clean_article_eligible": true,
+          "doi": "10.1093/g3journal/jkab404",
+          "is_open_access": true,
+          "journal": "G3 (Bethesda, Md.)",
+          "license_raw": "cc by",
+          "pmcid": "PMC8728028",
+          "pmid": "34849835",
+          "pub_year": "2022",
+          "query": "PMCID:PMC8728028",
+          "title_sandboxed": {
+            "must_not_modify_locked_constraints": true,
+            "source_id": "EuropePMC:34849835",
+            "text_excerpt": "Massively parallel analysis of human 3' UTRs reveals that AU-rich element length and registration predict mRNA destabilization.",
+            "untrusted_external_data": true
+          }
+        }
+      }
+    ],
+    "sha256": "796e9900a79acb0b92c7dd52f9852314c43caf54a34a638b8611facf9f96db25"
+  },
+  "gse232927_5utr_mrl_paired.parquet": {
+    "dataset_id": "GSE232927_CastilloHair2024_5UTR_MRL",
+    "expected_doi": "10.1038/s41467-024-49508-2",
+    "expected_pmcid": "PMC11189900",
+    "external_evidence": [
+      {
+        "license_spdx": "CC0-1.0_Metadata",
+        "license_tier": "commercial_clean",
+        "payload_sha256": "60a03d3a91c1cece9642a2e8e5b863f887d9727cb8010ff0cce8098ee66d6319",
+        "raw_excerpt": {
+          "dataset_id": "GSE232927_CastilloHair2024_5UTR_MRL",
+          "doi": "10.1038/s41467-024-49508-2",
+          "license_tier": "commercial_clean",
+          "pmcid": "PMC11189900"
+        },
+        "request_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=PMCID%3APMC11189900&format=json&resultType=core&pageSize=1",
+        "retrieved_at_utc": "2026-11-27T00:37:38Z",
+        "source_name": "EuropePMC",
+        "summary": {
+          "commercial_clean_article_eligible": true,
+          "doi": "10.1038/s41467-024-49508-2",
+          "is_open_access": true,
+          "journal": "Nature communications",
+          "license_raw": "cc by",
+          "pmcid": "PMC11189900",
+          "pmid": "38902240",
+          "pub_year": "2024",
+          "query": "PMCID:PMC11189900",
+          "title_sandboxed": {
+            "must_not_modify_locked_constraints": true,
+            "source_id": "EuropePMC:38902240",
+            "text_excerpt": "Optimizing 5'UTRs for mRNA-delivered gene editing using deep learning.",
+            "untrusted_external_data": true
+          }
+        }
+      }
+    ],
+    "sha256": "d2da1725c9a2f26c49859f66183dd30dd423428f8f27c1cfd7fb51812215adce"
+  },
+  "leppek2022_cds24_kinetics.parquet": {
+    "dataset_id": "GSE173083_Leppek2022_CDS24",
+    "expected_doi": "10.1038/s41467-022-28776-w",
+    "expected_pmcid": "PMC8940940",
+    "external_evidence": [
+      {
+        "license_spdx": "CC0-1.0_Metadata",
+        "license_tier": "commercial_clean",
+        "payload_sha256": "7f1edb39b174da8994636c97bde225a0426981b221d28e6a4d0be9b7453ec4d6",
+        "raw_excerpt": {
+          "dataset_id": "GSE173083_Leppek2022_CDS24",
+          "doi": "10.1038/s41467-022-28776-w",
+          "license_tier": "commercial_clean",
+          "pmcid": "PMC8940940"
+        },
+        "request_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=PMCID%3APMC8940940&format=json&resultType=core&pageSize=1",
+        "retrieved_at_utc": "2026-11-27T00:37:47Z",
+        "source_name": "EuropePMC",
+        "summary": {
+          "commercial_clean_article_eligible": true,
+          "doi": "10.1038/s41467-022-28776-w",
+          "is_open_access": true,
+          "journal": "Nature communications",
+          "license_raw": "cc by",
+          "pmcid": "PMC8940940",
+          "pmid": "35318324",
+          "pub_year": "2022",
+          "query": "PMCID:PMC8940940",
+          "title_sandboxed": {
+            "must_not_modify_locked_constraints": true,
+            "source_id": "EuropePMC:35318324",
+            "text_excerpt": "Combinatorial optimization of mRNA structure, stability, and translation for RNA-based therapeutics.",
+            "untrusted_external_data": true
+          }
+        }
+      }
+    ],
+    "sha256": "a23fffcd5fa45c2a46687b0d4211e4d7e3495ded612571220083de4a0b3c29d6"
+  },
+  "leppek2022_persist_233.parquet": {
+    "dataset_id": "GSE173083_Leppek2022_PERSIST233",
+    "expected_doi": "10.1038/s41467-022-28776-w",
+    "expected_pmcid": "PMC8940940",
+    "external_evidence": [
+      {
+        "license_spdx": "CC0-1.0_Metadata",
+        "license_tier": "commercial_clean",
+        "payload_sha256": "7f1edb39b174da8994636c97bde225a0426981b221d28e6a4d0be9b7453ec4d6",
+        "raw_excerpt": {
+          "dataset_id": "GSE173083_Leppek2022_PERSIST233",
+          "doi": "10.1038/s41467-022-28776-w",
+          "license_tier": "commercial_clean",
+          "pmcid": "PMC8940940"
+        },
+        "request_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=PMCID%3APMC8940940&format=json&resultType=core&pageSize=1",
+        "retrieved_at_utc": "2026-11-27T00:37:47Z",
+        "source_name": "EuropePMC",
+        "summary": {
+          "commercial_clean_article_eligible": true,
+          "doi": "10.1038/s41467-022-28776-w",
+          "is_open_access": true,
+          "journal": "Nature communications",
+          "license_raw": "cc by",
+          "pmcid": "PMC8940940",
+          "pmid": "35318324",
+          "pub_year": "2022",
+          "query": "PMCID:PMC8940940",
+          "title_sandboxed": {
+            "must_not_modify_locked_constraints": true,
+            "source_id": "EuropePMC:35318324",
+            "text_excerpt": "Combinatorial optimization of mRNA structure, stability, and translation for RNA-based therapeutics.",
+            "untrusted_external_data": true
+          }
+        }
+      }
+    ],
+    "sha256": "4e4055955f71045dbee82848e4a9299cae48695499d24ce5dd365ca321165fe5"
+  },
+  "mauger2019_moderna_shapemap_summary.parquet": {
+    "dataset_id": "GSE139176_Mauger2019_SHAPEMaP",
+    "expected_doi": "10.1073/pnas.1908052116",
+    "expected_pmcid": "PMC6883848",
+    "external_evidence": [
+      {
+        "license_spdx": "CC0-1.0_Metadata",
+        "license_tier": "commercial_clean",
+        "payload_sha256": "3d00f914c98ce878cc54b8733838521a38a1bb759deac655a1307058ebde2801",
+        "raw_excerpt": {
+          "dataset_id": "GSE139176_Mauger2019_SHAPEMaP",
+          "doi": "10.1073/pnas.1908052116",
+          "license_tier": "commercial_clean",
+          "pmcid": "PMC6883848"
+        },
+        "request_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=PMCID%3APMC6883848&format=json&resultType=core&pageSize=1",
+        "retrieved_at_utc": "2026-11-27T00:37:55Z",
+        "source_name": "EuropePMC",
+        "summary": {
+          "commercial_clean_article_eligible": true,
+          "doi": "10.1073/pnas.1908052116",
+          "is_open_access": true,
+          "journal": "Proceedings of the National Academy of Sciences of the United States of America",
+          "license_raw": "cc by",
+          "pmcid": "PMC6883848",
+          "pmid": "31712433",
+          "pub_year": "2019",
+          "query": "PMCID:PMC6883848",
+          "title_sandboxed": {
+            "must_not_modify_locked_constraints": true,
+            "source_id": "EuropePMC:31712433",
+            "text_excerpt": "mRNA structure regulates protein expression through changes in functional half-life.",
+            "untrusted_external_data": true
+          }
+        }
+      }
+    ],
+    "sha256": "06ae8b694a49d4c20a15a8c907b21267431419d8f065bbce4e8a37bdbb0bfe9e"
+  },
+  "saluki_human_consensus_halflife_v1.parquet": {
+    "dataset_id": "AgarwalKelley2022_Saluki_HumanConsensus",
+    "expected_doi": "10.1186/s13059-022-02811-x",
+    "expected_pmcid": "PMC9684954",
+    "external_evidence": [
+      {
+        "license_spdx": "CC0-1.0_Metadata",
+        "license_tier": "commercial_clean",
+        "payload_sha256": "80a0b1311bdbfa8dc164f6db8a3ba076d0b1ca984a02cfd37848fbd5dc5e7c83",
+        "raw_excerpt": {
+          "dataset_id": "AgarwalKelley2022_Saluki_HumanConsensus",
+          "doi": "10.1186/s13059-022-02811-x",
+          "license_tier": "commercial_clean",
+          "pmcid": "PMC9684954"
+        },
+        "request_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=PMCID%3APMC9684954&format=json&resultType=core&pageSize=1",
+        "retrieved_at_utc": "2026-11-27T00:38:09Z",
+        "source_name": "EuropePMC",
+        "summary": {
+          "commercial_clean_article_eligible": true,
+          "doi": "10.1186/s13059-022-02811-x",
+          "is_open_access": true,
+          "journal": "Genome biology",
+          "license_raw": "cc by",
+          "pmcid": "PMC9684954",
+          "pmid": "36419176",
+          "pub_year": "2022",
+          "query": "PMCID:PMC9684954",
+          "title_sandboxed": {
+            "must_not_modify_locked_constraints": true,
+            "source_id": "EuropePMC:36419176",
+            "text_excerpt": "The genetic and biochemical determinants of mRNA degradation rates in mammals.",
+            "untrusted_external_data": true
+          }
+        }
+      }
+    ],
+    "sha256": "886522dc1e61ad70a85147091063414ce7c2a16a6a27e9ee0d1b1324c256bf18"
+  },
+  "wu2019_human_codon_stability.parquet": {
+    "dataset_id": "eLife45396_Wu2019_SLAMseq",
+    "expected_doi": "10.7554/elife.45396",
+    "expected_pmcid": "PMC6529216",
+    "external_evidence": [
+      {
+        "license_spdx": "CC0-1.0_Metadata",
+        "license_tier": "commercial_clean",
+        "payload_sha256": "5331ccbb0abdba1ae195f2bd22c769e3f875bc65043633e2a04319b06c932030",
+        "raw_excerpt": {
+          "dataset_id": "eLife45396_Wu2019_SLAMseq",
+          "doi": "10.7554/elife.45396",
+          "license_tier": "commercial_clean",
+          "pmcid": "PMC6529216"
+        },
+        "request_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=PMCID%3APMC6529216&format=json&resultType=core&pageSize=1",
+        "retrieved_at_utc": "2026-11-27T00:38:21Z",
+        "source_name": "EuropePMC",
+        "summary": {
+          "commercial_clean_article_eligible": true,
+          "doi": "10.7554/elife.45396",
+          "is_open_access": true,
+          "journal": "eLife",
+          "license_raw": "cc by",
+          "pmcid": "PMC6529216",
+          "pmid": "31012849",
+          "pub_year": "2019",
+          "query": "PMCID:PMC6529216",
+          "title_sandboxed": {
+            "must_not_modify_locked_constraints": true,
+            "source_id": "EuropePMC:31012849",
+            "text_excerpt": "Translation affects mRNA stability in a codon-dependent manner in human cells.",
+            "untrusted_external_data": true
+          }
+        }
+      }
+    ],
+    "sha256": "4821f7d6f13e5309bb36c7f49e32434ba546868f84aca2e9e1e5d0c84137a899"
+  }
+}
