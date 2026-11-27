@@ -1,9 +1,9 @@
 {
   "github_pages_url": "https://whatmadpursuit.github.io/mRNAx/",
   "llm_authenticated_verified": true,
-  "post_crash_genbank_bytes": 5085,
-  "project_id": "e2e_live_cd9aa7",
+  "post_crash_genbank_bytes": 5092,
+  "project_id": "e2e_live_10ae9d",
   "systemd_sigkill_auto_heal_verified": true,
-  "turn2_top_bundle": "bnd_4743310d6a1942a9b56d1d51ee18b186_dnachisel",
+  "turn2_top_bundle": "bnd_501c3612543c4a9085ea8c71ff215b93_pareto_01",
   "vultr_https_api": "https://149-248-39-200.sslip.io:8443"
 }
