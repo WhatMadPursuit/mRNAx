@@ -1,0 +1,44 @@
+{
+  "artifact_receipts": [
+    {
+      "bytes": 27831,
+      "file_id": "1NJn7XxNGGP7kvIQ9Jp7vpk83HsMNHuHu",
+      "md5": "2bdacc32f7da23dc17231fbcbf860305",
+      "mime_type": "application/json",
+      "name": "paired_ablation_report.json",
+      "parent_id": "11XrbD_fOJIGdjIZyMUwRqbQh5n3W_yuT",
+      "sha256": "296d5ae93ff574c67ec4ba6ee33813cdd2a8539b859e764aa601aea7724203bd"
+    },
+    {
+      "bytes": 6888,
+      "file_id": "1xV04s0B67FkCHV-KEkNSqxmuX53u65px",
+      "md5": "23fdcc71d6029432cb07bbf2bcf1b2e0",
+      "mime_type": "application/json",
+      "name": "g8_cloud_gpu_and_eternafold_report.json",
+      "parent_id": "11XrbD_fOJIGdjIZyMUwRqbQh5n3W_yuT",
+      "sha256": "82f42c07cbbefc06765e6ba8b0ccfe03a823341f3723482cfd9c6b5b6f1505a3"
+    },
+    {
+      "bytes": 6707,
+      "file_id": "1W9QgFqi_K9rDKCn8m7pg-HB1n39kE1Vn",
+      "md5": "af71faf104873de3d8697cf188ff8621",
+      "mime_type": "text/yaml",
+      "name": "RC-004-eternafold-v1.3.1.yaml",
+      "parent_id": "11XrbD_fOJIGdjIZyMUwRqbQh5n3W_yuT",
+      "sha256": "6515b159e736c2b79095646a8b56fb080fe63f7b2a9c76632be56dacb4908b34"
+    }
+  ],
+  "attempt_folder_id": "11XrbD_fOJIGdjIZyMUwRqbQh5n3W_yuT",
+  "colab_own_idle_vms": 0,
+  "prior_g8_l4_sealed_json_id": "1JCh2aA2aE7PVLdT0Kt6hAyZhOQtqP4Ok",
+  "runs_root_folder_id": "1nyeK6f5M234X8a1E32pNK2qaqzQQS1Dc",
+  "seal_receipt": {
+    "bytes": 1295,
+    "file_id": "1W4-eh3CqldUi8iweM32hxRl-18iu8BDG",
+    "md5": "4eb9f76f27b30ed1b4af0fc24c4760ec",
+    "mime_type": "application/json",
+    "name": "SEALED.json",
+    "parent_id": "11XrbD_fOJIGdjIZyMUwRqbQh5n3W_yuT",
+    "sha256": "b0c40da423735301891c0726aaf7dc26ef3a2a1865f4a403f32f97948a982c7b"
+  }
+}

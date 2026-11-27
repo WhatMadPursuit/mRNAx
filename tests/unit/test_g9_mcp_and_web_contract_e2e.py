@@ -1,0 +1,251 @@
+"""Gate G9 E2E tests: Live stdio MCP server (`mcp_server.py`) & HTTP Web API <-> MCP contract parity."""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+
+from mrnax.cloud.cas_store import ExecutionCASStore
+from mrnax.cloud.gateway import create_control_plane_app
+
+ROOT = Path(__file__).resolve().parents[2]
+SEED = ROOT / "registry_seed"
+
+
+def test_mcp_stdio_subprocess_full_commercial_clean_lifecycle_and_web_contract_parity(tmp_path: Path) -> None:
+    snap = json.loads((SEED / "egfp_reporter_snapshot.json").read_text(encoding="utf-8"))
+    egfp_aa = snap["mammalian_reporter_egfp"]["protein_sequence"]
+
+    mcp_store = tmp_path / "mcp_proj"
+    requests = [
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize"},
+        {"jsonrpc": "2.0", "method": "notifications/initialized"},
+        {"jsonrpc": "2.0", "id": 99, "method": "ping"},
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {
+                "name": "design_constructs",
+                "arguments": {
+                    "user_utterance": "Commercial clean eGFP avoiding BsaI with liver detargeting",
+                    "protein_sequence": egfp_aa,
+                    "compliance_track": "commercial_clean",
+                    "uridine_chemistry": "m1psi",
+                    "restriction_enzymes": ["BsaI"],
+                    "detarget_liver": True,
+                    "random_seed": 42,
+                },
+            },
+        },
+        {
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "tools/call",
+            "params": {
+                "name": "refine_construct",
+                "arguments": {
+                    "user_utterance": "Switch restriction enzyme to BspQI while inheriting protein lock",
+                    "updated_restriction_enzymes": ["BspQI"],
+                },
+            },
+        },
+        {
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "tools/call",
+            "params": {"name": "explain_tradeoffs", "arguments": {}},
+        },
+    ]
+    stdin_payload = "\n".join(json.dumps(r) for r in requests) + "\n"
+    env = dict(os.environ)
+    env["PYTHONPATH"] = f"{ROOT / 'src'}:{env.get('PYTHONPATH', '')}"
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "mrnax.harness.cli",
+            "mcp-serve",
+            "--project-id",
+            "proj_g9_mcp",
+            "--store-dir",
+            str(mcp_store),
+            "--seed-dir",
+            str(SEED),
+        ],
+        input=stdin_payload,
+        capture_output=True,
+        text=True,
+        env=env,
+        check=True,
+        timeout=60.0,
+    )
+    lines = [json.loads(line) for line in proc.stdout.strip().splitlines() if line.strip()]
+    by_id = {msg["id"]: msg for msg in lines}
+    assert by_id[1]["result"]["serverInfo"]["name"] == "mrnax-v2-mcp"
+    assert by_id[99]["result"] == {}
+    listed_tools = {t["name"]: t for t in by_id[2]["result"]["tools"]}
+    assert len(listed_tools) == 9
+    assert "random_seed" in listed_tools["design_constructs"]["inputSchema"]["properties"]
+
+    d_res = json.loads(by_id[3]["result"]["content"][0]["text"])
+    assert d_res["outcome_status"].startswith("COMPLETED")
+    assert d_res["intent_version"] == 1
+    assert d_res["qualified_count"] >= 4
+
+    r_res = json.loads(by_id[4]["result"]["content"][0]["text"])
+    assert r_res["outcome_status"].startswith("COMPLETED")
+    assert r_res["intent_version"] == 2
+    assert "protein_sequence" in r_res["inherited_locks"]
+    top_bid = r_res["recommended_bundle_ids"][0]
+
+    exp_res = json.loads(by_id[5]["result"]["content"][0]["text"])
+    assert exp_res["recommended_bundle_ids"] == r_res["recommended_bundle_ids"]
+
+    # Export top recommended construct via second stdio MCP call on persisted store
+    export_req = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": 6,
+            "method": "tools/call",
+            "params": {
+                "name": "export_bundle",
+                "arguments": {"bundle_id": top_bid, "out_dir": str(mcp_store / "exports" / top_bid)},
+            },
+        }
+    )
+    proc_exp = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "mrnax.harness.cli",
+            "mcp-serve",
+            "--project-id",
+            "proj_g9_mcp",
+            "--store-dir",
+            str(mcp_store),
+            "--seed-dir",
+            str(SEED),
+        ],
+        input=export_req + "\n",
+        capture_output=True,
+        text=True,
+        env=env,
+        check=True,
+        timeout=30.0,
+    )
+    exp_msg = json.loads(proc_exp.stdout.strip())
+    assert exp_msg["result"]["isError"] is False
+    exported_files = sorted(p.name for p in (mcp_store / "exports" / top_bid).iterdir() if p.is_file())
+    assert exported_files == ["cds_only.fasta", "chemistry_metadata.json", "construct.gb", "full_rna.fasta"]
+
+    # Verify HTTP Web API exposes identical persisted state, recommended_bundle_ids, and 4-file export
+    app = create_control_plane_app(
+        ExecutionCASStore(tmp_path / "cas.db"),
+        projects_root=tmp_path,
+        seed_dir=SEED,
+        access_token="g9-admin",
+    )
+    with TestClient(app, headers={"X-MRNAX-Access-Token": "g9-admin"}) as client:
+        mcp_store_named = tmp_path / "proj_g9_mcp"
+        mcp_store.rename(mcp_store_named)
+        st = client.get("/v1/projects/proj_g9_mcp/state")
+        assert st.status_code == 200
+        st_json = st.json()
+        assert st_json["intent_count"] == 2
+        assert st_json["latest_report"]["recommended_bundle_ids"] == r_res["recommended_bundle_ids"]
+        http_exp = client.get(f"/v1/projects/proj_g9_mcp/bundles/{top_bid}/export")
+        assert http_exp.status_code == 200
+        assert sorted(http_exp.json()["files"].keys()) == exported_files
+
+        # Independent HTTP write-path parity: fresh HTTP commercial_clean turn (omitting use_commercial_surrogate)
+        # must match fresh MCP design_constructs on both ready and clarification-only turns.
+        http_ready = client.post(
+            "/v1/projects/proj_g9_http_indep/turn",
+            json={
+                "mode": "initial",
+                "user_utterance": "Commercial clean eGFP avoiding BsaI with liver detargeting",
+                "protein_sequence": egfp_aa,
+                "compliance_track": "commercial_clean",
+                "uridine_chemistry": "m1psi",
+                "restriction_enzymes": ["BsaI"],
+                "detarget_liver": True,
+                "random_seed": 42,
+            },
+        )
+        assert http_ready.status_code == 200
+        hr_body = http_ready.json()
+        assert hr_body["status"] == "COMPLETED"
+        assert hr_body["report"]["outcome_status"] == d_res["outcome_status"]
+        assert len(hr_body["candidates"]) == d_res["qualified_count"]
+        assert len(hr_body["report"]["recommended_bundle_ids"]) == len(d_res["recommended_bundle_ids"])
+        mcp_v1_objs = [o["metric_id"] for o in st_json["intents"][0]["objectives"]]
+        http_v1_objs = [o["metric_id"] for o in hr_body["intent"]["objectives"]]
+        assert http_v1_objs == mcp_v1_objs == [
+            "utr5_mrl_pred",
+            "cds_stability_pred",
+            "consensus_halflife_pred",
+            "utr3_stability_pred",
+        ]
+
+        # Clarification-only commercial_clean parity across independent MCP and HTTP stores
+        mcp_clar_store = tmp_path / "mcp_clar"
+        clar_req = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 10,
+                "method": "tools/call",
+                "params": {
+                    "name": "design_constructs",
+                    "arguments": {
+                        "user_utterance": "Truncated commercial GFP",
+                        "protein_sequence": egfp_aa[1:],
+                        "compliance_track": "commercial_clean",
+                    },
+                },
+            }
+        )
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "mrnax.harness.cli",
+                "mcp-serve",
+                "--project-id",
+                "proj_clar_mcp",
+                "--store-dir",
+                str(mcp_clar_store),
+                "--seed-dir",
+                str(SEED),
+            ],
+            input=clar_req + "\n",
+            capture_output=True,
+            text=True,
+            env=env,
+            check=True,
+            timeout=30.0,
+        )
+        mcp_clar_intent = json.loads(
+            next((mcp_clar_store / "intents").glob("intent_v*.json")).read_text(encoding="utf-8")
+        )
+        http_clar = client.post(
+            "/v1/projects/proj_clar_http/turn",
+            json={
+                "mode": "initial",
+                "user_utterance": "Truncated commercial GFP",
+                "protein_sequence": egfp_aa[1:],
+                "compliance_track": "commercial_clean",
+            },
+        ).json()
+        assert http_clar["status"] == "NEEDS_CLARIFICATION"
+        assert [o["metric_id"] for o in http_clar["intent"]["objectives"]] == [
+            o["metric_id"] for o in mcp_clar_intent["objectives"]
+        ]

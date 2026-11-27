@@ -31,5 +31,8 @@ def test_default_runtime_resources_outside_checkout(tmp_path: Path, monkeypatch)
     assert len(set(heads)) == 4
     cards = [load_replacement_card_yaml(p) for p in resolve_default_cards_dir().glob("*.yaml")]
     assert {card.card_id for card in cards} == {
-        "RC-001-VIENNARNA-2.8.0", "RC-002-STRUCTRFM-0.0.9-MIT", "RC-003-ORTHRUS-1.0-MIT",
+        "RC-001-VIENNARNA-2.8.0",
+        "RC-002-STRUCTRFM-0.0.9-MIT",
+        "RC-003-ORTHRUS-1.0-MIT",
+        "RC-004-ETERNAFOLD-1.3.1-BSD3",
     }

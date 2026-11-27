@@ -516,7 +516,7 @@ class ProjectHarnessSession:
         protected_tissues: list[str] | None = None,
         prioritize_late_signal: bool = False,
         conflicting_single_pick: bool = False,
-        use_commercial_surrogate: bool = False,
+        use_commercial_surrogate: bool | None = None,
         random_seed: int = 42,
     ) -> DesignIntent:
         prot_clean = protein_sequence.strip().upper()
@@ -592,7 +592,12 @@ class ProjectHarnessSession:
             s for s in ("five_prime_utr", "cds", "three_prime_utr") if s not in locks
         ]
 
-        if use_commercial_surrogate:
+        effective_cc_surrogate = (
+            compliance_track == "commercial_clean"
+            if use_commercial_surrogate is None
+            else bool(use_commercial_surrogate)
+        )
+        if effective_cc_surrogate:
             objs = [
                 ObjectiveSpec(
                     requirement_id="obj_utr5_mrl_cc",

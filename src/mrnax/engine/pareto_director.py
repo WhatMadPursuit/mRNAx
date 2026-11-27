@@ -10,6 +10,7 @@ import platform
 import random
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 from dataclasses import dataclass
@@ -29,12 +30,14 @@ from mrnax.engine.stage0_baseline import (
     generate_dnachisel_cds,
     generate_random_synonymous_cds,
     mutate_cds_region_synonymously,
+    propose_non_partitioned_bicodon_cds,
 )
 from mrnax.engine.surrogates import CommercialCleanSurrogateV1, StructRFMNativeScorer
 from mrnax.engine.thermodynamics import (
     compute_cds_sliding_window_mfe,
     evaluate_molecule_thermodynamics,
 )
+from mrnax.rules.models import APPROVED_REPLACEMENT_RELEASES
 from mrnax.rules.tribunal import RuleRegistry
 from mrnax.schemas.common import LicenseTrack, SegmentScope
 from mrnax.schemas.construct_bundle import (
@@ -58,6 +61,7 @@ from mrnax.schemas.evaluation_report import (
 from mrnax.schemas.run_manifest import (
     ArtifactChecksumRecord,
     ComponentInvocationRecord,
+    MethodFTOAuditRecord,
     RunManifest,
 )
 
@@ -564,6 +568,140 @@ def _aggregate_chain_metrics(chain_metric_lists: list[list[MetricResult]]) -> tu
     return merged, complete
 
 
+def _load_rbp_motif_sets(seed_dir: Path) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Load destabilizing ARE/PUM and stabilizing PCBP motifs from ATtRACT 160-RBP registry."""
+    rbp_path = seed_dir / "rbp_human_motifs_attract_ccby4_v1.json"
+    destab: list[str] = ["AUUUA", "UUAUUUAUU", "AUUUAUUUAUUU", "UGUA"]
+    stab: list[str] = ["CCCC", "UCCC", "CCCU"]
+    if rbp_path.is_file():
+        doc = json.loads(rbp_path.read_text(encoding="utf-8"))
+        curated = doc.get("curated_mrna_engineering_rbps", {})
+        for gene in ("ZFP36", "KHSRP", "ELAVL1", "PUM1", "PUM2"):
+            for m in curated.get(gene, {}).get("top_motifs", []):
+                seq = str(m.get("motif_rna") or "")
+                if len(seq) >= 5 and ("AUUU" in seq or "UGUA" in seq):
+                    destab.append(seq)
+        for gene in ("PCBP1", "PCBP2", "IGF2BP1"):
+            for m in curated.get(gene, {}).get("top_motifs", []):
+                seq = str(m.get("motif_rna") or "")
+                if 4 <= len(seq) <= 7 and seq.count("C") >= 3:
+                    stab.append(seq)
+    return tuple(dict.fromkeys(destab)), tuple(dict.fromkeys(stab))
+
+
+def _utr5_gc_tail15_prior(seq: str) -> float:
+    """RUL-CC-5UTR-GC-TIS-007: moderate/open TIS [-15..-1] GC avoids stable pre-AUG clamp."""
+    tail = seq[-15:] if len(seq) >= 15 else seq
+    if not tail:
+        return 0.0
+    gc = (tail.count("G") + tail.count("C")) / len(tail)
+    if 0.33 <= gc <= 0.60:
+        return 0.35
+    if gc > 0.72:
+        return -0.60
+    return 0.10 - abs(gc - 0.47)
+
+
+def _utr3_rbp_decay_prior(seq: str, destab_motifs: tuple[str, ...], stab_motifs: tuple[str, ...]) -> float:
+    """RUL-CC-3UTR-ARE-DECAY-004 + ATtRACT 160-RBP decay/stabilizer prior."""
+    score = 0.0
+    score -= 1.25 * seq.count("AUUUA")
+    score -= 1.50 * seq.count("UUAUUUAUU")
+    score -= 0.25 * seq.count("UGUA")
+    for m in destab_motifs:
+        if len(m) >= 6 and m in seq:
+            score -= 0.35
+    stab_hits = sum(seq.count(m) for m in stab_motifs[:6])
+    score += min(0.45, 0.08 * stab_hits)
+    return score
+
+
+def _evaluate_molecule_eternafold(
+    mol: RNAMoleculeSpec,
+    *,
+    contrafold_bin: Path,
+    ef_params: Path,
+) -> tuple[list[MetricResult], list[AdvisoryNote]]:
+    """Compute BSD-3-Clause EternaFold v1.3.1 Kozak initiation unpaired accessibility (RC-004)."""
+    u5 = mol.get_segment_sequence("five_prime_utr")
+    cds = mol.get_segment_sequence("cds")
+    stop = mol.get_segment_sequence("stop_cassette")
+    u5_tail = u5[-35:]
+    ctx = (u5_tail + (cds + stop)[:55]).upper().replace("T", "U")
+    n_len = len(ctx)
+    with tempfile.TemporaryDirectory() as td:
+        fa = Path(td) / "in.fa"
+        post = Path(td) / "post.txt"
+        fa.write_text(f">seq\n{ctx}\n", encoding="utf-8")
+        subprocess.run(
+            [
+                str(contrafold_bin),
+                "predict",
+                str(fa),
+                "--params",
+                str(ef_params),
+                "--posteriors",
+                "0.0001",
+                str(post),
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=30,
+        )
+        paired = [0.0] * n_len
+        for line in post.read_text(encoding="utf-8").splitlines():
+            parts = line.strip().split()
+            if len(parts) < 2 or not parts[0].isdigit():
+                continue
+            i = int(parts[0]) - 1
+            for tok in parts[2:]:
+                if ":" in tok:
+                    j_s, p_s = tok.split(":", 1)
+                    j = int(j_s) - 1
+                    p = float(p_s)
+                    if 0 <= i < n_len and 0 <= j < n_len:
+                        paired[i] += p
+                        paired[j] += p
+    unpaired = [max(0.0, min(1.0, 1.0 - pv)) for pv in paired]
+    tis_start = max(0, len(u5_tail) - 15)
+    tis_end = min(n_len, len(u5_tail) + 18)
+    win_vals = unpaired[tis_start:tis_end] or unpaired
+    mean_unp = round(sum(win_vals) / max(1, len(win_vals)), 5)
+    chem = mol.chemistry_track.uridine_chemistry
+    chem_mode = (
+        "native_chemistry_validated" if chem == "unmodified_u" else "endogenous_unmodified_proxy"
+    )
+    advisories: list[AdvisoryNote] = []
+    if chem in {"m1psi", "pseudouridine"}:
+        advisories.append(
+            AdvisoryNote(
+                advisory_id="adv_eternafold_m1psi_proxy",
+                category="chemistry_approximation",
+                message=(
+                    f"EternaFold v1.3.1 (RC-004) posteriors are calibrated on unmodified chemical-mapping data; "
+                    f"for declared '{chem}' chemistry, pair with RC-002 structRFM native m1Psi SHAPE-MaP probe when GPU is mounted."
+                ),
+            )
+        )
+    return (
+        [
+            MetricResult(
+                metric_id="eternafold_kozak_unpaired_prob",
+                value=mean_unp,
+                unit="probability",
+                direction="maximize",
+                evaluated_scopes=["five_prime_utr", "cds"],
+                tool_name="EternaFoldBSD3",
+                tool_version=COMPONENT_CATALOG["eternafold_bpp_engine"].version,
+                chemistry_evaluation_mode=chem_mode,  # type: ignore[arg-type]
+                participated_in="pareto_selection_or_ranking",
+            )
+        ],
+        advisories,
+    )
+
+
 def run_design_pipeline(
     intent: DesignIntent,
     *,
@@ -573,6 +711,7 @@ def run_design_pipeline(
     rule_snapshot_version: str | None = None,
     isolated_sandbox_override: bool = False,
     structrfm_scorer: StructRFMNativeScorer | None = None,
+    legacy_pure_rerank_mode: bool = False,
 ) -> tuple[list[ConstructBundle], EvaluationReport, RunManifest]:
     """Execute Stage 0 + Sliding-Window CDS<->UTR Pareto Optimization with shared scoped constraints."""
     exec_id = f"exec_{uuid.uuid4().hex}"
@@ -638,7 +777,13 @@ def run_design_pipeline(
             input_intent_digest=intent.digest(),
             artifacts=[],
             replay_cli_command=f"uv run mrnax replay --intent-file <intent_{intent.intent_id}.json>",
-            honesty_banner=None,
+            honesty_banner="本次未改善生成器" if legacy_pure_rerank_mode else None,
+            optimization_mode_audit=MethodFTOAuditRecord(
+                optimization_mode="not_executed",
+                uses_two_zone_initiation_body_partition=None,
+                uses_dfa_cfg_intersection=None,
+                sequence_fto_screen_applied=False,
+            ),
         )
         return [], report, manifest
 
@@ -728,6 +873,37 @@ def run_design_pipeline(
             active_structrfm = StructRFMNativeScorer.from_checkpoint_and_seed_dir(
                 Path(ckpt_env), seed_dir, allow_sandbox_override=isolated_sandbox_override
             )
+
+    use_eternafold = "eternafold_bpp_engine" in intent.runtime_policy.enabled_evaluators
+    active_eternafold_bin: Path | None = None
+    active_eternafold_params: Path | None = None
+    if use_eternafold:
+        ef_bin_env = os.environ.get("MRNAX_ETERNAFOLD_BIN", "").strip()
+        ef_params_env = os.environ.get("MRNAX_ETERNAFOLD_PARAMS", "").strip()
+        ef_bin_cand = Path(ef_bin_env) if ef_bin_env else None
+        ef_params_cand = Path(ef_params_env) if ef_params_env else None
+        if (
+            ef_bin_cand is None
+            or not ef_bin_cand.is_file()
+            or not os.access(ef_bin_cand, os.X_OK)
+            or ef_params_cand is None
+            or not ef_params_cand.is_file()
+        ):
+            missing_ef = (
+                "无法比较：已请求 eternafold_bpp_engine 评估器，但当前节点未挂载有效的 BSD-3-Clause EternaFold v1.3.1 二进制与参数文件 "
+                "(需设置可执行 MRNAX_ETERNAFOLD_BIN 与 MRNAX_ETERNAFOLD_PARAMS 指向 parameters/EternaFoldParams.v1；参见 RC-004-eternafold-v1.3.1.yaml)"
+            )
+            return unavailable(missing_ef)
+        expected_ef_sha = APPROVED_REPLACEMENT_RELEASES["eternafold_bpp_engine"].artifact_digests[
+            "parameters/EternaFoldParams.v1"
+        ]
+        actual_ef_sha = hashlib.sha256(ef_params_cand.read_bytes()).hexdigest()
+        if not isolated_sandbox_override and actual_ef_sha != expected_ef_sha:
+            return unavailable(
+                f"无法比较：MRNAX_ETERNAFOLD_PARAMS SHA-256 ({actual_ef_sha}) 与 RC-004 冻结摘要 ({expected_ef_sha}) 不一致。"
+            )
+        active_eternafold_bin = ef_bin_cand
+        active_eternafold_params = ef_params_cand
 
     utr_v1_reg = json.loads((seed_dir / "utr_components_v1.json").read_text(encoding="utf-8"))
     utr_v2_path = seed_dir / "utr_components_commercial_v2.json"
@@ -850,11 +1026,59 @@ def run_design_pipeline(
     exec_tag = exec_id.removeprefix("exec_")
 
     used_endogenous_atlas = False
+    used_two_zone_partition = False
 
     def mutate_with_atlas(cds: str, protein: str, random_source: random.Random, **options: Any) -> str:
         nonlocal used_endogenous_atlas
         used_endogenous_atlas = True
         return mutate_cds_region_synonymously(cds, protein, random_source, **options)
+
+    def propose_full_cds_with_atlas(cds: str, protein: str, random_source: random.Random, **options: Any) -> str:
+        nonlocal used_endogenous_atlas
+        used_endogenous_atlas = True
+        return propose_non_partitioned_bicodon_cds(cds, protein, random_source, **options)
+
+    from mrnax.constraints.sequence_gates import RESTRICTION_SITES_RNA
+
+    utr5_enzyme_motifs: list[str] = []
+    cds_enzyme_motifs: list[str] = []
+    utr3_enzyme_motifs: list[str] = []
+    full_tx_enzyme_motifs: list[str] = []
+    for cspec in intent.constraints:
+        if cspec.constraint_kind == "type_iis_restriction_free":
+            motifs_c: list[str] = []
+            for enz in cspec.params.get("enzymes", []):
+                if enz in RESTRICTION_SITES_RNA:
+                    fwd_e, rev_e = RESTRICTION_SITES_RNA[enz]
+                    motifs_c.extend((fwd_e, rev_e))
+            for raw_m in cspec.params.get("forbidden_motifs", []):
+                if raw_m:
+                    motifs_c.append(str(raw_m).upper().replace("T", "U"))
+            if "full_transcript" in cspec.target_scopes:
+                full_tx_enzyme_motifs.extend(motifs_c)
+                utr5_enzyme_motifs.extend(motifs_c)
+                cds_enzyme_motifs.extend(motifs_c)
+                utr3_enzyme_motifs.extend(motifs_c)
+            else:
+                if "five_prime_utr" in cspec.target_scopes:
+                    utr5_enzyme_motifs.extend(motifs_c)
+                if "cds" in cspec.target_scopes:
+                    cds_enzyme_motifs.extend(motifs_c)
+                if "three_prime_utr" in cspec.target_scopes:
+                    utr3_enzyme_motifs.extend(motifs_c)
+    destab_rbp_motifs, stab_rbp_motifs = _load_rbp_motif_sets(seed_dir)
+
+    def _is_utr5_enzyme_clean(seq: str) -> bool:
+        return not any(pat in seq for pat in utr5_enzyme_motifs)
+
+    def _is_utr3_enzyme_clean(seq: str) -> bool:
+        return not any(pat in seq for pat in utr3_enzyme_motifs)
+
+    sec_s0_seeds: dict[int, str] = {}
+    sec_dc_seeds: dict[int, str] = {}
+    stage0_cds_calls = 0
+    dnachisel_cds_calls = 0
+    pareto_cds_calls = 0
 
     def _make_secondary_chains(
         *,
@@ -868,6 +1092,7 @@ def run_design_pipeline(
         use_dnachisel: bool = False,
         seed_offset: int = 0,
     ) -> list[RNAMoleculeSpec]:
+        nonlocal stage0_cds_calls, dnachisel_cds_calls, pareto_cds_calls
         if len(intent.protein_targets) <= 1:
             return []
         sec_mols: list[RNAMoleculeSpec] = []
@@ -880,26 +1105,84 @@ def run_design_pipeline(
                     seed=intent.runtime_policy.random_seed + ch_idx + seed_offset,
                     chemistry=intent.uridine_chemistry,
                 )
+                dnachisel_cds_calls += 1
+                if seed_offset == 0:
+                    sec_dc_seeds[ch_idx] = sec_cds
                 sec_src = "mrnax:dnachisel_v3.2.16"
                 sec_act = "generated_novo"
+            elif seed_offset > 0:
+                rand_sec = generate_random_synonymous_cds(
+                    pt.protein_sequence,
+                    sec_rng,
+                    chemistry=intent.uridine_chemistry,
+                    slowdown_codon_ranges=intent.co_translational_slowdown_codons,
+                )
+                pareto_cds_calls += 1
+                dc_sec_base = sec_dc_seeds.get(ch_idx) or sec_s0_seeds.get(ch_idx) or rand_sec
+                sec_trials = [rand_sec] if legacy_pure_rerank_mode else [dc_sec_base, rand_sec]
+                cur_sec = rand_sec
+                if len(pt.protein_sequence) > 15:
+                    for t_i in range(3):
+                        if legacy_pure_rerank_mode:
+                            cur_sec = mutate_with_atlas(
+                                cur_sec,
+                                pt.protein_sequence,
+                                sec_rng,
+                                codon_start=10,
+                                codon_end=max(11, len(pt.protein_sequence) - 5),
+                                prefer_open_au=False,
+                                chemistry=intent.uridine_chemistry,
+                                legacy_single_boundary=True,
+                            )
+                        else:
+                            tgt_gc = (0.45, 0.53, 0.58)[t_i % 3]
+                            mut_p = (0.95, 0.55, 0.65)[t_i % 3]
+                            seed_in = rand_sec if t_i == 0 else (dc_sec_base if t_i == 1 else cur_sec)
+                            cur_sec = propose_full_cds_with_atlas(
+                                seed_in,
+                                pt.protein_sequence,
+                                sec_rng,
+                                chemistry=intent.uridine_chemistry,
+                                constraints=intent.constraints,
+                                slowdown_codon_ranges=intent.co_translational_slowdown_codons,
+                                utr5_tail=utr5_seq,
+                                stop_head=default_stop + utr3_seq[:9],
+                                gc_weight=0.012 + 0.004 * t_i,
+                                temperature=0.08 + 0.02 * t_i,
+                                target_gc=tgt_gc,
+                                mutation_prob=mut_p,
+                            )
+                        pareto_cds_calls += 1
+                        sec_trials.append(cur_sec)
+
+                if surrogate_v1 is not None and not legacy_pure_rerank_mode:
+                    s_stabs = surrogate_v1.score_cds_stability(sec_trials)
+                    s_hls = surrogate_v1.score_consensus_halflife_batch(
+                        [(utr5_seq, tb, utr3_seq) for tb in sec_trials]
+                    )
+                    slot_focus = (seed_offset - 1) % 3
+                    if slot_focus == 0:
+                        sec_cds = sec_trials[max(range(len(sec_trials)), key=lambda i: float(s_hls[i]))]
+                    elif slot_focus == 1:
+                        sec_cds = sec_trials[max(range(len(sec_trials)), key=lambda i: float(s_stabs[i]))]
+                    else:
+                        s_vecs = [[float(s_stabs[i]), float(s_hls[i])] for i in range(len(sec_trials))]
+                        _, s_ord = _rank_and_order_pareto_candidates(s_vecs)
+                        sec_cds = sec_trials[s_ord[0]]
+                else:
+                    sec_cds = sec_trials[-1]
+                sec_src = "mrnax:pareto_multi_chain"
+                sec_act = "synonymous_mutated"
             else:
                 sec_cds = generate_random_synonymous_cds(
                     pt.protein_sequence,
                     sec_rng,
                     chemistry=intent.uridine_chemistry,
                 )
-                if seed_offset > 0 and len(pt.protein_sequence) > 15:
-                    sec_cds = mutate_with_atlas(
-                        sec_cds,
-                        pt.protein_sequence,
-                        sec_rng,
-                        codon_start=10,
-                        codon_end=len(pt.protein_sequence) - 5,
-                        prefer_open_au=False,
-                        chemistry=intent.uridine_chemistry,
-                    )
-                sec_src = "mrnax:pareto_multi_chain" if seed_offset > 0 else "mrnax:stage0_random"
-                sec_act = "synonymous_mutated" if seed_offset > 0 else "generated_novo"
+                stage0_cds_calls += 1
+                sec_s0_seeds[ch_idx] = sec_cds
+                sec_src = "mrnax:stage0_random"
+                sec_act = "generated_novo"
             sec_mols.append(
                 _build_molecule_spec(
                     molecule_id=f"chain_{ch_idx:02d}",
@@ -951,16 +1234,16 @@ def run_design_pipeline(
     # Generator 1: Stage 0 random synonymous baseline / computational reference
     if "stage0_random" in intent.runtime_policy.enabled_generators:
         t0 = time.perf_counter()
-        cds_rand = (
-            locked_cds.locked_value
-            if locked_cds
-            else generate_random_synonymous_cds(
+        if locked_cds:
+            cds_rand = locked_cds.locked_value
+        else:
+            cds_rand = generate_random_synonymous_cds(
                 protein_seq,
                 rng,
                 chemistry=intent.uridine_chemistry,
                 slowdown_codon_ranges=intent.co_translational_slowdown_codons,
             )
-        )
+            stage0_cds_calls += 1
         u5 = locked_utr5.locked_value if locked_utr5 else clean_utr5s[0]["sequence"]
         u3, anns_u3 = _prepare_utr3(clean_utr3s[0]["sequence"])
         u5_id_s0 = None if locked_utr5 else clean_utr5s[0]["component_id"]
@@ -1005,7 +1288,7 @@ def run_design_pipeline(
                 data_license=spec_s0.data_license,
                 license_track=spec_s0.license_track,
                 wall_seconds=round(time.perf_counter() - t0, 5),
-                attempt_count=1,
+                attempt_count=stage0_cds_calls,
                 failure_count=0,
             )
         )
@@ -1021,6 +1304,7 @@ def run_design_pipeline(
                 seed=intent.runtime_policy.random_seed,
                 chemistry=intent.uridine_chemistry,
             )
+            dnachisel_cds_calls += 1
         u5 = locked_utr5.locked_value if locked_utr5 else clean_utr5s[0]["sequence"]
         u3, anns_u3 = _prepare_utr3(clean_utr3s[0]["sequence"])
         u5_id_dc = None if locked_utr5 else clean_utr5s[0]["component_id"]
@@ -1066,26 +1350,84 @@ def run_design_pipeline(
                 data_license=spec_dc.data_license,
                 license_track=spec_dc.license_track,
                 wall_seconds=round(time.perf_counter() - t0, 5),
-                attempt_count=1,
+                attempt_count=dnachisel_cds_calls,
                 failure_count=0,
             )
         )
 
-    # Generator 3: Sliding-Window Structure-Guided CDS<->UTR Alternating Pareto Search
+    # Generator 3: Non-Partitioned Full-Transcript CDS<->UTR Joint Pareto Search
     if "pareto_nsga2" in intent.runtime_policy.enabled_generators:
         t0 = time.perf_counter()
-        base_cds = dc_seed_cds or generate_random_synonymous_cds(
-            protein_seq, rng, chemistry=intent.uridine_chemistry
-        )
+        if dc_seed_cds:
+            base_cds = dc_seed_cds
+        else:
+            base_cds = generate_random_synonymous_cds(
+                protein_seq, rng, chemistry=intent.uridine_chemistry
+            )
+            pareto_cds_calls += 1
         n_codons = len(protein_seq)
         budget_n = max(3, min(intent.runtime_policy.max_evaluations - len(raw_candidates), 8))
         pareto_utr5s = clean_utr5s
         pareto_utr3s = clean_utr3s
-        total_inner_trials = 0
-        all_u5 = [u for u in utr_reg["five_prime_utrs"] if not u["has_uaug"] and u["max_homopolymer_run"] <= 7]
-        all_u3 = [u for u in utr_reg["three_prime_utrs"] if u["max_homopolymer_run"] <= 7]
-        if intent.compliance_track == "commercial_clean" or surrogate_v1 is not None:
-            # Equal-work candidate universe across unguided OFF and surrogate ON!
+        all_u5_raw = [
+            u for u in utr_reg["five_prime_utrs"] if not u["has_uaug"] and u["max_homopolymer_run"] <= 7
+        ] or list(utr_reg["five_prime_utrs"])
+        all_u3_raw = [u for u in utr_reg["three_prime_utrs"] if u["max_homopolymer_run"] <= 7] or list(
+            utr_reg["three_prime_utrs"]
+        )
+
+        def _can_prepare_utr3(raw_seq: str) -> bool:
+            try:
+                _prepare_utr3(raw_seq)
+                return True
+            except ValueError:
+                return False
+
+        def _is_utr3_usable(raw_seq: str) -> bool:
+            try:
+                prep_seq, _ = _prepare_utr3(raw_seq)
+            except ValueError:
+                return False
+            return _is_utr3_enzyme_clean(prep_seq)
+
+        all_u5 = [u for u in all_u5_raw if _is_utr5_enzyme_clean(u["sequence"])] or all_u5_raw
+        all_u3_prep = [u for u in all_u3_raw if _can_prepare_utr3(u["sequence"])] or [
+            u for u in clean_utr3s if _can_prepare_utr3(u["sequence"])
+        ]
+        all_u3 = (
+            [u for u in all_u3_prep if _is_utr3_usable(u["sequence"])]
+            or all_u3_prep
+            or all_u3_raw
+        )
+
+        def _prepare_utr3_safe(raw_u3: str) -> tuple[str, list[FeatureAnnotation]]:
+            try:
+                return _prepare_utr3(raw_u3)
+            except ValueError:
+                return raw_u3, []
+
+        has_vienna_inner = (
+            "viennarna_thermo" in intent.runtime_policy.enabled_evaluators
+            and intent.compliance_track != "commercial_clean"
+        )
+
+        # Ensure secondary probe seeds exist with identical call counts regardless of evaluator switches
+        sec_probe_cds_list: list[str] = []
+        for ch_idx, pt in enumerate(intent.protein_targets[1:], start=2):
+            existing_sec = sec_dc_seeds.get(ch_idx) or sec_s0_seeds.get(ch_idx)
+            if existing_sec is None:
+                fallback_rng = random.Random(intent.runtime_policy.random_seed + 4099 * ch_idx)
+                existing_sec = generate_random_synonymous_cds(
+                    pt.protein_sequence,
+                    fallback_rng,
+                    chemistry=intent.uridine_chemistry,
+                )
+                pareto_cds_calls += 1
+                sec_s0_seeds[ch_idx] = existing_sec
+            sec_probe_cds_list.append(existing_sec)
+
+        chosen_utr_pairs: list[tuple[dict[str, Any], dict[str, Any]]] | None = None
+        if not has_vienna_inner:
             pool_rng = random.Random(intent.runtime_policy.random_seed + 31337)
             k5 = min(24, len(all_u5))
             k3 = min(24, len(all_u3))
@@ -1095,79 +1437,161 @@ def run_design_pipeline(
             probe_rng = random.Random(intent.runtime_policy.random_seed + 7919)
             probe_trials = [base_cds]
             cur_p = base_cds
-            for _ in range(4):
-                cur_p = mutate_with_atlas(
-                    cur_p,
-                    protein_seq,
-                    probe_rng,
-                    codon_start=10,
-                    codon_end=max(11, n_codons - 5),
-                    prefer_open_au=False,
-                    chemistry=intent.uridine_chemistry,
-                )
-                probe_trials.append(cur_p)
-                total_inner_trials += 1
+            if not locked_cds:
+                for p_step in range(4):
+                    if legacy_pure_rerank_mode:
+                        cur_p = mutate_with_atlas(
+                            cur_p,
+                            protein_seq,
+                            probe_rng,
+                            codon_start=10,
+                            codon_end=max(11, n_codons - 5),
+                            prefer_open_au=False,
+                            chemistry=intent.uridine_chemistry,
+                            legacy_single_boundary=True,
+                        )
+                    else:
+                        cur_p = propose_full_cds_with_atlas(
+                            base_cds,
+                            protein_seq,
+                            probe_rng,
+                            chemistry=intent.uridine_chemistry,
+                            constraints=intent.constraints,
+                            slowdown_codon_ranges=intent.co_translational_slowdown_codons,
+                            utr5_tail=default_utr5,
+                            stop_head=default_stop,
+                            gc_weight=0.015,
+                            temperature=0.09,
+                            target_gc=0.49 + 0.03 * p_step,
+                            mutation_prob=0.35 + 0.15 * p_step,
+                        )
+                    pareto_cds_calls += 1
+                    probe_trials.append(cur_p)
 
-            if surrogate_v1 is not None:
+            if surrogate_v1 is not None and not legacy_pure_rerank_mode:
                 p_scores = surrogate_v1.score_cds_stability(probe_trials)
                 best_p_idx = max(range(len(probe_trials)), key=lambda i: float(p_scores[i]))
                 probe_cds = probe_trials[best_p_idx]
                 base_cds = probe_cds if not locked_cds else base_cds
 
-                scored_mrl = surrogate_v1.score_5utr_mrl([u["sequence"] for u in sampled_u5])
-                top_mrl_idx = sorted(range(k5), key=lambda i: -float(scored_mrl[i]))
-                triplets = [
-                    (sampled_u5[i5]["sequence"], probe_cds, sampled_u3[i3]["sequence"])
-                    for i5 in top_mrl_idx[:6]
-                    for i3 in range(k3)
+                all_chain_probes = [probe_cds, *sec_probe_cds_list]
+
+                # Score full 200x200 commercial_clean UTR universe across all chains + ATtRACT 160-RBP + gc_tail15
+                cand_u5_pool = all_u5
+                cand_u3_pool = all_u3
+                prepared_u3_seqs = [_prepare_utr3_safe(u["sequence"])[0] for u in cand_u3_pool]
+                scored_mrl = surrogate_v1.score_5utr_mrl([u["sequence"] for u in cand_u5_pool])
+                u5_mrl_prior = [
+                    float(scored_mrl[i]) + 0.15 * _utr5_gc_tail15_prior(cand_u5_pool[i]["sequence"])
+                    for i in range(len(cand_u5_pool))
                 ]
-                pair_coords = [
-                    (i5, i3) for i5 in top_mrl_idx[:6] for i3 in range(k3)
+                anchor_u3 = prepared_u3_seqs[0]
+                u5_hl_lists = [
+                    surrogate_v1.score_consensus_halflife_batch(
+                        [(u["sequence"], ch_cds, anchor_u3) for u in cand_u5_pool]
+                    )
+                    for ch_cds in all_chain_probes
                 ]
-                hl_preds = surrogate_v1.score_consensus_halflife_batch(triplets)
-                u3_preds = (
-                    surrogate_v1.score_3utr_stability([sampled_u3[i3]["sequence"] for _, i3 in pair_coords])
+                u5_worst_hl = [
+                    min(float(u5_hl_lists[c_i][i]) for c_i in range(len(all_chain_probes)))
+                    for i in range(len(cand_u5_pool))
+                ]
+                top_mrl_u5 = sorted(range(len(cand_u5_pool)), key=lambda i: -u5_mrl_prior[i])[:8]
+                top_hl_u5 = sorted(range(len(cand_u5_pool)), key=lambda i: -u5_worst_hl[i])[:8]
+                top_u5_idx = list(dict.fromkeys([*top_mrl_u5, *top_hl_u5]))
+
+                u3_raw_preds = (
+                    surrogate_v1.score_3utr_stability(prepared_u3_seqs)
                     if "3utr_mpra_stability" in surrogate_v1.loaded_heads
-                    else hl_preds
+                    else [0.0] * len(cand_u3_pool)
                 )
-                pair_vecs = [
-                    [float(scored_mrl[i5]), float(hl_preds[idx_p]), float(u3_preds[idx_p])]
-                    for idx_p, (i5, _) in enumerate(pair_coords)
+                u3_rbp_priors = [
+                    _utr3_rbp_decay_prior(prepared_u3_seqs[i], destab_rbp_motifs, stab_rbp_motifs)
+                    for i in range(len(cand_u3_pool))
                 ]
-                _, pair_order = _rank_and_order_pareto_candidates(pair_vecs)
-                chosen_u5: list[dict[str, Any]] = []
-                chosen_u3: list[dict[str, Any]] = []
-                for p_idx in pair_order:
-                    i5, i3 = pair_coords[p_idx]
-                    if sampled_u5[i5] not in chosen_u5 and len(chosen_u5) < 3:
-                        chosen_u5.append(sampled_u5[i5])
-                    if sampled_u3[i3] not in chosen_u3 and len(chosen_u3) < 3:
-                        chosen_u3.append(sampled_u3[i3])
-                    if len(chosen_u5) >= 3 and len(chosen_u3) >= 3:
-                        break
-                pareto_utr5s = chosen_u5 or sampled_u5[:3]
-                pareto_utr3s = chosen_u3 or sampled_u3[:3]
+                anchor_u5 = cand_u5_pool[top_u5_idx[0]]["sequence"]
+                u3_hl_lists = [
+                    surrogate_v1.score_consensus_halflife_batch(
+                        [(anchor_u5, ch_cds, prepared_u3_seqs[i]) for i in range(len(cand_u3_pool))]
+                    )
+                    for ch_cds in all_chain_probes
+                ]
+                u3_worst_hl = [
+                    min(float(u3_hl_lists[c_i][i]) for c_i in range(len(all_chain_probes)))
+                    + 0.25 * u3_rbp_priors[i]
+                    for i in range(len(cand_u3_pool))
+                ]
+                top_u3_idx = sorted(range(len(cand_u3_pool)), key=lambda i: -u3_worst_hl[i])[:18]
+
+                pair_coords = [(i5, i3) for i5 in top_u5_idx for i3 in top_u3_idx]
+                chain_hl_lists = [
+                    surrogate_v1.score_consensus_halflife_batch(
+                        [(cand_u5_pool[i5]["sequence"], ch_cds, prepared_u3_seqs[i3]) for i5, i3 in pair_coords]
+                    )
+                    for ch_cds in all_chain_probes
+                ]
+                worst_chain_hls = [
+                    min(float(chain_hl_lists[c_i][idx_p]) for c_i in range(len(all_chain_probes)))
+                    for idx_p in range(len(pair_coords))
+                ]
+                u3_in_domain = [
+                    (float(u3_raw_preds[i]) if 140 <= len(prepared_u3_seqs[i]) <= 180 else 0.15 * float(u3_raw_preds[i]))
+                    + 0.30 * u3_rbp_priors[i]
+                    for i in range(len(cand_u3_pool))
+                ]
+                pair_vecs = [
+                    [float(scored_mrl[i5]), worst_chain_hls[idx_p], u3_in_domain[i3]]
+                    for idx_p, (i5, i3) in enumerate(pair_coords)
+                ]
+                hl_only_order = sorted(range(len(pair_coords)), key=lambda idx_p: -worst_chain_hls[idx_p])
+                mrl_only_order = sorted(
+                    range(len(pair_coords)),
+                    key=lambda idx_p: -(float(scored_mrl[pair_coords[idx_p][0]]) + 0.15 * worst_chain_hls[idx_p]),
+                )
+                _, pareto_pair_order = _rank_and_order_pareto_candidates(pair_vecs)
+                merged_pair_order = list(
+                    dict.fromkeys([*hl_only_order[:2], *mrl_only_order[:2], *pareto_pair_order])
+                )
+                chosen_utr_pairs = [
+                    (cand_u5_pool[pair_coords[p_idx][0]], cand_u3_pool[pair_coords[p_idx][1]])
+                    for p_idx in merged_pair_order[: max(budget_n, 4)]
+                ]
+                pareto_utr5s = [p[0] for p in chosen_utr_pairs[:3]]
+                pareto_utr3s = [p[1] for p in chosen_utr_pairs[:3]]
             else:
                 base_cds = probe_trials[-1] if not locked_cds else base_cds
                 pareto_utr5s = sampled_u5[:3]
                 pareto_utr3s = sampled_u3[:3]
 
-        utr5_pool = [locked_utr5.locked_value] if locked_utr5 else [u["sequence"] for u in pareto_utr5s[:3]]
-        utr5_ids = [None] if locked_utr5 else [u["component_id"] for u in pareto_utr5s[:3]]
+        n_utr_pick = min(4, len(pareto_utr5s)) if not legacy_pure_rerank_mode else min(3, len(pareto_utr5s))
+        n_utr3_pick = min(4, len(pareto_utr3s)) if not legacy_pure_rerank_mode else min(3, len(pareto_utr3s))
+        utr5_pool = [locked_utr5.locked_value] if locked_utr5 else [u["sequence"] for u in pareto_utr5s[:n_utr_pick]]
+        utr5_ids = [None] if locked_utr5 else [u["component_id"] for u in pareto_utr5s[:n_utr_pick]]
 
-        utr3_pool_raw = [locked_utr3.locked_value] if locked_utr3 else [u["sequence"] for u in pareto_utr3s[:3]]
-        utr3_ids = [None] if locked_utr3 else [u["component_id"] for u in pareto_utr3s[:3]]
+        utr3_pool_raw = [locked_utr3.locked_value] if locked_utr3 else [u["sequence"] for u in pareto_utr3s[:n_utr3_pick]]
+        utr3_ids = [None] if locked_utr3 else [u["component_id"] for u in pareto_utr3s[:n_utr3_pick]]
 
         for idx in range(budget_n):
-            u5_idx = idx % len(utr5_pool)
-            u3_idx = (idx // max(1, len(utr5_pool))) % len(utr3_pool_raw)
-            u3_seq, anns_u3 = _prepare_utr3(utr3_pool_raw[u3_idx])
+            if chosen_utr_pairs is not None:
+                pair_u5, pair_u3 = chosen_utr_pairs[idx % len(chosen_utr_pairs)]
+                cur_u5_seq = locked_utr5.locked_value if locked_utr5 else pair_u5["sequence"]
+                cur_u5_id = None if locked_utr5 else pair_u5["component_id"]
+                cur_u3_raw = locked_utr3.locked_value if locked_utr3 else pair_u3["sequence"]
+                cur_u3_id = None if locked_utr3 else pair_u3["component_id"]
+            else:
+                u5_idx = idx % len(utr5_pool)
+                u3_idx = (idx // max(1, len(utr5_pool))) % len(utr3_pool_raw)
+                cur_u5_seq = utr5_pool[u5_idx]
+                cur_u5_id = utr5_ids[u5_idx]
+                cur_u3_raw = utr3_pool_raw[u3_idx]
+                cur_u3_id = utr3_ids[u3_idx]
+            u3_seq, anns_u3 = _prepare_utr3_safe(cur_u3_raw)
 
             if locked_cds:
                 cand_cds = locked_cds.locked_value
                 cds_act = "locked_verbatim"
-            else:
-                # Step A: Open 5' initiation codons [1..12] while stabilizing body codons [12..n_codons-10]
+            elif has_vienna_inner:
+                used_two_zone_partition = True
                 cand_cds = mutate_with_atlas(
                     base_cds,
                     protein_seq,
@@ -1176,10 +1600,10 @@ def run_design_pipeline(
                     codon_end=min(12, n_codons),
                     prefer_open_au=(idx % 2 == 0),
                     chemistry=intent.uridine_chemistry,
+                    constraints=intent.constraints,
                 )
+                pareto_cds_calls += 1
                 if n_codons > 15:
-                    # Equal-work inner-loop search (always 3 mutation trials per candidate slot; true multi-axis selection)
-                    has_vienna_inner = "viennarna_thermo" in intent.runtime_policy.enabled_evaluators
                     trial_bodies = [cand_cds]
                     cur_body = cand_cds
                     for _trial in range(3):
@@ -1191,24 +1615,12 @@ def run_design_pipeline(
                             codon_end=max(13, n_codons - 10),
                             prefer_open_au=False,
                             chemistry=intent.uridine_chemistry,
+                            constraints=intent.constraints,
                         )
+                        pareto_cds_calls += 1
                         trial_bodies.append(cur_body)
-                        total_inner_trials += 1
-
-                    if has_vienna_inner:
-                        mfes = [compute_cds_sliding_window_mfe(tb) for tb in trial_bodies]
-                        cand_cds = trial_bodies[min(range(len(trial_bodies)), key=lambda i: mfes[i])]
-                    elif surrogate_v1 is not None:
-                        stabs = surrogate_v1.score_cds_stability(trial_bodies)
-                        hls = surrogate_v1.score_consensus_halflife_batch(
-                            [(utr5_pool[u5_idx], tb, u3_seq) for tb in trial_bodies]
-                        )
-                        t_vecs = [[float(stabs[i]), float(hls[i])] for i in range(len(trial_bodies))]
-                        _, t_order = _rank_and_order_pareto_candidates(t_vecs)
-                        cand_cds = trial_bodies[t_order[0]]
-                    else:
-                        cand_cds = trial_bodies[-1]
-                # Step B: Co-adapt 3' CDS tail if de-targeting miRNA site is occluded
+                    mfes = [compute_cds_sliding_window_mfe(tb) for tb in trial_bodies]
+                    cand_cds = trial_bodies[min(range(len(trial_bodies)), key=lambda i: mfes[i])]
                 if mirna_mature is not None and n_codons > 10:
                     cand_cds = mutate_with_atlas(
                         cand_cds,
@@ -1218,17 +1630,108 @@ def run_design_pipeline(
                         codon_end=n_codons,
                         prefer_open_au=True,
                         chemistry=intent.uridine_chemistry,
+                        constraints=intent.constraints,
                     )
-                # Re-ensure restriction sites stayed clean
-                for cspec in intent.constraints:
-                    if cspec.constraint_kind == "type_iis_restriction_free":
-                        from mrnax.constraints.sequence_gates import RESTRICTION_SITES_RNA
-
-                        for enz in cspec.params.get("enzymes", []):
-                            fwd, rev = RESTRICTION_SITES_RNA[enz]
-                            if fwd in cand_cds or rev in cand_cds:
-                                cand_cds = dc_seed_cds or cand_cds
+                    pareto_cds_calls += 1
                 cds_act = "synonymous_mutated"
+            elif legacy_pure_rerank_mode:
+                # Unguided legacy generator control arm ("本次未改善生成器") with 1-to-1 identical direct CDS operator calls
+                cand_cds = generate_random_synonymous_cds(
+                    protein_seq,
+                    rng,
+                    chemistry=intent.uridine_chemistry,
+                    slowdown_codon_ranges=intent.co_translational_slowdown_codons,
+                )
+                pareto_cds_calls += 1
+                if n_codons > 15:
+                    for _trial in range(3):
+                        cand_cds = mutate_with_atlas(
+                            cand_cds,
+                            protein_seq,
+                            rng,
+                            codon_start=10,
+                            codon_end=max(11, n_codons - 5),
+                            prefer_open_au=False,
+                            chemistry=intent.uridine_chemistry,
+                            legacy_single_boundary=True,
+                        )
+                        pareto_cds_calls += 1
+                cds_act = "synonymous_mutated"
+            else:
+                # Non-partitioned continuous full-CDS proposal with strict 1-to-1 equal direct CDS operator calls
+                if n_codons > 15:
+                    rand_primary = generate_random_synonymous_cds(
+                        protein_seq,
+                        rng,
+                        chemistry=intent.uridine_chemistry,
+                        slowdown_codon_ranges=intent.co_translational_slowdown_codons,
+                    )
+                    pareto_cds_calls += 1
+                    trial_bodies = [base_cds, rand_primary]
+                    cur_body = base_cds
+                    for t_step in range(3):
+                        seed_primary = rand_primary if t_step == 0 else (base_cds if t_step == 1 else cur_body)
+                        cur_body = propose_full_cds_with_atlas(
+                            seed_primary,
+                            protein_seq,
+                            rng,
+                            chemistry=intent.uridine_chemistry,
+                            constraints=intent.constraints,
+                            slowdown_codon_ranges=intent.co_translational_slowdown_codons,
+                            utr5_tail=cur_u5_seq,
+                            stop_head=default_stop + u3_seq[:9],
+                            gc_weight=0.010 + 0.008 * t_step,
+                            temperature=0.08 + 0.02 * t_step,
+                            target_gc=(0.45, 0.53, 0.58)[t_step % 3],
+                            mutation_prob=(0.95, 0.50, 0.65)[t_step % 3],
+                        )
+                        pareto_cds_calls += 1
+                        trial_bodies.append(cur_body)
+
+                    if surrogate_v1 is not None:
+                        stabs = surrogate_v1.score_cds_stability(trial_bodies)
+                        hls = surrogate_v1.score_consensus_halflife_batch(
+                            [(cur_u5_seq, tb, u3_seq) for tb in trial_bodies]
+                        )
+                        if idx % 3 == 0:
+                            cand_cds = trial_bodies[max(range(len(trial_bodies)), key=lambda i: float(hls[i]))]
+                        elif idx % 3 == 1:
+                            cand_cds = trial_bodies[max(range(len(trial_bodies)), key=lambda i: float(stabs[i]))]
+                        else:
+                            t_vecs = [[float(stabs[i]), float(hls[i])] for i in range(len(trial_bodies))]
+                            _, t_order = _rank_and_order_pareto_candidates(t_vecs)
+                            cand_cds = trial_bodies[t_order[0]]
+                    else:
+                        cand_cds = trial_bodies[-1]
+                else:
+                    cand_cds = propose_full_cds_with_atlas(
+                        base_cds,
+                        protein_seq,
+                        rng,
+                        chemistry=intent.uridine_chemistry,
+                        constraints=intent.constraints,
+                        slowdown_codon_ranges=intent.co_translational_slowdown_codons,
+                        utr5_tail=cur_u5_seq,
+                        stop_head=default_stop + u3_seq[:9],
+                        gc_weight=0.012,
+                        temperature=0.10,
+                        target_gc=(0.49, 0.54, 0.58)[idx % 3],
+                        mutation_prob=(0.65, 0.35, 0.50)[idx % 3],
+                    )
+                    pareto_cds_calls += 1
+                cds_act = "synonymous_mutated"
+
+            # Scoped safety check for active Type IIS restriction sites (respecting target_scopes)
+            if not locked_cds:
+                cds_bad = any(pat in cand_cds for pat in cds_enzyme_motifs)
+                full_check = cur_u5_seq[-8:] + cand_cds + default_stop + u3_seq[:8]
+                junc_bad = any(pat in full_check for pat in full_tx_enzyme_motifs)
+                if (cds_bad or junc_bad) and dc_seed_cds:
+                    dc_full = cur_u5_seq[-8:] + dc_seed_cds + default_stop + u3_seq[:8]
+                    if not any(pat in dc_seed_cds for pat in cds_enzyme_motifs) and not any(
+                        pat in dc_full for pat in full_tx_enzyme_motifs
+                    ):
+                        cand_cds = dc_seed_cds
 
             u5_act_p = "locked_verbatim" if locked_utr5 else "selected_from_library"
             u3_act_p = "locked_verbatim" if locked_utr3 else "selected_from_library"
@@ -1238,8 +1741,8 @@ def run_design_pipeline(
                     parent=reference_bundle,
                     derivation_action="de_novo_design" if not locked_cds else "locked_refinement",
                     intent=intent,
-                    origins=origins_for(utr5_ids[u5_idx], utr3_ids[u3_idx], "mrnax:pareto_cds_utr_coopt", anns_u3),
-                    utr5_seq=utr5_pool[u5_idx],
+                    origins=origins_for(cur_u5_id, cur_u3_id, "mrnax:pareto_cds_utr_coopt", anns_u3),
+                    utr5_seq=cur_u5_seq,
                     utr5_action=u5_act_p,
                     cds_seq=cand_cds,
                     cds_action=cds_act,
@@ -1249,11 +1752,11 @@ def run_design_pipeline(
                     polya_seq=polya_seq,
                     extra_utr3_annotations=anns_u3,
                     secondary_molecules=_make_secondary_chains(
-                        utr5_seq=utr5_pool[u5_idx],
-                        utr5_id=utr5_ids[u5_idx],
+                        utr5_seq=cur_u5_seq,
+                        utr5_id=cur_u5_id,
                         utr5_action=u5_act_p,
                         utr3_seq=u3_seq,
-                        utr3_id=utr3_ids[u3_idx],
+                        utr3_id=cur_u3_id,
                         utr3_action=u3_act_p,
                         extra_anns=anns_u3,
                         seed_offset=idx + 1,
@@ -1271,7 +1774,7 @@ def run_design_pipeline(
                 data_license=spec_p.data_license,
                 license_track=spec_p.license_track,
                 wall_seconds=round(time.perf_counter() - t0, 5),
-                attempt_count=budget_n + total_inner_trials,
+                attempt_count=pareto_cds_calls,
                 failure_count=0,
             )
         )
@@ -1334,6 +1837,7 @@ def run_design_pipeline(
     surr_wall = 0.0
     srfm_wall = 0.0
     orth_wall = 0.0
+    ef_wall = 0.0
     use_vienna = "viennarna_thermo" in intent.runtime_policy.enabled_evaluators
     raw_metrics_per_bundle: list[list[MetricResult]] = []
     obj_vectors: list[list[float]] = []
@@ -1369,6 +1873,18 @@ def run_design_pipeline(
                 srfm_wall += time.perf_counter() - t_sf
                 mol_m.extend(sf_list)
                 for adv in sf_adv:
+                    if adv.advisory_id not in {a.advisory_id for a in all_advisories}:
+                        all_advisories.append(adv)
+            if active_eternafold_bin is not None and active_eternafold_params is not None:
+                t_ef = time.perf_counter()
+                ef_list, ef_adv = _evaluate_molecule_eternafold(
+                    mol,
+                    contrafold_bin=active_eternafold_bin,
+                    ef_params=active_eternafold_params,
+                )
+                ef_wall += time.perf_counter() - t_ef
+                mol_m.extend(ef_list)
+                for adv in ef_adv:
                     if adv.advisory_id not in {a.advisory_id for a in all_advisories}:
                         all_advisories.append(adv)
             if active_orthrus_model is not None and active_orthrus_probe is not None:
@@ -1507,6 +2023,22 @@ def run_design_pipeline(
                 failure_count=0,
             )
         )
+    if active_eternafold_bin is not None and qualified:
+        spec_ef = COMPONENT_CATALOG["eternafold_bpp_engine"]
+        comp_records.append(
+            ComponentInvocationRecord(
+                name=spec_ef.display_name,
+                version=spec_ef.version,
+                role="evaluator",
+                code_license=spec_ef.code_license,
+                weights_license=spec_ef.weights_license,
+                data_license=spec_ef.data_license,
+                license_track=spec_ef.license_track,
+                wall_seconds=round(ef_wall, 5),
+                attempt_count=total_evaluated_mols,
+                failure_count=0,
+            )
+        )
 
     # 5. Outcome status & deterministic Action Transparency
     action_traces: list[RequirementActionTrace] = []
@@ -1630,6 +2162,15 @@ def run_design_pipeline(
     )
 
     rep_bytes = (json.dumps(report.model_dump(mode="json"), indent=2, sort_keys=True) + "\n").encode("utf-8")
+    opt_mode = (
+        "stage0_or_reference_only"
+        if "pareto_nsga2" not in intent.runtime_policy.enabled_generators
+        else (
+            "research_sandbox_sliding_window"
+            if used_two_zone_partition
+            else "full_transcript_non_partitioned_pareto"
+        )
+    )
     manifest = RunManifest(
         submission_id=f"sub_{intent.intent_id}_v{intent.intent_version}",
         execution_id=exec_id,
@@ -1655,6 +2196,12 @@ def run_design_pipeline(
             )
         ],
         replay_cli_command=f"uv run mrnax replay --intent-file intent_{intent.intent_id}.json",
-        honesty_banner=None,
+        honesty_banner="本次未改善生成器" if legacy_pure_rerank_mode else None,
+        optimization_mode_audit=MethodFTOAuditRecord(
+            optimization_mode=opt_mode,  # type: ignore[arg-type]
+            uses_two_zone_initiation_body_partition=used_two_zone_partition,
+            uses_dfa_cfg_intersection=False,
+            sequence_fto_screen_applied=bool(dedup_candidates),
+        ),
     )
     return ordered_qualified, report, manifest

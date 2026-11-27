@@ -89,6 +89,7 @@ class AtomicToolbox:
             detarget_tissues=["liver_hepatocyte"] if detarget_liver else None,
             protected_tissues=["skeletal_muscle"] if detarget_liver else None,
             prioritize_late_signal=prioritize_late_signal,
+            use_commercial_surrogate=(compliance_track == "commercial_clean"),
             random_seed=random_seed,
         )
         if intent.status != "ready":
@@ -296,6 +297,7 @@ class AtomicToolbox:
                             "detarget_liver": {"type": "boolean"},
                             "prioritize_late_signal": {"type": "boolean"},
                             "reference_bundle_id": {"type": "string"},
+                            "random_seed": {"type": "integer", "default": 42},
                         },
                         "required": ["user_utterance", "protein_sequence"],
                     },
@@ -370,6 +372,14 @@ class AtomicToolbox:
                         },
                         "required": ["record_json"],
                     },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_job_status",
+                    "description": "Return current session project_id, intent_versions, bundle_count, and active_reference_bundle_id.",
+                    "parameters": {"type": "object", "properties": {}},
                 },
             },
             {

@@ -17,6 +17,8 @@ def handle_mcp_request(toolbox: AtomicToolbox, req: dict[str, Any]) -> dict[str,
 
     if method == "notifications/initialized":
         return None
+    if method == "ping":
+        return {"jsonrpc": "2.0", "id": req_id, "result": {}}
     if method == "initialize":
         return {
             "jsonrpc": "2.0",

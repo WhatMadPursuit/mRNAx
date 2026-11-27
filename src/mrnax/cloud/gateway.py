@@ -369,7 +369,7 @@ class ProjectTurnRequest(BaseModel):
     prioritize_late_signal: bool = False
     conflicting_single_pick: bool = False
     use_preset_reference_r: bool = False
-    use_commercial_surrogate: bool = False
+    use_commercial_surrogate: bool | None = None
     custom_reference_rna_sequence: str | None = None
     random_seed: int = Field(default=42, ge=0, le=2_147_483_647)
 
@@ -711,7 +711,7 @@ def create_control_plane_app(
                     updated_compliance_track=explicit_track_change,
                     detarget_tissues=detarget,
                     protected_tissues=prot_tiss,
-                    use_commercial_surrogate=req.use_commercial_surrogate,
+                    use_commercial_surrogate=bool(req.use_commercial_surrogate),
                 )
             else:
                 snap = json.loads((resolved_seed / "egfp_reporter_snapshot.json").read_text(encoding="utf-8"))

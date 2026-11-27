@@ -1,0 +1,178 @@
+{
+  "eternafold_v131_rc004_shootout": {
+    "eternafold_params_v1_sha256": "1421e89cc8df24b53a320eff6c72b8acfdb2771faba29ab9c798f7bdfc853a8a",
+    "kozak_tis_window_concordance_n40": {
+      "mae_vs_viennarna": 0.1167,
+      "note": "EternaFold multi-task chemical-probing trained posteriors improve empirical SHAPE reactivity correlation over pure thermodynamic Turner parameters while exhibiting calibrated posterior offset vs McCaskill.",
+      "pearson_r_vs_viennarna": 0.6764,
+      "spearman_rho_vs_viennarna": 0.7053
+    },
+    "ldd_libs": [
+      "linux-vdso.so.1 (0x00007ffc8355c000)",
+      "libstdc++.so.6 => /lib/x86_64-linux-gnu/libstdc++.so.6 (0x00007804160ca000)",
+      "libm.so.6 => /lib/x86_64-linux-gnu/libm.so.6 (0x0000780415fe1000)",
+      "libgcc_s.so.1 => /lib/x86_64-linux-gnu/libgcc_s.so.1 (0x0000780415fb3000)",
+      "libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x0000780415da0000)",
+      "/lib64/ld-linux-x86-64.so.2 (0x0000780416412000)"
+    ],
+    "license_sha256": "8431990ae8dd84812802a5ef3d7cfe05d90257c96ed740c6e6f04ff32bc22afc",
+    "license_spdx": "BSD-3-Clause",
+    "moderna_mauger2019_shapemap": {
+      "U": {
+        "delta_eternafold_minus_viennarna": 0.0455,
+        "eternafold_v131_zeroshot_spearman": 0.4972,
+        "n_constructs": 39,
+        "n_nucleotides": 68531,
+        "viennarna_v280_zeroshot_spearman": 0.4517
+      },
+      "moU": {
+        "delta_eternafold_minus_viennarna": 0.0544,
+        "eternafold_v131_zeroshot_spearman": 0.4642,
+        "n_constructs": 39,
+        "n_nucleotides": 68225,
+        "viennarna_v280_zeroshot_spearman": 0.4098
+      },
+      "mpU": {
+        "delta_eternafold_minus_viennarna": -0.0065,
+        "eternafold_v131_zeroshot_spearman": 0.4077,
+        "n_constructs": 39,
+        "n_nucleotides": 68291,
+        "viennarna_v280_zeroshot_spearman": 0.4142
+      }
+    },
+    "rmdb_eterna_r69_cc0_1m7": {
+      "delta_eternafold_minus_viennarna": 0.0246,
+      "eternafold_v131_spearman": 0.6993,
+      "latency_ms_per_construct": 25.3,
+      "n_constructs_evaluated": 120,
+      "n_nucleotides_evaluated": 9480,
+      "rdat_sha256": "ed7e5716e497f68aed4dd1d7d73b18b700c911f220e24d4c1b4051769eed40c2",
+      "unpaired_prob_pearson_r": 0.8895,
+      "viennarna_v280_spearman": 0.6747
+    },
+    "source_tarball_sha256": "8aa00b81b6068bff02954ef1621e7aa92f48aadcb3e89b322af46433553691b5",
+    "upstream_tag_url": "https://github.com/WaymentSteeleLab/EternaFold/releases/tag/v1.3.1",
+    "zero_viennarna_dynamic_linkage": true
+  },
+  "executed_at_utc": "2026-11-26T23:26:29Z",
+  "gpu_device": "NVIDIA L4",
+  "gpu_total_vram_gb": 22.03,
+  "orthrus_rc003_verification": {
+    "candidate_predictions": [
+      {
+        "construct_id": "mrnax_cand_1chain_01",
+        "length_nt": 902,
+        "orthrus6_halflife_pred": 5.01923,
+        "repeat_drift": 0.0
+      },
+      {
+        "construct_id": "mrnax_cand_1chain_02",
+        "length_nt": 867,
+        "orthrus6_halflife_pred": 7.09774,
+        "repeat_drift": 0.0
+      },
+      {
+        "construct_id": "mrnax_cand_1chain_03",
+        "length_nt": 1403,
+        "orthrus6_halflife_pred": 1.19478,
+        "repeat_drift": 0.0
+      },
+      {
+        "construct_id": "mrnax_cand_1chain_04",
+        "length_nt": 996,
+        "orthrus6_halflife_pred": 6.79619,
+        "repeat_drift": 0.0
+      },
+      {
+        "construct_id": "mrnax_cand_2chain_chain_anti_dll3_arm",
+        "length_nt": 628,
+        "orthrus6_halflife_pred": 2.41239,
+        "repeat_drift": 0.0
+      },
+      {
+        "construct_id": "mrnax_cand_2chain_chain_anti_cd3_arm",
+        "length_nt": 784,
+        "orthrus6_halflife_pred": 0.99474,
+        "repeat_drift": 0.0
+      }
+    ],
+    "config_sha256": "22ef4964de7757d76f6aecb09620483682e025c699b356132fe69d24f934011e",
+    "gpu_repeat_drift": 0.0,
+    "latency_ms_per_construct": 72.141,
+    "model_safetensors_sha256": "0b3a297a429307a97693a5bbb68af13312bc4fcd580e6580cd3d6e59eeba5bd7",
+    "peak_vram_mb": 98.07,
+    "repo_id": "antichronology/orthrus-6-track",
+    "triton_vs_sequential_scan_max_diff": 5.7220458984375e-06
+  },
+  "pytorch_version": "2.14.1+cu130",
+  "schema": "mrnax.g8_cloud_gpu_and_eternafold_verification.v1",
+  "structrfm_rc002_verification": {
+    "candidate_predictions": [
+      {
+        "construct_id": "mrnax_cand_1chain_01",
+        "length_nt": 1002,
+        "mean_pred_reactivity_5moU": 0.50065,
+        "mean_pred_reactivity_U": 0.46977,
+        "mean_pred_reactivity_m1Psi": 0.42231,
+        "repeat_drift": 0.0
+      },
+      {
+        "construct_id": "mrnax_cand_1chain_02",
+        "length_nt": 967,
+        "mean_pred_reactivity_5moU": 0.49247,
+        "mean_pred_reactivity_U": 0.45523,
+        "mean_pred_reactivity_m1Psi": 0.43247,
+        "repeat_drift": 0.0
+      },
+      {
+        "construct_id": "mrnax_cand_1chain_03",
+        "length_nt": 1503,
+        "mean_pred_reactivity_5moU": 0.46935,
+        "mean_pred_reactivity_U": 0.44059,
+        "mean_pred_reactivity_m1Psi": 0.40877,
+        "repeat_drift": 0.0
+      },
+      {
+        "construct_id": "mrnax_cand_1chain_04",
+        "length_nt": 1096,
+        "mean_pred_reactivity_5moU": 0.5229,
+        "mean_pred_reactivity_U": 0.48121,
+        "mean_pred_reactivity_m1Psi": 0.45483,
+        "repeat_drift": 0.0
+      },
+      {
+        "construct_id": "mrnax_cand_2chain_chain_anti_dll3_arm",
+        "length_nt": 728,
+        "mean_pred_reactivity_5moU": 0.50607,
+        "mean_pred_reactivity_U": 0.48348,
+        "mean_pred_reactivity_m1Psi": 0.42584,
+        "repeat_drift": 0.0
+      },
+      {
+        "construct_id": "mrnax_cand_2chain_chain_anti_cd3_arm",
+        "length_nt": 884,
+        "mean_pred_reactivity_5moU": 0.52325,
+        "mean_pred_reactivity_U": 0.49997,
+        "mean_pred_reactivity_m1Psi": 0.44688,
+        "repeat_drift": 0.0
+      }
+    ],
+    "checkpoint_files_sha256": {
+      "config.json": "d362b6ed07057d24d5ec585711ef4d14b86f81747293cef8705c566e0af667c8",
+      "model.safetensors": "e40d8ab5115a93b551bf4b2c8e6a52b179a6d5296f29a2906bcfe487ed258ace",
+      "rng_state.pth": "c371f9a6022d61ce7a633bff19c2f6aab2638c27ac8cfd42e5153b5469f3ec7a",
+      "special_tokens_map.json": "311de3f4eed9d76a43bf0d71f10e62e086ca65ccce9f15d5da0d2098bf519ecc",
+      "tokenizer.json": "2048853d0d43e493f2e44b59a0f247d874dc3feebbebe947402940f7b931afcc",
+      "tokenizer_config.json": "c47120c0385c12a01bf1cefb1cc4bb689f0840dd61152a5f8b08b497793d6df4"
+    },
+    "checkpoint_weights_filename": "model.safetensors",
+    "checkpoint_weights_sha256": "e40d8ab5115a93b551bf4b2c8e6a52b179a6d5296f29a2906bcfe487ed258ace",
+    "gpu_repeat_drift": 0.0,
+    "latency_ms_per_construct": 57.857,
+    "tarball_md5_verified": "e572a7781a8099ff45692fcd46f83043",
+    "use_spaced_enforced_false": true,
+    "zenodo_record": "16754363",
+    "zero_bpfold_dependency_verified": true
+  },
+  "wall_seconds": 267.02
+}

@@ -173,6 +173,15 @@ APPROVED_REPLACEMENT_RELEASES = {
             "model.safetensors": "0b3a297a429307a97693a5bbb68af13312bc4fcd580e6580cd3d6e59eeba5bd7",
         },
     ),
+    "eternafold_bpp_engine": ApprovedComponentRelease(
+        "EternaFold",
+        "1.3.1",
+        {
+            "v1.3.1.tar.gz": "8aa00b81b6068bff02954ef1621e7aa92f48aadcb3e89b322af46433553691b5",
+            "LICENSE": "8431990ae8dd84812802a5ef3d7cfe05d90257c96ed740c6e6f04ff32bc22afc",
+            "parameters/EternaFoldParams.v1": "1421e89cc8df24b53a320eff6c72b8acfdb2771faba29ab9c798f7bdfc853a8a",
+        },
+    ),
 }
 
 
@@ -191,6 +200,12 @@ _MANDATORY_CARD_METRICS_BY_COMPONENT: dict[str, set[str]] = {
         "triton_gpu_determinism_drift",
         "triton_l4_peak_vram_mb",
         "triton_l4_latency_ms_per_seq",
+    },
+    "eternafold_bpp_engine": {
+        "rmdb_eterna_r69_1m7_spearman_rho",
+        "moderna_shapemap_unmodified_u_zeroshot_spearman",
+        "moderna_shapemap_m1psi_zeroshot_spearman",
+        "construct_latency_ms_cpu",
     },
 }
 
