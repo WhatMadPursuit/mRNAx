@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 import json
+import math
 import sys
 from pathlib import Path
 from typing import Any
@@ -12,7 +13,7 @@ from mrnax.harness.state_machine import ProjectHarnessSession, parse_json_float_
 from mrnax.harness.tools import AtomicToolbox
 from pydantic import ValidationError
 
-_JS_MAX_SAFE_DEC = Decimal(9_007_199_254_740_991)
+_MAX_DECIMAL_RPC_ID = Decimal("1E+308")
 
 
 def _decimals_to_floats(val: Any) -> Any:
@@ -25,20 +26,27 @@ def _decimals_to_floats(val: Any) -> Any:
     return val
 
 
-def _normalize_jsonrpc_id(req_id: Any) -> Any:
-    if isinstance(req_id, Decimal):
-        if not req_id.is_finite():
-            return None
-        if -_JS_MAX_SAFE_DEC <= req_id <= _JS_MAX_SAFE_DEC:
-            if req_id == req_id.to_integral_value():
-                return int(req_id)
-            return float(req_id)
-        return None
-    if isinstance(req_id, int) and not isinstance(req_id, bool):
-        if -9_007_199_254_740_991 <= req_id <= 9_007_199_254_740_991:
-            return req_id
-        return None
-    return req_id
+def _validate_mcp_request_id(req: dict[str, Any]) -> tuple[bool, str | int | None]:
+    """Validate MCP 2024-11-05 RequestId (`string | integer`) without truncating 64-bit+ ints or expanding huge exponents."""
+    if "id" not in req:
+        return False, None
+    raw_id = req["id"]
+    if isinstance(raw_id, str):
+        return True, raw_id
+    if isinstance(raw_id, bool):
+        return False, None
+    if isinstance(raw_id, int):
+        return True, raw_id
+    if isinstance(raw_id, Decimal):
+        if raw_id.is_finite() and -_MAX_DECIMAL_RPC_ID <= raw_id <= _MAX_DECIMAL_RPC_ID:
+            if raw_id == raw_id.to_integral_value():
+                return True, int(raw_id)
+        return False, None
+    if isinstance(raw_id, float):
+        if math.isfinite(raw_id) and raw_id.is_integer():
+            return True, int(raw_id)
+        return False, None
+    return False, None
 
 
 def _format_mcp_validation_error(exc: ValidationError) -> str:
@@ -52,11 +60,22 @@ def _format_mcp_validation_error(exc: ValidationError) -> str:
 def handle_mcp_request(toolbox: AtomicToolbox, req: dict[str, Any]) -> dict[str, Any] | None:
     if not isinstance(req, dict):
         return {"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "Invalid Request"}}
+    if "jsonrpc" in req and req["jsonrpc"] != "2.0":
+        return {"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "Invalid Request: jsonrpc must be '2.0'"}}
     method = req.get("method", "")
-    req_id = _normalize_jsonrpc_id(req.get("id"))
+    if not isinstance(method, str) or not method:
+        return {"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "Invalid Request: method must be a non-empty string"}}
 
-    if method == "notifications/initialized":
+    if method == "notifications/initialized" or (method.startswith("notifications/") and "id" not in req):
         return None
+
+    valid_id, req_id = _validate_mcp_request_id(req)
+    if not valid_id:
+        return {
+            "jsonrpc": "2.0",
+            "id": None,
+            "error": {"code": -32600, "message": "Invalid Request: id must be a string or integer"},
+        }
     if method == "ping":
         return {"jsonrpc": "2.0", "id": req_id, "result": {}}
     if method == "initialize":

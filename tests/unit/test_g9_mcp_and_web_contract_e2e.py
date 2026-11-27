@@ -570,8 +570,53 @@ def test_mcp_stdio_subprocess_full_commercial_clean_lifecycle_and_web_contract_p
         from mrnax.harness.tools import AtomicToolbox
 
         tb_probe = AtomicToolbox(ProjectHarnessSession(project_id="proj_g9_mcp", store_dir=mcp_store_named, seed_dir=SEED))
-        ping_frac = json.loads(handle_jsonrpc_line(tb_probe, '{"jsonrpc":"2.0","id":1.5,"method":"ping"}') or "")
-        assert ping_frac["id"] == 1.5 and ping_frac["result"] == {}
+        for valid_rpc_id in (1, "9007199254740992", 9007199254740991, 9007199254740992, -9007199254740992):
+            ping_ok = json.loads(
+                handle_jsonrpc_line(tb_probe, json.dumps({"jsonrpc": "2.0", "id": valid_rpc_id, "method": "ping"})) or ""
+            )
+            assert ping_ok["id"] == valid_rpc_id and ping_ok["result"] == {}
+
+        # I-5: 64-bit integer RequestIds (> 2^53 - 1) on state-changing turns must echo exact IDs 1:1
+        i5_store = tmp_path / "proj_i5_mcp_64bit"
+        tb_i5 = AtomicToolbox(ProjectHarnessSession(project_id="proj_i5", store_dir=i5_store, seed_dir=SEED))
+        r_i5_v1 = json.loads(
+            handle_jsonrpc_line(
+                tb_i5,
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 9007199254740994,
+                        "method": "tools/call",
+                        "params": {"name": "design_constructs", "arguments": {"user_utterance": "Init 64b id", "protein_sequence": "A"}},
+                    }
+                ),
+            )
+            or ""
+        )
+        assert r_i5_v1["id"] == 9007199254740994 and r_i5_v1["result"]["isError"] is False
+        assert len(list((i5_store / "intents").glob("intent_v*.json"))) == 1
+        r_i5_v2 = json.loads(
+            handle_jsonrpc_line(
+                tb_i5,
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 9007199254740996,
+                        "method": "tools/call",
+                        "params": {"name": "refine_construct", "arguments": {"user_utterance": "Refine 64b id", "restriction_enzymes": ["BspQI"]}},
+                    }
+                ),
+            )
+            or ""
+        )
+        assert r_i5_v2["id"] == 9007199254740996 and r_i5_v2["result"]["isError"] is False
+        assert len(list((i5_store / "intents").glob("intent_v*.json"))) == 2
+
+        for bad_id_raw in ('{"jsonrpc":"2.0","id":1.5,"method":"tools/call","params":{"name":"design_constructs","arguments":{"user_utterance":"x","protein_sequence":"A"}}}', '{"jsonrpc":"2.0","id":null,"method":"ping"}', '{"jsonrpc":"2.0","id":true,"method":"ping"}', '{"jsonrpc":"2.0","id":1E+999999,"method":"ping"}'):
+            bad_id_resp = json.loads(handle_jsonrpc_line(tb_i5, bad_id_raw) or "")
+            assert bad_id_resp["error"]["code"] == -32600
+        assert len(list((i5_store / "intents").glob("intent_v*.json"))) == 2
+
         parse_err = json.loads(handle_jsonrpc_line(tb_probe, "{bad json") or "")
         assert parse_err["error"]["code"] == -32700
 

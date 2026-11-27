@@ -1,6 +1,6 @@
 {
   "schema_version": "2.0",
-  "updated_at_utc": "2026-11-27T06:29:30Z",
+  "updated_at_utc": "2026-11-27T06:48:00Z",
   "active_phase": "Phase B",
   "status": "IN_PROGRESS",
   "gates": {
@@ -38,9 +38,9 @@
     },
     "G9": {
       "passed": false,
-      "evidence": "162/162 pytest GREEN (0 skips), 3/3 Node UI PASS, 30/30+6/6 golden intent PASS, M2 B1/B2 PASS, I-1..I-4 & M-1..M-2 closed (pre-int Decimal bound validation + bounded 422 diagnostics + OpenAPI oneOf mode agreement); awaiting final read-only gpt-6.2-astra ultra sign-off audit."
+      "evidence": "162/162 pytest GREEN (0 skips), 3/3 Node UI PASS, 30/30+6/6 golden intent PASS, M2 B1/B2 PASS, I-1..I-5 & M-1..M-2 all closed (including 64-bit+ MCP RequestId preservation & pre-dispatch -32600 invalid-ID guard); awaiting final read-only gpt-6.2-astra ultra sign-off audit."
     }
   },
-  "last_commit_sha": "b45a4e7",
+  "last_commit_sha": "ed4d87b",
   "colab_idle_vms": 0
 }
