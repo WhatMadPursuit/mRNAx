@@ -8,6 +8,7 @@ import math
 import os
 import platform
 import random
+import re
 import subprocess
 import sys
 import tempfile
@@ -18,21 +19,33 @@ from pathlib import Path
 from typing import Any, get_args
 
 from mrnax.constraints.frameshift_m1psi import remediate_m1psi_slippery_runs
+from mrnax.constraints.fto_guard import COMMERCIAL_ZERO_GPL_REQUIREMENT, MethodFTOGuard, normalize_sense_cds
 from mrnax.constraints.registry import ScopedConstraintEngine
+from mrnax.constraints.sequence_gates import has_rc005_cds_provenance
 from mrnax.engine.cell_expression import (
     MissingTissueMeasurement,
     select_detarget_mirna_entry,
     assemble_detargeted_3utr,
     build_crs_and_tissue_safety_advisory,
 )
-from mrnax.engine.profiles import COMPONENT_CATALOG, check_profile_readiness
+from mrnax.engine.profiles import (
+    COMPONENT_CATALOG,
+    RC005_PARTNER_METRICS,
+    audit_component_commercial_clean,
+    check_profile_readiness,
+    producer_covers_metric,
+    rc005_partner_covers_metric,
+    structrfm_unavailable_reason,
+    resolve_default_seed_dir,
+    resolve_tool_name_to_component_id,
+)
 from mrnax.engine.stage0_baseline import (
     generate_dnachisel_cds,
     generate_random_synonymous_cds,
     mutate_cds_region_synonymously,
     propose_non_partitioned_bicodon_cds,
 )
-from mrnax.engine.surrogates import CommercialCleanSurrogateV1, StructRFMNativeScorer
+from mrnax.engine.surrogates import STRUCTRFM_NATIVE_CHEMISTRIES, CommercialCleanSurrogateV1, StructRFMNativeScorer
 from mrnax.engine.thermodynamics import (
     compute_cds_sliding_window_mfe,
     evaluate_molecule_thermodynamics,
@@ -57,6 +70,7 @@ from mrnax.schemas.evaluation_report import (
     FTOAlert,
     MetricResult,
     RequirementActionTrace,
+    serialize_report_artifact,
 )
 from mrnax.schemas.run_manifest import (
     ArtifactChecksumRecord,
@@ -369,6 +383,16 @@ def score_objective_value(val: float, obj: ObjectiveSpec) -> float | None:
     return None
 
 
+def _is_rc005_partner_measurement(metric: MetricResult, component: str | None, *, chains: int) -> bool:
+    if not rc005_partner_covers_metric(component, metric.tool_name, metric.metric_id, metric.evaluated_scopes):
+        return False
+    if metric.participated_in == "display_only" or metric.value is None or not math.isfinite(metric.value):
+        return False
+    if metric.chain_values is None:
+        return chains == 1
+    return len(metric.chain_values) == chains and all(math.isfinite(v) for v in metric.chain_values)
+
+
 def project_report_for_intent(
     report: EvaluationReport,
     bundles_by_id: dict[str, ConstructBundle],
@@ -378,46 +402,53 @@ def project_report_for_intent(
     disallow_sandbox_override: bool = False,
 ) -> EvaluationReport:
     """Project stored EvaluationReport against active DesignIntent target proteins, chains, rules, and measured objectives."""
-    if intent is not None and intent.compliance_track == "commercial_clean":
+    def without_ranking():
+        return [trace for trace in report.action_transparency if trace.stage_applied != "ranking"]
+
+    def withdraw(reason: str) -> EvaluationReport:
+        return report.model_copy_validated(
+            outcome_status="UNCOMPARABLE_MISSING_APPROVED_COMPONENT", uncomparable_reason=reason,
+            candidate_evaluations=[], recommended_bundle_ids=[], action_transparency=without_ranking(),
+        )
+
+    is_commercial = (
+        intent is not None and intent.compliance_track == "commercial_clean"
+    ) or report.compliance_track == "commercial_clean"
+    if is_commercial:
+        has_candidate_claims = bool(report.candidate_evaluations or report.recommended_bundle_ids)
+        completed = report.outcome_status in {"COMPLETED_WITH_CANDIDATES", "COMPLETED_TIE"}
+        wrong_origin = intent is not None and (
+            report.intent_id != intent.intent_id or report.intent_version != intent.intent_version
+            or report.compliance_track != intent.compliance_track
+        )
+        if wrong_origin or (has_candidate_claims and (not completed or not report.candidate_evaluations)):
+            return report.model_copy_validated(
+                outcome_status="UNCOMPARABLE_MISSING_APPROVED_COMPONENT",
+                uncomparable_reason="Stored candidate claims lack a completed evaluation for this intent revision and track.",
+                candidate_evaluations=[], recommended_bundle_ids=[], action_transparency=[],
+            )
         if disallow_sandbox_override and report.isolated_sandbox_override:
-            return report.model_copy_validated(
-                outcome_status="UNCOMPARABLE_MISSING_APPROVED_COMPONENT",
-                uncomparable_reason="Sandbox-override report cannot be served as a production commercial_clean recommendation.",
-                candidate_evaluations=[],
-                recommended_bundle_ids=[],
+            return withdraw("Sandbox-override report cannot be served as a production commercial_clean recommendation.")
+        eff_seed = seed_dir or resolve_default_seed_dir()
+        cc_rules_path = eff_seed / "rules_commercial_v1.json"
+        if not cc_rules_path.is_file():
+            return withdraw(f"Required commercial rule registry '{cc_rules_path.name}' is missing.")
+        try:
+            verified_snap = RuleRegistry(cc_rules_path, track="commercial_clean").snapshot_version()
+        except ValueError as exc:
+            return withdraw(str(exc))
+        if report.rule_snapshot_version != verified_snap:
+            return withdraw(
+                f"Stored report rule snapshot '{report.rule_snapshot_version}' does not match active "
+                f"commercial_clean registry '{verified_snap}'."
             )
-        if report.rule_snapshot_version is not None and not report.rule_snapshot_version.startswith(
-            "rules_commercial_clean@"
-        ):
-            return report.model_copy_validated(
-                outcome_status="UNCOMPARABLE_MISSING_APPROVED_COMPONENT",
-                uncomparable_reason=(
-                    f"Report rule snapshot '{report.rule_snapshot_version}' is incompatible with commercial_clean."
-                ),
-                candidate_evaluations=[],
-                recommended_bundle_ids=[],
-            )
-        if seed_dir is not None:
-            cc_rules_path = seed_dir / "rules_commercial_v1.json"
-            if not cc_rules_path.is_file():
-                return report.model_copy_validated(
-                    outcome_status="UNCOMPARABLE_MISSING_APPROVED_COMPONENT",
-                    uncomparable_reason=f"Required commercial rule registry '{cc_rules_path.name}' is missing.",
-                    candidate_evaluations=[],
-                    recommended_bundle_ids=[],
-                )
-            try:
-                RuleRegistry(cc_rules_path, track="commercial_clean").snapshot_version()
-            except ValueError as exc:
-                return report.model_copy_validated(
-                    outcome_status="UNCOMPARABLE_MISSING_APPROVED_COMPONENT",
-                    uncomparable_reason=str(exc),
-                    candidate_evaluations=[],
-                    recommended_bundle_ids=[],
-                )
+        if intent is not None:
+            readiness = check_profile_readiness(intent)
+            if not readiness.is_runnable:
+                return withdraw(readiness.uncomparable_reason or "Intent components are not approved for commercial_clean.")
 
     if not report.candidate_evaluations:
-        return report
+        return report.model_copy_validated(action_transparency=without_ranking())
 
     expected_proteins = [t.protein_sequence for t in intent.protein_targets] if (intent and intent.protein_targets) else None
     rankable_objs = (
@@ -426,17 +457,36 @@ def project_report_for_intent(
         else None
     )
 
+    constraint_engine = None
+    if is_commercial:
+        try:
+            constraint_engine = ScopedConstraintEngine.from_seed_dir(eff_seed)
+        except (OSError, ValueError) as exc:
+            return withdraw(f"Cannot verify stored candidate hard gates: {exc}")
+    no_objectives = intent is not None and not intent.objectives
     surviving: list[tuple[BundleEvaluation, list[float]]] = []
+    conflicting_digests = {
+        e.bundle_id for e in report.candidate_evaluations
+        if e.bundle_id in bundles_by_id and getattr(e, "version_digest", None) != bundles_by_id[e.bundle_id].version_digest
+    }
     for ev in report.candidate_evaluations:
         bundle = bundles_by_id.get(ev.bundle_id)
-        if bundle is None:
+        if bundle is None or ev.bundle_id in conflicting_digests or not ev.passed_all_hard_gates:
+            continue
+        if ev.version_digest != bundle.compute_digest(
+            bundle.molecules, bundle.target_stoichiometry, bundle.co_expression_mode, bundle.external_evidence
+        ):
             continue
         if expected_proteins is not None:
             if len(bundle.molecules) != len(expected_proteins):
                 continue
             if [m.effective_translation_target.protein_sequence for m in bundle.molecules] != expected_proteins:
                 continue
-            if [m.translate_cds_protein() for m in bundle.molecules] != expected_proteins:
+            if any(
+                m.effective_translation_target.transl_table != target.transl_table
+                or m.translate_cds_protein(translation_table=target.transl_table) != target.protein_sequence
+                for m, target in zip(bundle.molecules, intent.protein_targets, strict=True)
+            ):
                 continue
         partial_ids = {
             m.metric_id
@@ -453,7 +503,37 @@ def project_report_for_intent(
             continue
         m_map: dict[str, float] = {}
         conflicting_dup = False
+        unapproved_tool_hit = False
+        requires_rc005_partner = has_rc005_cds_provenance(bundle) or bool(
+            intent and "codontransformer_cds_baseline" in intent.runtime_policy.enabled_generators
+        ) or any(resolve_tool_name_to_component_id(m.tool_name) == "codontransformer_cds_baseline" for m in ev.metrics)
+        has_cleared_partner_metric = False
+        chemistries = {mol.chemistry_track.uridine_chemistry for mol in bundle.molecules}
+        if intent is not None:
+            chemistries.add(intent.uridine_chemistry)
         for m in ev.metrics:
+            comp_id = resolve_tool_name_to_component_id(m.tool_name, m.metric_id)
+            if is_commercial:
+                if comp_id is None:
+                    if m.participated_in != "display_only":
+                        unapproved_tool_hit = True
+                        break
+                elif audit_component_commercial_clean(comp_id) is not None:
+                    unapproved_tool_hit = True
+                    break
+            check_domain = is_commercial or comp_id is not None or requires_rc005_partner
+            if check_domain and not producer_covers_metric(
+                comp_id, m.tool_name, m.metric_id, m.evaluated_scopes,
+                display_only=m.participated_in == "display_only", research=not is_commercial,
+            ):
+                unapproved_tool_hit = True
+                break
+            if comp_id == "structrfm_rna_foundation" and not chemistries <= STRUCTRFM_NATIVE_CHEMISTRIES:
+                unapproved_tool_hit = True
+                break
+            if (comp_id is not None and _is_rc005_partner_measurement(m, comp_id, chains=len(bundle.molecules))
+                    and (is_commercial or audit_component_commercial_clean(comp_id) is None)):
+                has_cleared_partner_metric = True
             if (
                 m.participated_in != "display_only"
                 and m.value is not None
@@ -465,10 +545,22 @@ def project_report_for_intent(
                     conflicting_dup = True
                     break
                 m_map[m.metric_id] = fval
-        if conflicting_dup or not m_map:
+        if unapproved_tool_hit or conflicting_dup or (not m_map and not no_objectives):
             continue
+        if requires_rc005_partner and not has_cleared_partner_metric:
+            continue
+        if constraint_engine is not None:
+            checked = constraint_engine.evaluate_bundle(
+                bundle, intent.constraints if intent else [], compliance_track="commercial_clean",
+                expected_chemistry=intent.uridine_chemistry if intent else None,
+                locked_scopes=intent.locked_scopes if intent else None,
+                expected_protein_targets=intent.protein_targets if intent else None,
+                rc005_active=requires_rc005_partner,
+            )
+            if not checked.passed_all_hard_gates:
+                continue
         if rankable_objs is not None:
-            if not rankable_objs:
+            if not rankable_objs and not no_objectives:
                 continue
             vec: list[float] = []
             ok = True
@@ -488,12 +580,8 @@ def project_report_for_intent(
             surviving.append((ev, []))
 
     if not surviving:
-        return report.model_copy_validated(
-            outcome_status="UNCOMPARABLE_MISSING_APPROVED_COMPONENT",
-            uncomparable_reason=report.uncomparable_reason
-            or "Stored candidates lack complete objective, target-protein, or chain measurement coverage.",
-            candidate_evaluations=[],
-            recommended_bundle_ids=[],
+        return withdraw(
+            report.uncomparable_reason or "Stored candidates lack complete objective, target-protein, or chain measurement coverage."
         )
 
     if rankable_objs:
@@ -506,35 +594,38 @@ def project_report_for_intent(
             )
             for idx in order
         ]
-        rank_by_bid = {e.bundle_id: e.pareto_rank for e in recomputed_evals}
-        kept_recs = [bid for bid in report.recommended_bundle_ids if rank_by_bid.get(bid) == 1]
-        if not kept_recs:
-            kept_recs = [e.bundle_id for e in recomputed_evals if e.pareto_rank == 1][:3]
-        is_tie = len(vectors) > 1 and all(v == vectors[0] for v in vectors[1:])
+        # Keep each measured row on its own card; recommendation slots identify distinct bundles.
+        front = dict.fromkeys(e.bundle_id for e in recomputed_evals if e.pareto_rank == 1)
+        kept_recs = [bid for bid in report.recommended_bundle_ids if bid in front]
+        if not kept_recs or len(set(kept_recs)) != len(kept_recs):
+            kept_recs = list(front)
+        kept_recs = kept_recs[:3]
+        is_tie = len(front) > 1 and all(v == vectors[0] for v in vectors[1:])
         status = "COMPLETED_TIE" if is_tie else "COMPLETED_WITH_CANDIDATES"
-        if (
-            [e.bundle_id for e in report.candidate_evaluations] != [e.bundle_id for e in recomputed_evals]
-            or [e.pareto_rank for e in report.candidate_evaluations] != [e.pareto_rank for e in recomputed_evals]
-            or kept_recs != report.recommended_bundle_ids
-            or status != report.outcome_status
-        ):
-            return report.model_copy_validated(
-                outcome_status=status,  # type: ignore[arg-type]
-                candidate_evaluations=recomputed_evals,
-                recommended_bundle_ids=kept_recs,
-            )
-        return report
-
-    valid_ids = {ev.bundle_id for ev, _ in surviving}
-    desired_recs = [] if intent is not None else [bid for bid in report.recommended_bundle_ids if bid in valid_ids]
-    if valid_ids != {e.bundle_id for e in report.candidate_evaluations} or desired_recs != report.recommended_bundle_ids:
+    else:
+        recomputed_evals = [ev for ev, _ in surviving]
+        valid_ids = {ev.bundle_id for ev in recomputed_evals}
+        kept_recs = [] if intent is not None else list(dict.fromkeys(
+            bid for bid in report.recommended_bundle_ids if bid in valid_ids
+        ))
         status = "COMPLETED_WITH_CANDIDATES" if len(surviving) == 1 and report.outcome_status == "COMPLETED_TIE" else report.outcome_status
-        return report.model_copy_validated(
-            outcome_status=status,
-            candidate_evaluations=[ev for ev, _ in surviving],
-            recommended_bundle_ids=desired_recs,
-        )
-    return report
+
+    actions = []
+    filtered = len(surviving) != len(report.candidate_evaluations) or kept_recs != report.recommended_bundle_ids
+    for trace in report.action_transparency:
+        if trace.stage_applied != "ranking":
+            actions.append(trace)
+        elif kept_recs:
+            ids = list(dict.fromkeys(bid for bid in trace.changed_candidate_ids if bid in kept_recs))
+            if filtered or ids != trace.changed_candidate_ids:
+                trace = trace.model_copy_validated(
+                    changed_candidate_ids=ids, proof_diff_summary="Historical ranking restricted to eligible candidates."
+                )
+            actions.append(trace)
+    return report.model_copy_validated(
+        outcome_status=status, candidate_evaluations=recomputed_evals,
+        recommended_bundle_ids=kept_recs, action_transparency=actions,
+    )
 
 
 def _aggregate_chain_metrics(chain_metric_lists: list[list[MetricResult]]) -> tuple[list[MetricResult], bool]:
@@ -621,6 +712,25 @@ def _utr3_rbp_decay_prior(seq: str, destab_motifs: tuple[str, ...], stab_motifs:
     return score
 
 
+def _valid_otool_library_listing(output: str, executable: Path) -> bool:
+    if "is not an object file" in output.lower():
+        return False
+    header = re.compile(re.escape(str(executable)) + r"(?: \(architecture [^()]+\))?:")
+    version = r"[0-9]+(?:\.[0-9]+){0,2}"
+    dependency = re.compile(rf"\s+\S.* \(compatibility version {version}, current version {version}(?:, [^()]+)?\)")
+    libraries = None
+    for line in output.splitlines():
+        if header.fullmatch(line):
+            if libraries == 0:
+                return False
+            libraries = 0
+        elif libraries is not None and line.strip():
+            if not dependency.fullmatch(line):
+                return False
+            libraries += 1
+    return bool(libraries)
+
+
 def _evaluate_molecule_eternafold(
     mol: RNAMoleculeSpec,
     *,
@@ -638,36 +748,72 @@ def _evaluate_molecule_eternafold(
         fa = Path(td) / "in.fa"
         post = Path(td) / "post.txt"
         fa.write_text(f">seq\n{ctx}\n", encoding="utf-8")
-        subprocess.run(
-            [
-                str(contrafold_bin),
-                "predict",
-                str(fa),
-                "--params",
-                str(ef_params),
-                "--posteriors",
-                "0.0001",
-                str(post),
-            ],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=30,
-        )
+        try:
+            subprocess.run(
+                [
+                    str(contrafold_bin),
+                    "predict",
+                    str(fa),
+                    "--params",
+                    str(ef_params),
+                    "--posteriors",
+                    "0.0001",
+                    str(post),
+                ],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=30,
+            )
+        except (subprocess.SubprocessError, OSError):
+            return [], []
+        if not post.is_file():
+            return [], []
+        try:
+            raw_post = post.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeDecodeError):
+            return [], []
+        if not raw_post or n_len <= 0:
+            return [], []
         paired = [0.0] * n_len
-        for line in post.read_text(encoding="utf-8").splitlines():
+        positions = 0
+        upper: dict[tuple[int, int], float] = {}
+        lower: dict[tuple[int, int], float] = {}
+        for line in raw_post:
             parts = line.strip().split()
-            if len(parts) < 2 or not parts[0].isdigit():
+            if not parts:
                 continue
-            i = int(parts[0]) - 1
+            if len(parts) < 2 or not re.fullmatch(r"[0-9]+", parts[0]):
+                return [], []
+            i = positions
+            base_ch = parts[1].upper().replace("T", "U")
+            if i >= n_len or parts[0] != str(i + 1) or base_ch != ctx[i]:
+                return [], []
+            positions += 1
             for tok in parts[2:]:
-                if ":" in tok:
-                    j_s, p_s = tok.split(":", 1)
-                    j = int(j_s) - 1
+                if ":" not in tok:
+                    return [], []
+                j_s, p_s = tok.split(":", 1)
+                if not re.fullmatch(r"[1-9][0-9]*", j_s) or len(j_s) > len(str(n_len)):
+                    return [], []
+                j = int(j_s) - 1
+                try:
                     p = float(p_s)
-                    if 0 <= i < n_len and 0 <= j < n_len:
-                        paired[i] += p
-                        paired[j] += p
+                except ValueError:
+                    return [], []
+                if not (0 <= j < n_len) or j == i or not math.isfinite(p) or p < 0.0 or p > 1.0:
+                    return [], []
+                triangle, pair = (upper, (i, j)) if i < j else (lower, (j, i))
+                if pair in triangle:
+                    return [], []
+                triangle[pair] = p
+        if positions != n_len or (lower and lower != upper):
+            return [], []
+        for (i, j), probability in upper.items():
+            paired[i] += probability
+            paired[j] += probability
+        if any(pv > 1.001 for pv in paired):
+            return [], []
     unpaired = [max(0.0, min(1.0, 1.0 - pv)) for pv in paired]
     tis_start = max(0, len(u5_tail) - 15)
     tis_end = min(n_len, len(u5_tail) + 18)
@@ -678,14 +824,19 @@ def _evaluate_molecule_eternafold(
         "native_chemistry_validated" if chem == "unmodified_u" else "endogenous_unmodified_proxy"
     )
     advisories: list[AdvisoryNote] = []
-    if chem in {"m1psi", "pseudouridine"}:
+    if chem != "unmodified_u":
+        probe_guidance = (
+            f"Pair with the RC-002 structRFM native SHAPE-MaP probe for '{chem}' when a GPU is available."
+            if chem in STRUCTRFM_NATIVE_CHEMISTRIES
+            else f"RC-002 structRFM has no native validated SHAPE-MaP probe for '{chem}'."
+        )
         advisories.append(
             AdvisoryNote(
-                advisory_id="adv_eternafold_m1psi_proxy",
+                advisory_id=f"adv_eternafold_{chem}_proxy",
                 category="chemistry_approximation",
                 message=(
-                    f"EternaFold v1.3.1 (RC-004) posteriors are calibrated on unmodified chemical-mapping data; "
-                    f"for declared '{chem}' chemistry, pair with RC-002 structRFM native m1Psi SHAPE-MaP probe when GPU is mounted."
+                    "EternaFold v1.3.1 (RC-004) posteriors are calibrated on unmodified chemical-mapping data. "
+                    + probe_guidance
                 ),
             )
         )
@@ -701,10 +852,60 @@ def _evaluate_molecule_eternafold(
                 tool_version=COMPONENT_CATALOG["eternafold_bpp_engine"].version,
                 chemistry_evaluation_mode=chem_mode,  # type: ignore[arg-type]
                 participated_in="pareto_selection_or_ranking",
-            )
+            ),
+            MetricResult(
+                metric_id="eternafold_aup",
+                value=round(sum(unpaired) / max(1, len(unpaired)), 5),
+                unit="probability",
+                direction="informational",
+                evaluated_scopes=["five_prime_utr", "cds"],
+                tool_name="EternaFoldBSD3",
+                tool_version=COMPONENT_CATALOG["eternafold_bpp_engine"].version,
+                chemistry_evaluation_mode=chem_mode,  # type: ignore[arg-type]
+                participated_in="display_only",
+                notes="pairing/unpaired probability [0,1]; strictly separate from kcal/mol MFE",
+            ),
         ],
         advisories,
     )
+
+
+def _wildtype_references_by_index(
+    references: dict[int | str, str], intent: DesignIntent,
+    reference_bundle: ConstructBundle | None, cached_candidates: list[ConstructBundle] | None,
+) -> dict[int, str]:
+    if not references:
+        raise ValueError("wildtype_cds_reference requires at least one chain key")
+    count = len(intent.protein_targets)
+    id_indices: dict[str, set[int]] = {}
+    bundles = ([reference_bundle] if reference_bundle else []) + (cached_candidates or [])
+    for bundle in bundles:
+        for idx, (mol, target) in enumerate(zip(bundle.molecules, intent.protein_targets)):
+            actual = mol.effective_translation_target
+            if (actual.protein_sequence, actual.transl_table) == (target.protein_sequence, target.transl_table):
+                id_indices.setdefault(mol.molecule_id, set()).add(idx)
+    if not bundles:
+        for idx in range(count):
+            generated_id = "mol_primary" if count == 1 else f"chain_{idx + 1:02d}"
+            id_indices[generated_id] = {idx}
+
+    resolved: dict[int, str] = {}
+    for key, cds in references.items():
+        indices: set[int] = set()
+        if type(key) is int and 0 <= key < count:
+            indices.add(key)
+        elif isinstance(key, str) and key.strip():
+            indices.update(id_indices.get(key, ()))
+            if key.isdecimal() and int(key) < count:
+                indices.add(int(key))
+        if len(indices) != 1:
+            problem = "Ambiguous" if indices else "Unrecognized"
+            raise ValueError(f"{problem} chain key {key!r} in wildtype_cds_reference; use a molecule ID or index 0–{count - 1}")
+        idx = indices.pop()
+        if idx in resolved:
+            raise ValueError(f"Duplicate chain key {key!r} for index {idx} in wildtype_cds_reference")
+        resolved[idx] = cds
+    return resolved
 
 
 def run_design_pipeline(
@@ -712,10 +913,13 @@ def run_design_pipeline(
     *,
     reference_bundle: ConstructBundle | None = None,
     cached_candidates: list[ConstructBundle] | None = None,
+    wildtype_cds_reference: str | list[str] | dict[int | str, str] | None = None,
+    target_deployment_jurisdictions: list[str] | None = None,
     seed_dir: Path,
     rule_snapshot_version: str | None = None,
     isolated_sandbox_override: bool = False,
     structrfm_scorer: StructRFMNativeScorer | None = None,
+    codontransformer_model: Any = None,
     legacy_pure_rerank_mode: bool = False,
 ) -> tuple[list[ConstructBundle], EvaluationReport, RunManifest]:
     """Execute Stage 0 + Sliding-Window CDS<->UTR Pareto Optimization with shared scoped constraints."""
@@ -737,8 +941,27 @@ def run_design_pipeline(
         "rules_commercial_clean@missing" if intent.compliance_track == "commercial_clean" else "rules_research_v1@1.0.0"
     )
 
+    mfto_seed_path = seed_dir / "method_fto_guard_v1.1.json"
+    if not mfto_seed_path.is_file() and intent.compliance_track != "commercial_clean":
+        mfto_seed_path = resolve_default_seed_dir() / "method_fto_guard_v1.1.json"
+    mfto_load_error: str | None = None
+    active_method_fto_guard: MethodFTOGuard | None = None
+    if mfto_seed_path.is_file():
+        try:
+            active_method_fto_guard = MethodFTOGuard.from_json_path(mfto_seed_path)
+        except (ValueError, json.JSONDecodeError) as exc:
+            mfto_load_error = str(exc)
+
     # 2. Clean-Room profile readiness check (`commercial_clean` vs `research_max`)
-    def unavailable(reason: str) -> tuple[list[ConstructBundle], EvaluationReport, RunManifest]:
+    unavailable_components: dict[str, str] = {}
+    if "structrfm_rna_foundation" in intent.runtime_policy.enabled_evaluators:
+        reason = structrfm_unavailable_reason(intent.uridine_chemistry)
+        if reason:
+            unavailable_components["structrfm_rna_foundation"] = reason
+
+    def unavailable(
+        reason: str, *, method_fto_blocks: dict[str, str] | None = None,
+    ) -> tuple[list[ConstructBundle], EvaluationReport, RunManifest]:
         report = EvaluationReport(
             report_id=f"rep_{exec_id.removeprefix('exec_')}",
             execution_id=exec_id,
@@ -766,6 +989,30 @@ def run_design_pipeline(
             rule_snapshot_version=resolved_rule_snapshot,
             isolated_sandbox_override=isolated_sandbox_override,
         )
+        mfto_ver = (
+            f"{active_method_fto_guard.registry_id}@{active_method_fto_guard.version}"
+            if active_method_fto_guard is not None
+            else "method_fto_guard_v1.1@missing"
+        )
+        mfto_checks = (
+            active_method_fto_guard.not_executed_checks(override_blocks=method_fto_blocks)
+            if active_method_fto_guard is not None
+            else {}
+        )
+        entries = []
+        if intent.compliance_track == "commercial_clean":
+            from mrnax.constraints.fto_guard import count_component_gpl_dependencies
+
+            for cid in dict.fromkeys([*intent.runtime_policy.enabled_generators, *intent.runtime_policy.enabled_evaluators]):
+                spec = COMPONENT_CATALOG.get(cid)
+                if spec is None:
+                    continue
+                count = count_component_gpl_dependencies(cid, spec.code_license, spec.weights_license)
+                if count:
+                    entries.append(dict(asset_id=spec.display_name, version=spec.version, role=spec.role,
+                                        code_license=spec.code_license, weights_license=spec.weights_license,
+                                        data_license=spec.data_license, license_track=spec.license_track,
+                                        transitive_gpl_count=count, admission="BLOCK"))
         manifest = RunManifest(
             submission_id=f"sub_{intent.intent_id}",
             execution_id=exec_id,
@@ -776,6 +1023,7 @@ def run_design_pipeline(
             platform_info=platform.platform(),
             compliance_track=intent.compliance_track,
             invoked_components=[],
+            unavailable_components=unavailable_components,
             rule_snapshot_version=resolved_rule_snapshot,
             isolated_sandbox_override=isolated_sandbox_override,
             prng_state_digest="not_executed",
@@ -788,9 +1036,27 @@ def run_design_pipeline(
                 uses_two_zone_initiation_body_partition=None,
                 uses_dfa_cfg_intersection=None,
                 sequence_fto_screen_applied=False,
+                method_fto_guard_version=mfto_ver,
+                certifies_100_percent_fto=False,
+                counsel_fto_signoff_required=True,
+                target_deployment_jurisdictions=list(
+                    target_deployment_jurisdictions
+                    or (active_method_fto_guard.jurisdictions if active_method_fto_guard else ["CN", "US", "EP", "JP"])
+                ),
+                input_origin_type="not_executed",
+                region_partition_strategy="not_executed",
+                method_fto_boundary_checks=mfto_checks,
+                three_layer_dependency_manifest=entries,
             ),
         )
         return [], report, manifest
+
+    if mfto_load_error is not None:
+        return unavailable(f"Invalid method_fto_guard_v1.1.json: {mfto_load_error}")
+    if intent.compliance_track == "commercial_clean" and active_method_fto_guard is None:
+        return unavailable(
+            "Required method_fto_guard_v1.1.json is missing; refusing commercial_clean execution without Method-FTO guard."
+        )
 
     if intent.compliance_track == "commercial_clean":
         cc_rules_path = seed_dir / "rules_commercial_v1.json"
@@ -819,6 +1085,93 @@ def run_design_pipeline(
     readiness = check_profile_readiness(intent)
     if not readiness.is_runnable:
         return unavailable(readiness.uncomparable_reason or "Profile is unavailable")
+
+    if active_method_fto_guard is not None:
+        mfto_blocks = active_method_fto_guard.evaluate_pre_execution_intent(intent)
+        if mfto_blocks:
+            joined = "; ".join(f"{bid}: {msg}" for bid, msg in mfto_blocks.items())
+            return unavailable(
+                f"无法比较：Method-FTO 护栏阻断 ({joined})",
+                method_fto_blocks=mfto_blocks,
+            )
+
+    # Resolve & strictly validate per-chain CureVac wild-type CDS references across ALL chains upfront
+    from Bio.Seq import Seq
+
+    wildtype_cds_by_chain: dict[int, str] = {}
+    for idx, pt in enumerate(intent.protein_targets):
+        if pt.wildtype_cds_rna is not None:
+            wildtype_cds_by_chain[idx] = pt.wildtype_cds_rna
+
+    declared_wildtype_cds = dict(wildtype_cds_by_chain)
+    if wildtype_cds_reference is not None:
+        if isinstance(wildtype_cds_reference, str):
+            if len(intent.protein_targets) != 1:
+                err_note = (
+                    f"Multi-chain intent ({len(intent.protein_targets)} chains) requires per-chain CureVac "
+                    "wild-type CDS references (list or dict by chain index/molecule_id), not a single string."
+                )
+                return unavailable(
+                    f"无法比较：{err_note}",
+                    method_fto_blocks={"CUREVAC_US10898584B2_FAMILY_SYNONYMOUS_CYTOSINE_THRESHOLD": err_note},
+                )
+            wildtype_cds_by_chain[0] = wildtype_cds_reference
+        elif isinstance(wildtype_cds_reference, list):
+            if len(wildtype_cds_reference) != len(intent.protein_targets):
+                err_note = (
+                    f"wildtype_cds_reference list length ({len(wildtype_cds_reference)}) != "
+                    f"target chain count ({len(intent.protein_targets)})"
+                )
+                return unavailable(
+                    f"无法比较：{err_note}",
+                    method_fto_blocks={"CUREVAC_US10898584B2_FAMILY_SYNONYMOUS_CYTOSINE_THRESHOLD": err_note},
+                )
+            for idx, wt_s in enumerate(wildtype_cds_reference):
+                if wt_s is not None:
+                    wildtype_cds_by_chain[idx] = wt_s
+        elif isinstance(wildtype_cds_reference, dict):
+            try:
+                wildtype_cds_by_chain.update(_wildtype_references_by_index(
+                    wildtype_cds_reference, intent, reference_bundle, cached_candidates,
+                ))
+            except ValueError as exc:
+                return unavailable(
+                    f"无法比较：{exc}",
+                    method_fto_blocks={"CUREVAC_US10898584B2_FAMILY_SYNONYMOUS_CYTOSINE_THRESHOLD": str(exc)},
+                )
+
+    if reference_bundle is not None:
+        wt_prov_re = re.compile(r"(?:^|[^a-z0-9])(?:wild[-_\s]?type|wt)(?:$|[^a-z0-9])", re.IGNORECASE)
+        for idx, ref_mol in enumerate(reference_bundle.molecules):
+            if idx in wildtype_cds_by_chain or idx >= len(intent.protein_targets):
+                continue
+            ref_cds_seg = ref_mol.get_segment("cds")
+            if ref_cds_seg is not None and (
+                wt_prov_re.search(ref_cds_seg.origin_source)
+                or wt_prov_re.search(str(ref_cds_seg.component_id or ""))
+            ):
+                # Note: preset egfp_ref_R component_id is 'cds_u55762_wt_m1psi_clean' with origin_source 'GenBank:U55762.1'
+                # Only treat explicit origin_source wild-type declarations as wild-type mRNA references!
+                if wt_prov_re.search(ref_cds_seg.origin_source):
+                    wildtype_cds_by_chain[idx] = ref_mol.get_segment_sequence("cds")
+
+    for idx, raw_wt in list(wildtype_cds_by_chain.items()):
+        pt = intent.protein_targets[idx]
+        try:
+            wt_norm = normalize_sense_cds(raw_wt, pt.transl_table)
+            if idx in declared_wildtype_cds and wt_norm != normalize_sense_cds(
+                declared_wildtype_cds[idx], pt.transl_table,
+            ):
+                raise ValueError("Conflicting wild-type CDS references for the same chain")
+            if str(Seq(wt_norm).translate(table=pt.transl_table)) != pt.protein_sequence:
+                raise ValueError("Reference CDS translation does not match the target protein")
+        except ValueError as exc:
+            err_note = f"Chain {idx + 1} CureVac wild-type CDS reference failed frame/length/translation validation: {exc}"
+            return unavailable(
+                f"无法比较：{err_note}",
+                method_fto_blocks={"CUREVAC_US10898584B2_FAMILY_SYNONYMOUS_CYTOSINE_THRESHOLD": err_note},
+            )
+        wildtype_cds_by_chain[idx] = wt_norm
 
     mir_v2_path = seed_dir / "mirna_rbp_commercial_v2.json"
     mir_reg = json.loads(
@@ -864,8 +1217,18 @@ def run_design_pipeline(
 
     use_structrfm = "structrfm_rna_foundation" in intent.runtime_policy.enabled_evaluators
     active_structrfm: StructRFMNativeScorer | None = None
-    if use_structrfm:
+    if use_structrfm and "structrfm_rna_foundation" not in unavailable_components:
         if structrfm_scorer is not None:
+            from mrnax.engine.surrogates import is_loader_authenticated_structrfm
+
+            if (
+                intent.compliance_track == "commercial_clean"
+                and not isolated_sandbox_override
+                and not is_loader_authenticated_structrfm(structrfm_scorer)
+            ):
+                return unavailable(
+                    "无法比较：commercial_clean 拒绝未经 StructRFMNativeScorer.from_checkpoint_and_seed_dir 发布摘要校验的注入式实例。"
+                )
             active_structrfm = structrfm_scorer
         else:
             ckpt_env = os.environ.get("MRNAX_STRUCTRFM_CKPT_DIR", "").strip()
@@ -879,7 +1242,13 @@ def run_design_pipeline(
                 Path(ckpt_env), seed_dir, allow_sandbox_override=isolated_sandbox_override
             )
 
-    use_eternafold = "eternafold_bpp_engine" in intent.runtime_policy.enabled_evaluators
+    requested_ef_ids = [
+        cid
+        for cid in ("eternafold_bpp_engine", "eternafold_structure_head")
+        if cid in intent.runtime_policy.enabled_evaluators
+    ]
+    use_eternafold = bool(requested_ef_ids)
+    active_eternafold_comp_id = requested_ef_ids[0] if requested_ef_ids else "eternafold_bpp_engine"
     active_eternafold_bin: Path | None = None
     active_eternafold_params: Path | None = None
     if use_eternafold:
@@ -895,20 +1264,68 @@ def run_design_pipeline(
             or not ef_params_cand.is_file()
         ):
             missing_ef = (
-                "无法比较：已请求 eternafold_bpp_engine 评估器，但当前节点未挂载有效的 BSD-3-Clause EternaFold v1.3.1 二进制与参数文件 "
+                f"无法比较：已请求 {active_eternafold_comp_id} 评估器，但当前节点未挂载有效的 BSD-3-Clause EternaFold v1.3.1 二进制与参数文件 "
                 "(需设置可执行 MRNAX_ETERNAFOLD_BIN 与 MRNAX_ETERNAFOLD_PARAMS 指向 parameters/EternaFoldParams.v1；参见 RC-004-eternafold-v1.3.1.yaml)"
             )
             return unavailable(missing_ef)
-        expected_ef_sha = APPROVED_REPLACEMENT_RELEASES["eternafold_bpp_engine"].artifact_digests[
+        expected_ef_sha = APPROVED_REPLACEMENT_RELEASES[active_eternafold_comp_id].artifact_digests[
             "parameters/EternaFoldParams.v1"
         ]
         actual_ef_sha = hashlib.sha256(ef_params_cand.read_bytes()).hexdigest()
-        if not isolated_sandbox_override and actual_ef_sha != expected_ef_sha:
-            return unavailable(
-                f"无法比较：MRNAX_ETERNAFOLD_PARAMS SHA-256 ({actual_ef_sha}) 与 RC-004 冻结摘要 ({expected_ef_sha}) 不一致。"
-            )
+        if not isolated_sandbox_override:
+            if actual_ef_sha != expected_ef_sha:
+                return unavailable(
+                    f"无法比较：MRNAX_ETERNAFOLD_PARAMS SHA-256 ({actual_ef_sha}) 与 RC-004 冻结摘要 ({expected_ef_sha}) 不一致。"
+                )
+            expected_bin_sha = os.environ.get("MRNAX_ETERNAFOLD_BIN_SHA256", "").strip().lower()
+            actual_bin_sha = hashlib.sha256(ef_bin_cand.read_bytes()).hexdigest()
+            if not re.fullmatch(r"[0-9a-f]{64}", expected_bin_sha) or actual_bin_sha != expected_bin_sha:
+                return unavailable(
+                    "无法比较：非沙盒模式下启用 EternaFold 必须提供匹配的 MRNAX_ETERNAFOLD_BIN_SHA256 可执行文件摘要校验。"
+                )
+            try:
+                link_cmd = ["otool", "-L", str(ef_bin_cand)] if os.uname().sysname == "Darwin" else ["ldd", str(ef_bin_cand)]
+                link_out = subprocess.check_output(link_cmd, text=True, stderr=subprocess.STDOUT, timeout=10)
+                if "vienna" in link_out.lower() or "librna" in link_out.lower():
+                    return unavailable("无法比较：检测到 EternaFold 二进制动态链接了 ViennaRNA/libRNA，拒绝运行。")
+                if link_cmd[0] == "otool" and not _valid_otool_library_listing(link_out, ef_bin_cand):
+                    return unavailable("无法比较：EternaFold 的 otool -L 输出缺少有效的 Mach-O 动态库清单。")
+            except (subprocess.SubprocessError, OSError, UnicodeDecodeError):
+                return unavailable("无法比较：无法完成 EternaFold 二进制动态库纯净性 (otool/ldd) 核验。")
         active_eternafold_bin = ef_bin_cand
         active_eternafold_params = ef_params_cand
+
+    use_codontransformer = "codontransformer_cds_baseline" in intent.runtime_policy.enabled_generators
+    active_codontransformer: Any = None
+    if use_codontransformer:
+        from mrnax.engine.codontransformer_loader import (
+            CodonTransformerNativeModel,
+            is_loader_authenticated_codontransformer,
+        )
+
+        if codontransformer_model is not None:
+            if (
+                intent.compliance_track == "commercial_clean"
+                and not isolated_sandbox_override
+                and not is_loader_authenticated_codontransformer(codontransformer_model)
+            ):
+                return unavailable(
+                    "无法比较：commercial_clean 拒绝未经 CodonTransformerNativeModel.from_local_checkpoint RC-005 SHA-256 认证的注入式实例。"
+                )
+            active_codontransformer = codontransformer_model
+        else:
+            ct_env = os.environ.get("MRNAX_CODONTRANSFORMER_CKPT_DIR", "").strip()
+            if not ct_env:
+                return unavailable(
+                    "无法比较：已请求 codontransformer_cds_baseline 生成器，但当前节点未挂载 RC-005 CodonTransformer 权重目录 "
+                    "(需设置 MRNAX_CODONTRANSFORMER_CKPT_DIR 指向 adibvafa/CodonTransformer@9744dcc920d8；参见 RC-005-codontransformer-v1.0.yaml)"
+                )
+            try:
+                active_codontransformer = CodonTransformerNativeModel.from_local_checkpoint(
+                    Path(ct_env), allow_sandbox_override=isolated_sandbox_override
+                )
+            except (FileNotFoundError, ValueError) as exc:
+                return unavailable(f"无法比较：RC-005 CodonTransformer 权重校验失败：{exc}")
 
     utr_v1_reg = json.loads((seed_dir / "utr_components_v1.json").read_text(encoding="utf-8"))
     utr_v2_path = seed_dir / "utr_components_commercial_v2.json"
@@ -1360,6 +1777,93 @@ def run_design_pipeline(
             )
         )
 
+    # Generator 2B: Apache-2.0 CodonTransformer v1.0 Homo sapiens Synonymous CDS Baseline (RC-005)
+    ct_seed_cds = ""
+    if active_codontransformer is not None:
+        t0_ct = time.perf_counter()
+        ct_calls = 0
+        if locked_cds:
+            ct_seed_cds = locked_cds.locked_value
+        else:
+            ct_seed_cds, _ = active_codontransformer.generate_and_score_cds(
+                protein_seq,
+                uridine_chemistry=intent.uridine_chemistry,
+                deterministic=True,
+                seed=intent.runtime_policy.random_seed,
+            )
+            ct_calls += 1
+            if not dc_seed_cds:
+                dc_seed_cds = ct_seed_cds
+        u5_ct = locked_utr5.locked_value if locked_utr5 else clean_utr5s[0]["sequence"]
+        u3_ct, anns_u3_ct = _prepare_utr3(clean_utr3s[0]["sequence"])
+        u5_id_ct = None if locked_utr5 else clean_utr5s[0]["component_id"]
+        u5_act_ct = "locked_verbatim" if locked_utr5 else "selected_from_library"
+        u3_id_ct = None if locked_utr3 else clean_utr3s[0]["component_id"]
+        u3_act_ct = "locked_verbatim" if locked_utr3 else "selected_from_library"
+        sec_ct_mols: list[RNAMoleculeSpec] = []
+        for ch_idx, pt in enumerate(intent.protein_targets[1:], start=2):
+            sec_ct_cds, _ = active_codontransformer.generate_and_score_cds(
+                pt.protein_sequence,
+                uridine_chemistry=intent.uridine_chemistry,
+                deterministic=True,
+                seed=intent.runtime_policy.random_seed + ch_idx,
+            )
+            ct_calls += 1
+            sec_dc_seeds.setdefault(ch_idx, sec_ct_cds)
+            sec_ct_mols.append(
+                _build_molecule_spec(
+                    molecule_id=f"chain_{ch_idx:02d}",
+                    target=pt,
+                    intent=intent,
+                    origins=origins_for(
+                        u5_id_ct, u3_id_ct, "mrnax:codontransformer_v1.0.0", anns_u3_ct, secondary=True
+                    ),
+                    utr5_seq=u5_ct,
+                    utr5_action=u5_act_ct,
+                    cds_seq=sec_ct_cds,
+                    cds_action="generated_novo",
+                    stop_seq=default_stop,
+                    utr3_seq=u3_ct,
+                    utr3_action=u3_act_ct,
+                    polya_seq=polya_seq,
+                    extra_utr3_annotations=anns_u3_ct,
+                )
+            )
+        raw_candidates.append(
+            _build_single_molecule_bundle(
+                bundle_id=f"bnd_{exec_tag}_codontransformer",
+                parent=reference_bundle,
+                derivation_action="de_novo_design",
+                intent=intent,
+                origins=origins_for(u5_id_ct, u3_id_ct, "mrnax:codontransformer_v1.0.0", anns_u3_ct),
+                utr5_seq=u5_ct,
+                utr5_action=u5_act_ct,
+                cds_seq=ct_seed_cds,
+                cds_action="locked_verbatim" if locked_cds else "generated_novo",
+                stop_seq=default_stop,
+                utr3_seq=u3_ct,
+                utr3_action=u3_act_ct,
+                polya_seq=polya_seq,
+                extra_utr3_annotations=anns_u3_ct,
+                secondary_molecules=sec_ct_mols or None,
+            )
+        )
+        spec_ct = COMPONENT_CATALOG["codontransformer_cds_baseline"]
+        comp_records.append(
+            ComponentInvocationRecord(
+                name=spec_ct.display_name,
+                version=spec_ct.version,
+                role="generator",
+                code_license=spec_ct.code_license,
+                weights_license=spec_ct.weights_license,
+                data_license=spec_ct.data_license,
+                license_track=spec_ct.license_track,
+                wall_seconds=round(time.perf_counter() - t0_ct, 5),
+                attempt_count=ct_calls,
+                failure_count=0,
+            )
+        )
+
     # Generator 3: Non-Partitioned Full-Transcript CDS<->UTR Joint Pareto Search
     if "pareto_nsga2" in intent.runtime_policy.enabled_generators:
         t0 = time.perf_counter()
@@ -1792,11 +2296,61 @@ def run_design_pipeline(
             seen_digests.add(b.version_digest)
             dedup_candidates.append(b)
 
-    # 3. Shared Scoped Hard-Gate Filtering
+    # Attach resolved wild-type CDS references onto emitted ConstructBundles so replay & direct export enforce CureVac!
+    if wildtype_cds_by_chain:
+        stamped_dedup: list[ConstructBundle] = []
+        for b in dedup_candidates:
+            updated_mols: list[RNAMoleculeSpec] = []
+            changed_mol = False
+            for idx, m in enumerate(b.molecules):
+                wt_s = wildtype_cds_by_chain.get(idx)
+                if wt_s is not None and m.effective_translation_target.wildtype_cds_rna is None:
+                    updated_mols.append(
+                        m.model_copy_validated(
+                            effective_translation_target=m.effective_translation_target.model_copy_validated(
+                                wildtype_cds_rna=wt_s
+                            )
+                        )
+                    )
+                    changed_mol = True
+                else:
+                    updated_mols.append(m)
+            if changed_mol:
+                stamped_dedup.append(
+                    ConstructBundle.create(
+                        bundle_id=b.bundle_id,
+                        parent_bundle_id=b.parent_bundle_id,
+                        derivation_action=b.derivation_action,
+                        co_expression_mode=b.co_expression_mode,
+                        target_stoichiometry=b.target_stoichiometry,
+                        molecules=updated_mols,
+                        external_evidence=b.external_evidence,
+                    )
+                )
+            else:
+                stamped_dedup.append(b)
+        dedup_candidates = stamped_dedup
+
+    input_origin_type = (
+        "wildtype_mrna_reference"
+        if wildtype_cds_by_chain or any(
+            m.effective_translation_target.wildtype_cds_rna is not None
+            for candidate in dedup_candidates for m in candidate.molecules
+        )
+        else ("reference_construct_bundle" if reference_bundle is not None else "amino_acid_only")
+    )
+    max_cv_any_c: float | None = None
+    max_cv_nog_c: float | None = None
+    performed_fto_counts = {"genus": 0, "collision": 0, "cartesian_pair": 0}
+
+    # 3. Shared Scoped Hard-Gate Filtering (+ CureVac F4A wild-type C-optimizable codon ceiling across ALL chains)
     qualified: list[ConstructBundle] = []
     all_diagnostics: list[FailedCandidateDiagnostic] = []
     all_fto_alerts: list[FTOAlert] = []
-    all_advisories: list[AdvisoryNote] = []
+    all_advisories: list[AdvisoryNote] = [
+        AdvisoryNote(advisory_id=f"unavailable_{cid}", category="model_domain_boundary", message=message)
+        for cid, message in unavailable_components.items()
+    ]
     eliminated_by_req: dict[str, int] = {c.requirement_id: 0 for c in intent.constraints}
 
     for b in dedup_candidates:
@@ -1807,16 +2361,40 @@ def run_design_pipeline(
             expected_chemistry=intent.uridine_chemistry,
             locked_scopes=intent.locked_scopes,
             expected_protein_targets=intent.protein_targets,
+            wildtype_cds_by_chain=wildtype_cds_by_chain,
+            rc005_active=use_codontransformer,
         )
+        for rule_type, count in outcome.fto_alerts.performed_counts.items():
+            performed_fto_counts[rule_type] += count
+        if outcome.max_curevac_any_c is not None:
+            max_cv_any_c = (
+                outcome.max_curevac_any_c
+                if max_cv_any_c is None
+                else max(max_cv_any_c, outcome.max_curevac_any_c)
+            )
+        if outcome.max_curevac_no_higher_g is not None:
+            max_cv_nog_c = (
+                outcome.max_curevac_no_higher_g
+                if max_cv_nog_c is None
+                else max(max_cv_nog_c, outcome.max_curevac_no_higher_g)
+            )
         all_fto_alerts.extend(outcome.fto_alerts)
-        if outcome.passed_all_hard_gates:
+        cand_violations = list(outcome.violations)
+
+        for adv in outcome.advisories:
+            if adv.advisory_id == "adv_curevac_c_conversion_warn" and adv.advisory_id not in {
+                a.advisory_id for a in all_advisories
+            }:
+                all_advisories.append(adv)
+
+        if not cand_violations:
             qualified.append(b)
             for adv in outcome.advisories:
                 if adv.advisory_id not in {a.advisory_id for a in all_advisories}:
                     all_advisories.append(adv)
         else:
-            all_diagnostics.extend(outcome.violations)
-            violated_ids = {v.violated_requirement_id for v in outcome.violations}
+            all_diagnostics.extend(cand_violations)
+            violated_ids = {v.violated_requirement_id for v in cand_violations}
             for req_id in violated_ids:
                 if req_id in eliminated_by_req:
                     eliminated_by_req[req_id] += 1
@@ -1843,15 +2421,48 @@ def run_design_pipeline(
     srfm_wall = 0.0
     orth_wall = 0.0
     ef_wall = 0.0
+    surr_ok_mols = 0
+    surr_fail_mols = 0
+    srfm_ok_mols = 0
+    srfm_fail_mols = 0
+    orth_ok_mols = 0
+    orth_fail_mols = 0
+    ef_ok_mols = 0
+    ef_fail_mols = 0
     use_vienna = "viennarna_thermo" in intent.runtime_policy.enabled_evaluators
     raw_metrics_per_bundle: list[list[MetricResult]] = []
     obj_vectors: list[list[float]] = []
     complete_chain_coverage = []
 
+    def _has_finite_ranking_metric(ms: list[MetricResult]) -> bool:
+        return any(
+            m.participated_in != "display_only" and m.value is not None and math.isfinite(m.value)
+            for m in ms
+        )
+
+    rc005_candidates = {
+        b.bundle_id for b in qualified if use_codontransformer or has_rc005_cds_provenance(b)
+    }
+    cleared_partners = {
+        cid for cid in intent.runtime_policy.enabled_evaluators if rc005_candidates
+        and cid in RC005_PARTNER_METRICS and audit_component_commercial_clean(cid) is None
+    }
+
+    def valid_measurement(metrics: list[MetricResult], component: str, requires_partner: bool) -> bool:
+        if not requires_partner:
+            return _has_finite_ranking_metric(metrics)
+        return component in cleared_partners and any(
+            resolve_tool_name_to_component_id(m.tool_name, m.metric_id) == component
+            and _is_rc005_partner_measurement(m, component, chains=1) for m in metrics
+        )
+
     for b in qualified:
+        requires_partner = b.bundle_id in rc005_candidates
         per_chain_lists: list[list[MetricResult]] = []
+        all_chains_have_cleared_partner = True
         for mol in b.molecules:
             mol_m: list[MetricResult] = []
+            chain_has_cleared_partner = False
             if use_vienna:
                 t_ev = time.perf_counter()
                 th_list, th_adv = evaluate_molecule_thermodynamics(
@@ -1868,6 +2479,11 @@ def run_design_pipeline(
                 t_sr = time.perf_counter()
                 sr_list, sr_adv = surrogate_v1.evaluate_molecule(mol)
                 surr_wall += time.perf_counter() - t_sr
+                if valid_measurement(sr_list, "surrogate_v1_clean", requires_partner):
+                    surr_ok_mols += 1
+                    chain_has_cleared_partner = True
+                else:
+                    surr_fail_mols += 1
                 mol_m.extend(sr_list)
                 for adv in sr_adv:
                     if adv.advisory_id not in {a.advisory_id for a in all_advisories}:
@@ -1876,6 +2492,11 @@ def run_design_pipeline(
                 t_sf = time.perf_counter()
                 sf_list, sf_adv = active_structrfm.evaluate_molecule(mol)
                 srfm_wall += time.perf_counter() - t_sf
+                if valid_measurement(sf_list, "structrfm_rna_foundation", requires_partner):
+                    srfm_ok_mols += 1
+                    chain_has_cleared_partner = True
+                else:
+                    srfm_fail_mols += 1
                 mol_m.extend(sf_list)
                 for adv in sf_adv:
                     if adv.advisory_id not in {a.advisory_id for a in all_advisories}:
@@ -1888,10 +2509,35 @@ def run_design_pipeline(
                     ef_params=active_eternafold_params,
                 )
                 ef_wall += time.perf_counter() - t_ef
+                if _has_finite_ranking_metric(ef_list):
+                    ef_ok_mols += 1
+                else:
+                    ef_fail_mols += 1
                 mol_m.extend(ef_list)
                 for adv in ef_adv:
                     if adv.advisory_id not in {a.advisory_id for a in all_advisories}:
                         all_advisories.append(adv)
+            if active_codontransformer is not None:
+                cds_full_for_ct = mol.get_segment_sequence("cds") + mol.get_segment_sequence("stop_cassette")
+                ct_ll = float(active_codontransformer.score_cds_synonymous_loglik([cds_full_for_ct])[0])
+                if math.isfinite(ct_ll):
+                    mol_m.append(
+                        MetricResult(
+                            metric_id="codontransformer_syn_loglik",
+                            value=round(ct_ll, 6),
+                            unit="log_prob_per_codon",
+                            direction="maximize",
+                            evaluated_scopes=["cds"],
+                            tool_name="CodonTransformerApache2",
+                            tool_version=COMPONENT_CATALOG["codontransformer_cds_baseline"].version,
+                            chemistry_evaluation_mode=(
+                                "native_chemistry_validated"
+                                if mol.chemistry_track.uridine_chemistry == "unmodified_u"
+                                else "endogenous_unmodified_proxy"
+                            ),
+                            participated_in="pareto_selection_or_ranking",
+                        )
+                    )
             if active_orthrus_model is not None and active_orthrus_probe is not None:
                 import torch  # type: ignore[import-not-found]
                 from mrnax.engine.orthrus_portable_pytorch import PortableOrthrusModel
@@ -1914,19 +2560,27 @@ def run_design_pipeline(
                 calibrated = active_orthrus_probe["scaler"].transform(emb)
                 pred_hl = float(active_orthrus_probe["model"].predict(calibrated)[0])
                 orth_wall += time.perf_counter() - t_or
-                mol_m.append(
-                    MetricResult(
-                        metric_id="orthrus_halflife_pred",
-                        value=round(pred_hl, 5),
-                        unit="saluki_pc1_z",
-                        direction="maximize",
-                        evaluated_scopes=["five_prime_utr", "cds", "three_prime_utr"],
-                        tool_name="Orthrus6TrackMIT",
-                        tool_version=COMPONENT_CATALOG["orthrus_mamba_rna_foundation"].version,
-                        chemistry_evaluation_mode="endogenous_unmodified_proxy",
-                        participated_in="pareto_selection_or_ranking",
+                if math.isfinite(pred_hl):
+                    orth_ok_mols += 1
+                    if "orthrus_mamba_rna_foundation" in cleared_partners:
+                        chain_has_cleared_partner = True
+                    mol_m.append(
+                        MetricResult(
+                            metric_id="orthrus_halflife_pred",
+                            value=round(pred_hl, 5),
+                            unit="saluki_pc1_z",
+                            direction="maximize",
+                            evaluated_scopes=["five_prime_utr", "cds", "three_prime_utr"],
+                            tool_name="Orthrus6TrackMIT",
+                            tool_version=COMPONENT_CATALOG["orthrus_mamba_rna_foundation"].version,
+                            chemistry_evaluation_mode="endogenous_unmodified_proxy",
+                            participated_in="pareto_selection_or_ranking",
+                        )
                     )
-                )
+                else:
+                    orth_fail_mols += 1
+            if not chain_has_cleared_partner:
+                all_chains_have_cleared_partner = False
             if not mol_m:
                 cds_s = mol.get_segment_sequence("cds")
                 gc_val = round((cds_s.count("G") + cds_s.count("C")) / max(1, len(cds_s)), 4)
@@ -1946,6 +2600,8 @@ def run_design_pipeline(
             per_chain_lists.append(mol_m)
 
         m_list, complete = _aggregate_chain_metrics(per_chain_lists)
+        if requires_partner and not all_chains_have_cleared_partner:
+            complete = False
         complete_chain_coverage.append(complete)
         raw_metrics_per_bundle.append(m_list)
 
@@ -1992,8 +2648,8 @@ def run_design_pipeline(
                 data_license=spec_s.data_license,
                 license_track=spec_s.license_track,
                 wall_seconds=round(surr_wall, 5),
-                attempt_count=total_evaluated_mols,
-                failure_count=0,
+                attempt_count=surr_ok_mols + surr_fail_mols,
+                failure_count=surr_fail_mols,
             )
         )
     if active_structrfm is not None and qualified:
@@ -2008,8 +2664,8 @@ def run_design_pipeline(
                 data_license=spec_sf.data_license,
                 license_track=spec_sf.license_track,
                 wall_seconds=round(srfm_wall, 5),
-                attempt_count=total_evaluated_mols,
-                failure_count=0,
+                attempt_count=srfm_ok_mols + srfm_fail_mols,
+                failure_count=srfm_fail_mols,
             )
         )
     if active_orthrus_model is not None and qualified:
@@ -2024,12 +2680,12 @@ def run_design_pipeline(
                 data_license=spec_or.data_license,
                 license_track=spec_or.license_track,
                 wall_seconds=round(orth_wall, 5),
-                attempt_count=total_evaluated_mols,
-                failure_count=0,
+                attempt_count=orth_ok_mols + orth_fail_mols,
+                failure_count=orth_fail_mols,
             )
         )
     if active_eternafold_bin is not None and qualified:
-        spec_ef = COMPONENT_CATALOG["eternafold_bpp_engine"]
+        spec_ef = COMPONENT_CATALOG[active_eternafold_comp_id]
         comp_records.append(
             ComponentInvocationRecord(
                 name=spec_ef.display_name,
@@ -2040,9 +2696,13 @@ def run_design_pipeline(
                 data_license=spec_ef.data_license,
                 license_track=spec_ef.license_track,
                 wall_seconds=round(ef_wall, 5),
-                attempt_count=total_evaluated_mols,
-                failure_count=0,
+                attempt_count=ef_ok_mols + ef_fail_mols,
+                failure_count=ef_fail_mols,
             )
+        )
+    if use_eternafold and qualified and ef_ok_mols == 0:
+        return unavailable(
+            "无法比较：EternaFold 后验输出为空、截断或格式非法，拒绝生成虚假 1.0 概率指标。"
         )
 
     # 5. Outcome status & deterministic Action Transparency
@@ -2166,7 +2826,6 @@ def run_design_pipeline(
         isolated_sandbox_override=isolated_sandbox_override,
     )
 
-    rep_bytes = (json.dumps(report.model_dump(mode="json"), indent=2, sort_keys=True) + "\n").encode("utf-8")
     opt_mode = (
         "stage0_or_reference_only"
         if "pareto_nsga2" not in intent.runtime_policy.enabled_generators
@@ -2176,6 +2835,113 @@ def run_design_pipeline(
             else "full_transcript_non_partitioned_pareto"
         )
     )
+    git_sha = _git_sha(repo_root)
+    executed_operators: list[str] = []
+    if cached_candidates:
+        executed_operators.append("cached_candidate_ingestion")
+    if reference_bundle is not None:
+        executed_operators.append("reference_bundle_inheritance_and_minimal_lock")
+    stage0_spec_name = COMPONENT_CATALOG["stage0_random"].display_name
+    dc_spec_name = COMPONENT_CATALOG["dnachisel_cds"].display_name
+    pareto_spec_name = COMPONENT_CATALOG["pareto_nsga2"].display_name
+    if any(c.name == stage0_spec_name and c.attempt_count > 0 for c in comp_records):
+        executed_operators.append("stage0_random_synonymous_cds_constructive")
+    if any(c.name == dc_spec_name and c.attempt_count > 0 for c in comp_records):
+        executed_operators.append("dnachisel_scoped_constraint_cds")
+    if active_codontransformer is not None and any(
+        "CodonTransformer" in c.name and c.attempt_count > 0 for c in comp_records
+    ):
+        chemistry = intent.uridine_chemistry
+        suffix = f"plus_{chemistry}_uuuc_u4_remediation" if chemistry in {"m1psi", "pseudouridine"} else chemistry
+        executed_operators.append(f"codontransformer_v1_homo_sapiens_synonymous_mask_{suffix}")
+    if "pareto_nsga2" in intent.runtime_policy.enabled_generators:
+        pareto_ran_cds = any(c.name == pareto_spec_name and c.attempt_count > 0 for c in comp_records)
+        if not legacy_pure_rerank_mode and not (locked_utr5 and locked_utr3):
+            executed_operators.append("utr_pool_multi_axis_pareto_preselection")
+        if pareto_ran_cds:
+            if used_two_zone_partition:
+                executed_operators.append("research_sandbox_sliding_window_cds_utr_coopt")
+            elif legacy_pure_rerank_mode:
+                executed_operators.append("legacy_unguided_control_cds_mutation")
+            else:
+                executed_operators.append("propose_non_partitioned_full_cds_bicodon")
+    if dedup_candidates:
+        executed_operators.append("scoped_hard_gate_and_sequence_fto_filter")
+    if ordered_qualified:
+        executed_operators.append("pareto_non_dominated_crowding_selection")
+
+    seq_fto_receipt = constraint_engine.fto_guard.build_receipt(
+        all_fto_alerts,
+        screen_applied=bool(dedup_candidates),
+        performed_counts=performed_fto_counts,
+    )
+    opt_audit = (
+        active_method_fto_guard.build_runtime_audit_record(
+            intent=intent,
+            opt_mode=opt_mode,
+            used_two_zone_partition=used_two_zone_partition,
+            executed_operators=executed_operators,
+            invoked_components=comp_records,
+            seq_fto_receipt=seq_fto_receipt,
+            input_origin_type=input_origin_type,
+            max_curevac_any_c=max_cv_any_c,
+            max_curevac_no_higher_g=max_cv_nog_c,
+            curevac_error_note=next(
+                (d.reason for d in all_diagnostics if d.violated_requirement_id == "method_fto:CUREVAC_INVALID_WILDTYPE_REFERENCE"),
+                None,
+            ),
+            target_jurisdictions=target_deployment_jurisdictions,
+            run_id=exec_id,
+            engine_git_commit=git_sha,
+        )
+        if active_method_fto_guard is not None
+        else MethodFTOAuditRecord(
+            run_id=exec_id,
+            engine_git_commit=git_sha,
+            optimization_mode=opt_mode,  # type: ignore[arg-type]
+            uses_two_zone_initiation_body_partition=used_two_zone_partition,
+            uses_dfa_cfg_intersection=False,
+            sequence_fto_screen_applied=bool(dedup_candidates),
+            sequence_fto_guard_v2_receipt=seq_fto_receipt,
+        )
+    )
+    if intent.compliance_track == "commercial_clean":
+        blocked_mfto = [
+            f"{bid}: {info.get('evidence_note', '')}"
+            for bid, info in opt_audit.method_fto_boundary_checks.items()
+            if info.get("status") == "BLOCK"
+        ]
+        dependency_blocks = [
+            f"{entry['asset_id']} (transitive_gpl_count={entry['transitive_gpl_count']})"
+            for entry in opt_audit.three_layer_dependency_manifest
+            if entry["transitive_gpl_count"] > 0
+        ]
+        if dependency_blocks or (ordered_qualified and blocked_mfto):
+            traces = list(report.action_transparency)
+            if dependency_blocks:
+                traces.append(RequirementActionTrace(
+                    requirement_id=COMMERCIAL_ZERO_GPL_REQUIREMENT,
+                    stage_applied="filtering",
+                    eliminated_count=len(ordered_qualified),
+                    changed_candidate_ids=[b.bundle_id for b in dedup_candidates],
+                    proof_diff_summary="Commercial dependency policy blocked release: " + ", ".join(dependency_blocks),
+                ))
+            ordered_qualified = []
+            report = report.model_copy_validated(
+                outcome_status="UNCOMPARABLE_MISSING_APPROVED_COMPONENT",
+                uncomparable_reason="Method-FTO post-execution block: " + "; ".join(blocked_mfto + dependency_blocks),
+                recommended_bundle_ids=[],
+                candidate_evaluations=[],
+                action_transparency=[
+                    trace.model_copy_validated(
+                        changed_candidate_ids=[],
+                        proof_diff_summary="Commercial release gate withdrew the ranking result.",
+                    ) if trace.stage_applied == "ranking" else trace
+                    for trace in traces
+                ],
+            )
+
+    rep_bytes = serialize_report_artifact(report.model_dump(mode="json"))
     manifest = RunManifest(
         submission_id=f"sub_{intent.intent_id}_v{intent.intent_version}",
         execution_id=exec_id,
@@ -2186,6 +2952,7 @@ def run_design_pipeline(
         platform_info=platform.platform(),
         compliance_track=intent.compliance_track,
         invoked_components=comp_records,
+        unavailable_components=unavailable_components,
         rule_snapshot_version=rule_snapshot_version,
         isolated_sandbox_override=isolated_sandbox_override,
         prng_state_digest=prng_digest,
@@ -2202,11 +2969,6 @@ def run_design_pipeline(
         ],
         replay_cli_command=f"uv run mrnax replay --intent-file intent_{intent.intent_id}.json",
         honesty_banner="本次未改善生成器" if legacy_pure_rerank_mode else None,
-        optimization_mode_audit=MethodFTOAuditRecord(
-            optimization_mode=opt_mode,  # type: ignore[arg-type]
-            uses_two_zone_initiation_body_partition=used_two_zone_partition,
-            uses_dfa_cfg_intersection=False,
-            sequence_fto_screen_applied=bool(dedup_candidates),
-        ),
+        optimization_mode_audit=opt_audit,
     )
     return ordered_qualified, report, manifest

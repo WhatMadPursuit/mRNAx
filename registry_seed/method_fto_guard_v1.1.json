@@ -1,0 +1,752 @@
+{
+  "registry_id": "method_fto_guard_v1.1",
+  "version": "1.1.0",
+  "supersedes": {
+    "registry_id": "method_fto_guard_v1",
+    "version": "1.0.0",
+    "drive_file_ids": {
+      "patents_and_regulatory": "1LnAA1SuZU34NMQ0GNxBDI8QTfv_c4tsm",
+      "curated_registries_v2": "1whg_UlKewC6CSm71ipG_Ov_raxZ1Tuh6"
+    }
+  },
+  "companion_registry": {
+    "registry_id": "patent_fto_guard_v2",
+    "drive_file_id": "1fLHvbVaK-yWrr_rA09ViBesqvK8PeQIv",
+    "relationship": "Sequence/composition collision & genus guard (output-level FTO). method_fto_guard_v1.1 covers algorithmic execution trajectories, jurisdiction-level method-claim boundaries, and 3-layer clean-room provenance (method-level FTO). Both guards MUST be evaluated on every commercial_clean run."
+  },
+  "created_at_utc": "2026-11-27T00:30:00Z",
+  "audit_baseline_date": "2026-11-27",
+  "verified_from_audit": [
+    "A-W8_rna_tools_reference_datasets_and_fto_snowball.md (gpt-6.2-astra ultra authoritative primary-text audit, Drive 1g55s7Aw9Bxt4Id9fRqWEEBA7rJCmv0jw)",
+    "G-W8_vs_A-W8_cross_audit.md & method_fto_guard_v1.json (Wave 8.5 baseline, Drive 1Dwb7VzSzgwvUWQ-klDj6rWB7pA6Eiszd)",
+    "G-W9_method_fto_jurisdiction_deepdive.md & .csv (Grok Wave 9 jurisdiction & legal-events deep dive, Drive 1hHbzaAIKhoNgaeAPznXOU1oL_fdFYz_-)",
+    "Wave 11 independent live Google Patents HTTP/2 Claim-1, Legal Events & Family verification archived in scratch/wave11/live_patent_verification.json (21 publications incl. US12533422B2 & US20260284227A1, 2026-11-27)"
+  ],
+  "major_v1_1_corrections_and_upgrades": [
+    "SPLIT Baidu China-only CN118038986B (Beijing Baidu Netcom, CN(1) only, inventors Liu Yang et al.) OUT of Baidu USA LLC LinearDesign family (US20220269951A1/US20240394558A1/EP4030438A1/EP4682890A2-A3/JP7367090B2/CN114974428A, inventors He Zhang/Liang Zhang/Liang Huang) — correcting Wave 8.5 family conflation.",
+    "ADDED JP7367090B2 (GRANTED/Active in Japan, R150 2023-10-13 — ONLY live enforceable LinearDesign grant; live-verified Claim 1 covers unit DFA -> single DFA -> intersected CFG minimizing MFE + sum(log(CAI))).",
+    "ADDED EP4030438A1 (EPO Refused/Ceased, 18R eff. 2025-09-25) and live-verified divisional EP4682890A2 Claim 1 (DFA x SCFG for antibody sequence; A3 search report 2026-04-01; post-search amended claims UNVERIFIED).",
+    "UPDATED US20220269951A1 ex parte appeal status (2026-09-11 STCV: EXAMINER'S ANSWER TO APPEAL BRIEF MAILED) and ELEVATED US20240394558A1 continuation as HIGHEST FORWARD RISK (published Claim 1 drops DFA/CFG entirely and claims minimizing MFE + additive regularization term -> added hard CI ban on any MFE + lambda*CAI additive scalar objective).",
+    "RESOLVED CureVac US10898584B2 US(3) family (archived in live_patent_verification.json): CureVac SE name change (2023-02-18), 4th-yr maintenance fee paid (2024-07-17), PLUS granted administration patent US12533422B2 (pub 2026-01-27, adjusted exp 2038-05-06) and pending DIVISIONAL US20260284227A1 (pub 2026-09-24, published Cl.1 omits G-proviso & synthesis step).",
+    "ADDED granted EP3551758B1 (Leibniz Hannover, pub 2024-05-29, DE year-9 fee paid 2025-12-30, lapsed TR/HU/LT) and live-verified its Claim 1 is PURELY COMPUTER-IMPLEMENTED (no wet-lab host-cell step escape as in US11848074B2 -> boosted-GAM + protein-per-time ban is mandatory in EP).",
+    "VERIFIED WO2024231621A1 / EP4704918A1 / JP2026515056A (CNRS dual-UTR from PMC12355064) claims closed-list composition (Cl.1) and in-vitro use (Cl.12), NOT an algorithmic dual-UTR optimization method; added output-side Cartesian pair advisory (with internal >=95% 3'UTR screening heuristic; confirmed EP/JP, US/CN UNVERIFIED).",
+    "CONFIRMED US20250335663A1 is an UNRELATED Ubiquitx contrastive-learning peptide-degrader application (NOT in Baidu CN119265214B family)."
+  ],
+  "disclaimer": "Machine-readable engineering method-FTO boundary and clean-room audit policy derived from live-verified published patent claims, legal events, and 3-layer software/model/data licenses. NOT a formal legal FTO opinion and NEVER certifies '100% FTO'. Official national register status, maintenance fees, continuations, post-amendment pending claims, claim construction, and doctrine of equivalents MUST be cleared by licensed patent counsel prior to commercial deployment in each target jurisdiction.",
+  "certifies_100_percent_fto": false,
+  "jurisdiction_monitoring_required": [
+    "CN",
+    "US",
+    "EP",
+    "JP"
+  ],
+  "method_claim_boundaries": [
+    {
+      "boundary_id": "BAIDU_CN119265214B_STAGED_UTR5_NCDS_PARTITION_OPT",
+      "family_code": "F1",
+      "risk_level": "CRITICAL",
+      "jurisdictions_active_grant": [
+        "CN",
+        "JP"
+      ],
+      "jurisdictions_pending": [
+        "US"
+      ],
+      "jurisdictions_ceased_or_refused": [],
+      "patent_family": [
+        {
+          "publication": "CN119265214B",
+          "application_no": "CN202411390778.8",
+          "kind_type": "GRANTED",
+          "assignee": "Beijing Baidu Netcom Science and Technology Co Ltd",
+          "filing_date": "2024-09-30",
+          "pub_date": "2025-08-12",
+          "anticipated_expiration": "2044-09-30",
+          "verified_legal_status_2026_11_27": "GRANTED / Active (GR01 patent grant 2025-08-12; SE01 2025-01-24; PB01 2025-01-07)",
+          "claim1_verified_live": true,
+          "source_url": "https://patents.google.com/patent/CN119265214B/en"
+        },
+        {
+          "publication": "JP7892088B2",
+          "application_no": "JP2025031528",
+          "kind_type": "GRANTED",
+          "assignee": "Beijing Baidu Netcom Science and Technology Co Ltd",
+          "filing_date": "2025-02-28",
+          "pub_date": "2026-07-17",
+          "anticipated_expiration": "2045-02-28",
+          "verified_legal_status_2026_11_27": "GRANTED / Active (A01 grant decision 2026-07-03; A61 first annual fee 2026-07-09; R150 certificate 2026-07-15; mirrors CN119265214B Claim 1 element-for-element)",
+          "claim1_verified_live": true,
+          "source_url": "https://patents.google.com/patent/JP7892088B2/en"
+        },
+        {
+          "publication": "US20250092387A1",
+          "application_no": "US18/968,907",
+          "kind_type": "PENDING_APPLICATION",
+          "assignee": "Beijing Baidu Netcom Science and Technology Co Ltd",
+          "filing_date": "2024-12-04",
+          "pub_date": "2025-03-20",
+          "anticipated_expiration": null,
+          "verified_legal_status_2026_11_27": "PENDING (2024-12-05 assignment recorded; 2024-12-18 STPP DOCKETED NEW CASE - READY FOR EXAMINATION; no allowance/grant event). Current post-amendment claims UNVERIFIED (USPTO Patent Center file wrapper not fetched).",
+          "claim1_verified_live": true,
+          "current_pending_amended_claims_status": "UNVERIFIED",
+          "source_url": "https://patents.google.com/patent/US20250092387A1/en"
+        }
+      ],
+      "non_family_trap_disambiguation": "US20250335663A1 (appears in Google Patents adjacent document list on CN119265214B) was live-verified as an UNRELATED Ubiquitx application ('Contrastive learning for peptide based degrader design'); EXCLUDED from F1 family.",
+      "verified_claim_1_elements": [
+        "Obtain first mRNA sequence for target protein comprising 5'UTR sequence + CDS sequence.",
+        "Split 5'UTR + CDS into a translation-initiation-region sequence (= 5'UTR + preset number of adjacent N-terminal CDS nucleotides) and a coding-region main-body sequence (= remaining CDS nucleotides).",
+        "Stage 1: Adjust ONLY the translation-initiation-region sequence with the goal of maximizing translation initiation efficiency (TIE) -> intermediate 4th mRNA sequence.",
+        "Stage 2: Adjust the coding-region main-body of the 4th mRNA sequence to maximize a composite first score reflecting TIE + CAI + MFE (spec formulas: S = lambda_TIE*TIE + lambda_CAI*CAI - lambda_MFE*MFE and log-weighted variant)."
+      ],
+      "us_pending_claim_1_breadth_note": "Published US20250092387A1 Claim 1 is broader than CN/JP grants (adjusting 5'UTR and CDS to maximize a first score reflecting AT LEAST ONE of TIE, CAI, and MFE, without the partition limitation in Cl.1). Post-amendment pending claims are UNVERIFIED; monitor US 18/968,907 monthly via USPTO Patent Center.",
+      "enforcement_action_commercial_clean": "HARD_BLOCK_PATTERN_AND_COUNSEL_GATE",
+      "prohibited_execution_pattern": {
+        "hard_partition_5utr_plus_preset_n_cds_as_initiation_region": true,
+        "forbid_config_keys_matching_init_region_len_or_preset_nt_or_tir_window": true,
+        "sequential_stage1_initiation_opt_then_frozen_stage2_cds_body": true,
+        "scalar_weighted_sum_tie_cai_mfe": true
+      },
+      "clean_room_design_around_requirements": [
+        "HARD BAN on splitting construct into 'translation initiation region' (5'UTR + preset-N N-terminal CDS nt) and 'CDS main body'; forbid config keys resembling init_region_len / preset_nt / tir_window in CI.",
+        "HARD BAN on two-stage frozen-prefix schedule (optimizing TIE alone on 5' region then freezing it to optimize body); all sequence positions remain free decision variables or use continuous soft positional weighting inside full-length evaluation.",
+        "HARD BAN on collapsing objectives into S = w_TIE*TIE + w_CAI*CAI - w_MFE*MFE scalar score; use non-scalarized Pareto non-dominated ranking.",
+        "Include >=1 empirical objective outside the {TIE, CAI, MFE} triple (e.g., ribosome load, m1Psi slippery-run/dsRNA/immunogenicity risk, EternaFold unpaired probability / hydrolysis proxy, manufacturability) in every production run and assert in CI.",
+        "Before any CN or JP commercial deployment, obtain licensed patent counsel non-infringement clearance against CN119265214B and JP7892088B2."
+      ]
+    },
+    {
+      "boundary_id": "BAIDU_CN118038986B_DFA_DUAL_HASH_DICODON_DP",
+      "family_code": "F2",
+      "risk_level": "CRITICAL",
+      "jurisdictions_active_grant": [
+        "CN"
+      ],
+      "jurisdictions_pending": [],
+      "jurisdictions_ceased_or_refused": [],
+      "patent_family": [
+        {
+          "publication": "CN118038986B",
+          "application_no": "CN202410168912.3",
+          "kind_type": "GRANTED",
+          "assignee": "Beijing Baidu Netcom Science and Technology Co Ltd",
+          "filing_date": "2024-02-05",
+          "pub_date": "2025-09-02",
+          "anticipated_expiration": "2044-02-05",
+          "verified_legal_status_2026_11_27": "GRANTED / Active, CN-ONLY (GR01 patent grant 2025-09-02; SE01 2024-05-31; PB01 2024-05-14). Worldwide applications table live-verified as CN (1) ONLY — ZERO US/EP/PCT/JP counterparts.",
+          "claim1_verified_live": true,
+          "source_url": "https://patents.google.com/patent/CN118038986B/en"
+        }
+      ],
+      "family_separation_note": "Distinct family from Baidu USA LLC LinearDesign (F3): different applicant entity (Beijing Baidu Netcom vs Baidu USA LLC), different inventor team (Liu Yang/Gao Jie/Fang Xiaomin/Zhang Xiaonan/He Jingzhou — same team as F1), and different priority (2024-02-05 vs 2021-02-24).",
+      "verified_claim_1_elements": [
+        "Obtain a deterministic finite automaton (DFA) graph of the target protein amino-acid sequence (each path = synonymous candidate mRNA).",
+        "Store a first best score for each state in a FIRST HASH TABLE, where state = (two DFA nodes + edge codons closest to those nodes), derived from constituent atomic-state scores combining subpath free energy + adjacent-codon (dicodon) score.",
+        "Store a first optimal backpointer for each state in a SECOND HASH TABLE pointing to constituent atomic states.",
+        "Search the target path in the DFA graph using the first and second hash tables and output the candidate mRNA."
+      ],
+      "enforcement_action_commercial_clean": "HARD_BLOCK",
+      "prohibited_execution_pattern": {
+        "uses_dual_hash_table_atomic_state_dfa_dp": true,
+        "stores_codon_graph_dp_backpointer_table": true,
+        "fuses_subpath_free_energy_and_dicodon_score_in_single_dp_recursion": true
+      },
+      "clean_room_design_around_requirements": [
+        "China-only software method grant (enforced in CN). NEVER implement DFA-graph DP keyed on (node_i, node_j, boundary_codon) with separate best-score and backpointer hash tables.",
+        "NEVER fuse subpath free energy and adjacent-codon (dicodon) scores inside a single codon-graph DP recursion.",
+        "Evaluate complete candidate sequences via population/Pareto search with independent external commercial-clean evaluators (EternaFold v1.3.1 BSD-3, CodonTransformer Apache-2.0, structRFM MIT)."
+      ]
+    },
+    {
+      "boundary_id": "BAIDU_USA_LINEARDESIGN_DFA_CFG_LATTICE_AND_ADDITIVE_MFE_REG",
+      "family_code": "F3",
+      "risk_level": "CRITICAL",
+      "jurisdictions_active_grant": [
+        "JP"
+      ],
+      "jurisdictions_pending": [
+        "US",
+        "EP",
+        "CN"
+      ],
+      "jurisdictions_ceased_or_refused": [
+        "EP (parent EP4030438A1 refused)"
+      ],
+      "patent_family": [
+        {
+          "publication": "JP7367090B2",
+          "application_no": "JP2022016549",
+          "kind_type": "GRANTED",
+          "assignee": "Baidu USA LLC",
+          "filing_date": "2022-02-04",
+          "pub_date": "2023-10-23",
+          "anticipated_expiration": "2042-02-04",
+          "verified_legal_status_2026_11_27": "GRANTED / Active — ONLY currently enforceable LinearDesign grant (A61 first annual fee eff. 2023-10-11; R150 registration 2023-10-13). Live-verified JP Claim 1 covers unit DFA -> single DFA -> intersected CFG minimizing objective = MFE + sum of per-codon log(CAI) edge costs.",
+          "claim1_verified_live": true,
+          "source_url": "https://patents.google.com/patent/JP7367090B2/en"
+        },
+        {
+          "publication": "US20220269951A1",
+          "application_no": "US17/184,505",
+          "kind_type": "PENDING_IN_APPEAL",
+          "assignee": "Baidu USA LLC",
+          "filing_date": "2021-02-24",
+          "pub_date": "2022-08-25",
+          "anticipated_expiration": null,
+          "verified_legal_status_2026_11_27": "PENDING - IN EX PARTE APPEAL (STCV: 2026-07-07 Appeal Brief entered; 2026-07-15 Notice of Appeal; 2026-09-03 Examiner's Answer counted; 2026-09-11 Examiner's Answer to Appeal Brief mailed). Current post-amendment appeal claims UNVERIFIED pending USPTO Patent Center file wrapper.",
+          "claim1_verified_live": true,
+          "current_pending_amended_claims_status": "UNVERIFIED",
+          "source_url": "https://patents.google.com/patent/US20220269951A1/en"
+        },
+        {
+          "publication": "US20240394558A1",
+          "application_no": "US18/796,267",
+          "kind_type": "PENDING_CONTINUATION_BROAD",
+          "assignee": "Baidu USA LLC",
+          "filing_date": "2024-08-06",
+          "pub_date": "2024-11-28",
+          "anticipated_expiration": null,
+          "verified_legal_status_2026_11_27": "PENDING - NOT YET EXAMINED (2024-08-21 STPP DOCKETED NEW CASE; 2024-09-04 assignment). HIGHEST FORWARD FTO RISK: published Claim 1 drops DFA/CFG entirely and claims minimizing MFE + additive regularization term (dep. Cl.4 = CAI).",
+          "claim1_verified_live": true,
+          "source_url": "https://patents.google.com/patent/US20240394558A1/en"
+        },
+        {
+          "publication": "EP4030438A1",
+          "application_no": "EP22158365",
+          "kind_type": "REFUSED_CEASED",
+          "assignee": "Baidu USA LLC",
+          "filing_date": "2022-02-23",
+          "pub_date": "2022-07-20",
+          "anticipated_expiration": null,
+          "verified_legal_status_2026_11_27": "REFUSED / CEASED by EPO (2026-01-16 STAA THE APPLICATION HAS BEEN REFUSED; 2026-02-18 18R Application refused, effective 2025-09-25).",
+          "claim1_verified_live": true,
+          "source_url": "https://patents.google.com/patent/EP4030438A1/en"
+        },
+        {
+          "publication": "EP4682890A2_A3",
+          "application_no": "EP_divisional_of_EP4030438",
+          "kind_type": "PENDING_DIVISIONAL",
+          "assignee": "Baidu USA LLC",
+          "filing_date": "2022-02-23",
+          "pub_date": "2026-04-01",
+          "anticipated_expiration": null,
+          "verified_legal_status_2026_11_27": "PENDING live divisional of refused EP4030438 (A2 pub 2026-01-21; PUAL search report 2026-02-27; A3 search report pub 2026-04-01 across AL..TR). A2 Claim 1 live-verified: DFA x SCFG intersection narrowed to antibody sequences; post-search amended claims UNVERIFIED.",
+          "claim1_verified_live": true,
+          "post_search_amended_claims_status": "UNVERIFIED",
+          "source_url": "https://patents.google.com/patent/EP4682890A2/en"
+        },
+        {
+          "publication": "CN114974428A",
+          "application_no": "CN202210167977.X",
+          "kind_type": "PENDING_APPLICATION",
+          "assignee": "Baidu USA LLC",
+          "filing_date": "2022-02-23",
+          "pub_date": "2022-08-30",
+          "anticipated_expiration": null,
+          "verified_legal_status_2026_11_27": "PENDING on Google Patents (SE01 2022-09-16; HK40070340 ref 2022-10-28; no GR01 event). Direct CNIPA register status UNVERIFIED.",
+          "claim1_verified_live": true,
+          "direct_cnipa_register_status": "UNVERIFIED",
+          "source_url": "https://patents.google.com/patent/CN114974428A/en"
+        }
+      ],
+      "verified_claim_1_elements": [
+        "US20220269951A1 / CN114974428A / EP4030438A1 (refused) Cl.1: Build unit DFA per source sequence unit -> concatenate into single DFA -> intersect CFG (dep. SCFG) on single DFA -> define nonterminals/start/rules -> search intersected CFG minimizing objective function.",
+        "JP7367090B2 (GRANTED JP) Cl.1: Same unit DFA -> single DFA -> intersected CFG search, specifically requiring objective = MFE + additive regularization term = sum of per-codon log(CAI) edge costs.",
+        "EP4682890A2 (Pending EP divisional) Cl.1: DFA x SCFG intersection where desired target sequence is used as an antibody sequence.",
+        "US20240394558A1 (Pending US continuation — HIGHEST FORWARD RISK) Cl.1: Drops DFA/CFG entirely — obtain candidate target sequence set translating into source sequence, and search for desired target sequence minimizing an objective function comprising MFE and an additive regularization term (dep. Cl.4 = CAI)."
+      ],
+      "associated_software_license_block": "LinearDesignSoftware/LinearDesign is academic/non-profit/research only; commercial product use requires separate license; redistribution without written permission is prohibited.",
+      "enforcement_action_commercial_clean": "HARD_BLOCK",
+      "prohibited_execution_pattern": {
+        "uses_dfa_lattice_cfg_intersection": true,
+        "invokes_lineardesign_binary_or_tables_or_api": true,
+        "computes_or_optimizes_additive_mfe_plus_weighted_regularizer_scalar": true
+      },
+      "clean_room_design_around_requirements": [
+        "HARD BAN on LinearDesign code, binaries, lookup tables, and external API calls in commercial_clean runs.",
+        "HARD BAN on per-unit DFA construction/concatenation and DFA x (S)CFG lattice parsing.",
+        "PRECAUTION FOR PENDING PUBLISHED APPLICATION US20240394558A1 (Cl.1: MFE + additive regularization term; Cl.4: CAI) & GRANTED JP7367090B2: NEVER expose, compute, persist, or log a single scalar objective combining MFE with ANY weighted additive regularizer (including CAI or any other codon/sequence regularizer) anywhere in the search loop, API, config, or reports; align CI lint to reject ANY additive MFE + weight * regularizer expression (not only MFE + CAI).",
+        "Evaluate folding/structure as an external black-box call on complete candidates via commercial-clean heads (EternaFold v1.3.1 BSD-3 unpaired probabilities / structRFM MIT / Orthrus MIT) kept strictly on separate non-combined Pareto axes (and never conflating EternaFold dimensionless log-partition with kcal/mol MFE).",
+        "Before any JP commercial deployment, obtain formal patent counsel clearance on BOTH JP7367090B2 (F3) and JP7892088B2 (F1); monitor US20240394558A1 and EP4682890A2/A3 quarterly."
+      ]
+    },
+    {
+      "boundary_id": "CUREVAC_US10898584B2_FAMILY_SYNONYMOUS_CYTOSINE_THRESHOLD",
+      "family_code": "F4A",
+      "risk_level": "HIGH",
+      "jurisdictions_active_grant": [
+        "US",
+        "CA",
+        "ES/EP"
+      ],
+      "jurisdictions_pending": [
+        "US (divisional US20260284227A1)"
+      ],
+      "jurisdictions_ceased_or_refused": [
+        "WO2015062738A1 (PCT ceased)"
+      ],
+      "patent_family": [
+        {
+          "publication": "US10898584B2",
+          "application_no": "US15/142,082",
+          "kind_type": "GRANTED",
+          "assignee": "CureVac SE (name change from CureVac AG recorded 2023-02-18)",
+          "filing_date": "2016-04-29",
+          "pub_date": "2021-01-26",
+          "anticipated_expiration": "2035-06-04",
+          "verified_legal_status_2026_11_27": "GRANTED / Active — MAINTENANCE FEE CURRENT (2024-07-17 MAFP 4th-year large entity M1551; CC 2021-05-11 & 2022-12-20). Distinct from expired CureVac US11078247B2 / US10080809B2.",
+          "claim1_verified_live": true,
+          "source_url": "https://patents.google.com/patent/US10898584B2/en"
+        },
+        {
+          "publication": "US12533422B2",
+          "application_no": "US17/136,724",
+          "kind_type": "GRANTED_ADMINISTRATION_CLAIM",
+          "assignee": "CureVac SE",
+          "filing_date": "2020-12-29",
+          "pub_date": "2026-01-27",
+          "anticipated_expiration": "2038-05-06",
+          "verified_legal_status_2026_11_27": "GRANTED / Active ADMINISTRATION claim (resolved & archived in live_patent_verification.json, adjusted exp 2038-05-06). Claim 1 covers administering to a mammalian subject a pharmaceutical composition comprising purified mRNA (m7G 5'Cap + 5'UTR + modified CDS with >=70% C-optimizable codons replaced by higher-C/non-higher-G codons + 3'UTR + poly(A) >=60 nt).",
+          "claim1_verified_live": true,
+          "source_url": "https://patents.google.com/patent/US12533422B2/en"
+        },
+        {
+          "publication": "US20260284227A1",
+          "application_no": "US19/412,751",
+          "kind_type": "PENDING_DIVISIONAL_BROAD",
+          "assignee": "CureVac SE",
+          "filing_date": "2025-12-08",
+          "pub_date": "2026-09-24",
+          "anticipated_expiration": null,
+          "verified_legal_status_2026_11_27": "PENDING DIVISIONAL application (self-identified divisional; resolved & archived in live_patent_verification.json, pub 2026-09-24). Published Cl.1 omits BOTH the 'no higher G-content' proviso and the 'synthesize' step — monitor quarterly via official USPTO Patent Center.",
+          "claim1_verified_live": true,
+          "source_url": "https://patents.google.com/patent/US20260284227A1/en"
+        },
+        {
+          "publication": "CA2925021C",
+          "kind_type": "GRANTED",
+          "assignee": "CureVac SE",
+          "verified_legal_status_2026_11_27": "Active (Google Patents family table; individual CA claim text UNVERIFIED)",
+          "claim1_verified_live": false,
+          "source_url": "https://patents.google.com/patent/CA2925021C/en"
+        },
+        {
+          "publication": "ES2806575T3",
+          "kind_type": "GRANTED_EP_TRANSLATION",
+          "assignee": "CureVac SE",
+          "verified_legal_status_2026_11_27": "Active (Spanish translation of granted EP member; individual EP/ES claim text UNVERIFIED)",
+          "claim1_verified_live": false,
+          "source_url": "https://patents.google.com/patent/ES2806575T3/en"
+        }
+      ],
+      "verified_claim_1_elements": [
+        "US10898584B2 Cl.1: Identify wild-type mRNA -> modify >=70% of cytosine-content-optimizable codons with synonymous codons having higher C and non-higher G -> synthesize modified mRNA.",
+        "US12533422B2 Cl.1 (Granted 2026-01-27): Administer pharmaceutical composition with purified mRNA comprising m7G Cap + 5'UTR + CDS with >=70% C-optimizable codons replaced by higher-C/non-higher-G synonyms + 3'UTR + poly(A) >=60 nt.",
+        "US20260284227A1 Cl.1 (Pending divisional, pub 2026-09-24): Identify wild-type mRNA and modify >=70% of C-optimizable codons to increase CDS cytosine content (omits G-proviso and synthesis step in published Cl.1)."
+      ],
+      "enforcement_action_commercial_clean": "WARN_AT_050_AND_COUNSEL_GATE_AT_065",
+      "prohibited_execution_pattern": {
+        "cytosine_maximization_objective_or_rewrite_rule": true,
+        "wildtype_c_optimizable_conversion_ge_070": true
+      },
+      "clean_room_design_around_requirements": [
+        "NEVER implement any objective, heuristic, or post-process that maximizes cytosine content relative to wild type.",
+        "Generate CDS de novo from target amino-acid sequence; when a wild-type nucleotide reference is available or supplied, compute and log the exact claim-defined fraction of C-optimizable codons converted to higher-C synonyms (both with and without the non-higher-G proviso).",
+        "Enforce CI engineering warning ceiling at 0.50 and FTO_COUNSEL_REVIEW gate at >=0.65 (strict margin below 0.70 threshold covering US10898584B2, US12533422B2, and pending US20260284227A1).",
+        "Do NOT bundle wet-lab synthesis or clinical administration into software-only mRNAx deliveries."
+      ]
+    },
+    {
+      "boundary_id": "ASU_US12706176B1_RANDOM_SYNONYMOUS_SAMPLING_PROBLEM_COUNT_ARGMIN",
+      "family_code": "F4B",
+      "risk_level": "HIGH",
+      "jurisdictions_active_grant": [
+        "US"
+      ],
+      "jurisdictions_pending": [],
+      "jurisdictions_ceased_or_refused": [],
+      "patent_family": [
+        {
+          "publication": "US12706176B1",
+          "application_no": "US17/401,440",
+          "kind_type": "GRANTED",
+          "assignee": "Arizona Board of Regents on behalf of Arizona State University",
+          "filing_date": "2021-08-13",
+          "pub_date": "2026-08-11",
+          "anticipated_expiration": "2045-05-30",
+          "verified_legal_status_2026_11_27": "GRANTED / Active, US-ONLY (2026-07-29 STCF PATENTED CASE; MICRO-ENTITY fee status -> low maintenance cost).",
+          "claim1_verified_live": true,
+          "source_url": "https://patents.google.com/patent/US12706176B1/en"
+        }
+      ],
+      "verified_claim_1_elements": [
+        "Receive target AA sequence, >=1 problematic nucleotide sequence (GC content, repeat, splice site, restriction site), and host expression system/codon table.",
+        "Reverse-translate target AA multiple times (>=100/1000/10000/100000 candidates, about <=250 codons) with random selection of synonymous codons.",
+        "Count total occurrences of problematic sequences per candidate -> identify lowest-count candidate -> locate remaining occurrences -> replace with subsequence randomly selected from weighted unproblematic sequence list -> synthesize polynucleotide."
+      ],
+      "enforcement_action_commercial_clean": "BLOCK_NAIVE_RANDOM_COUNT_PIPELINE",
+      "prohibited_execution_pattern": {
+        "massive_random_synonymous_reverse_translation_plus_problem_motif_count_argmin": true,
+        "weighted_random_replacement_list_motif_repair": true
+      },
+      "clean_room_design_around_requirements": [
+        "HARD BAN on bulk random synonymous reverse-translation pools ranked by problematic-motif count argmin.",
+        "Use generation-time constructive constraint satisfaction (e.g. constrained decoding / deterministic feasibility enforcement) so forbidden motifs (restriction/splice/homopolymer/slippery UUUU/UUUC) are structurally unemittable (count identically 0 by construction).",
+        "HARD BAN on weighted-random replacement repair; any motif remediation MUST be deterministic constraint-propagated editing.",
+        "Rank feasible candidates via multi-objective Pareto dominance over continuous empirical surrogates; do NOT bundle synthesis."
+      ]
+    },
+    {
+      "boundary_id": "LEIBNIZ_HANNOVER_US11848074B2_EP3551758B1_BOOSTED_GAM_PROTEIN_PER_TIME",
+      "family_code": "F4C",
+      "risk_level": "HIGH",
+      "jurisdictions_active_grant": [
+        "US",
+        "EP (validated states incl. DE)"
+      ],
+      "jurisdictions_pending": [],
+      "jurisdictions_ceased_or_refused": [
+        "EP3551758B1 lapsed in TR/HU/LT only"
+      ],
+      "patent_family": [
+        {
+          "publication": "US11848074B2",
+          "application_no": "US16/467,528",
+          "kind_type": "GRANTED",
+          "assignee": "Gottfried Wilhelm Leibniz Universitaet Hannover (reassigned from Max-Planck-Gesellschaft 2023-01-17)",
+          "filing_date": "2017-12-06",
+          "pub_date": "2023-12-19",
+          "anticipated_expiration": "2040-11-17",
+          "verified_legal_status_2026_11_27": "GRANTED / Active (small-entity; CC 2024-07-02; first 3.5-yr maintenance fee window ~2027). Claim 1 includes wet-lab host-cell expression steps (e)-(f).",
+          "claim1_verified_live": true,
+          "source_url": "https://patents.google.com/patent/US11848074B2/en"
+        },
+        {
+          "publication": "EP3551758B1",
+          "application_no": "EP17811314",
+          "kind_type": "GRANTED",
+          "assignee": "Gottfried Wilhelm Leibniz Universitaet Hannover",
+          "filing_date": "2017-12-06",
+          "pub_date": "2024-05-29",
+          "anticipated_expiration": "2037-12-06",
+          "verified_legal_status_2026_11_27": "GRANTED / Active in validated EPC states (DE year-9 annual fee paid 2025-12-30; PG25 lapsed in TR/HU/LT). CRITICAL WAVE 11 FINDING: EP3551758B1 Claim 1 is PURELY COMPUTER-IMPLEMENTED with NO wet-lab host-cell expression steps!",
+          "claim1_verified_live": true,
+          "source_url": "https://patents.google.com/patent/EP3551758B1/en"
+        }
+      ],
+      "verified_claim_1_elements": [
+        "EP3551758B1 Cl.1 (GRANTED PURE-SOFTWARE CLAIM — NO WET-LAB HOST-CELL STEP): (a) generate plurality of candidate nucleotide sequences; (b) compute sequence score using a BOOSTED GENERALIZED ADDITIVE MODEL (GAM) over features comprising 'protein per time' (mechanistically qualified via collective ribosome / translation elongation dynamics in the claim/spec); (c) determine optimized candidate nucleotide sequence. Independent Claim 14 additionally claims a corresponding computer system.",
+        "US11848074B2 Cl.1: Same scoring steps (a)-(d) plus wet-lab steps (e) introduce expression vector into host cell and (f) incubate and express protein. Dependent Cl.6 adds random weighted per-codon sampling."
+      ],
+      "enforcement_action_commercial_clean": "HARD_BLOCK_MODEL_CLASS",
+      "prohibited_execution_pattern": {
+        "uses_boosted_gam_with_protein_per_time_scoring": true,
+        "random_elongation_rate_weighted_codon_sampler": true
+      },
+      "clean_room_design_around_requirements": [
+        "INTERNAL BLANKET ENGINEERING BAN (broader than exact claim elements as a safety margin across both EP3551758B1 Cl.1/Cl.14 [active in DE; lapsed TR/HU/LT; check other EPC states on official registers] and US11848074B2): NEVER use a boosted generalized additive model (boosted GAM / mboost) as the ranking function, and NEVER define 'protein per time' (mechanistic or otherwise) as a scored feature.",
+        "Do NOT use elongation-rate weighted random per-codon sampling (also avoids ASU US12706176B1).",
+        "Use generative foundation-model guidance (Apache-2.0 CodonTransformer) + non-GAM LightGBM/neural multi-axis Pareto selection; never ship bundled wet-lab transfection/expression steps."
+      ]
+    }
+  ],
+  "sequence_and_composition_references": [
+    {
+      "publication": "WO2024231621A1",
+      "family_code": "F5",
+      "national_phase_verified": [
+        {
+          "publication": "EP4704918A1",
+          "app": "EP24729041.4",
+          "status": "PENDING (exam req 2025-10-30; pub 2026-03-11; AL..TR; DAV/DAX deleted 2026-08-12)"
+        },
+        {
+          "publication": "JP2026515056A",
+          "app": "JP2025564477",
+          "status": "PENDING (ENP 2025-11-05; pub 2026-05-13)"
+        },
+        {
+          "jurisdiction": "DE",
+          "status": "NENP non-entry 2025-12-06 (covered via EP route)"
+        }
+      ],
+      "us_cn_national_phase_status": "UNVERIFIED (no US/CN entry appears in Google Patents/WIPO legal events as of 2026-11-27; official USPTO/CNIPA check required for certainty)",
+      "assignee": "Centre National de la Recherche Scientifique (CNRS)",
+      "inventors": [
+        "Federico Perche",
+        "Ayoub Medjmedj",
+        "Albert Ngalle-Loth"
+      ],
+      "associated_paper": "PMC12355064 (Medjmedj et al., Mol Ther Nucleic Acids 2025, CC-BY-4.0)",
+      "pub_date": "2024-11-14",
+      "claim_type": "COMPOSITION_OF_MATTER_CL1_AND_INVITRO_USE_CL12 (NOT an algorithmic optimization method claim)",
+      "claim_scope": "Claim 1: Synthetic nucleic acid 5'->3' comprising (a) 5'UTR from closed list {human beta-globin SEQ ID 4, synthetic 5'NeoUTR3 SEQ ID 5, human alpha-globin SEQ ID 6, synthetic 5'UTR4 SEQ ID 7}, (b) ORF, and (c) 3'UTR from closed list {rotavirus VP6 SEQ ID 1, MnSOD 3'UTR}. Claim 12 additionally recites an in-vitro use of the nucleic acid. Claim 1 recites NO 95% identity threshold.",
+      "role_in_mrnax": "General 5'+3' dual-UTR algorithmic optimization method is NOT claimed. Output-side and in-vitro use exposure is confirmed live in EP (EP4704918A1) and JP (JP2026515056A), with US/CN national-phase status UNVERIFIED pending official USPTO/CNIPA check. Advisory logged in wave11_carbon_advisories.json to add a Cartesian PAIR rule to patent_fto_guard_v2 blocking ONLY {4 listed 5'UTRs} x {VP6 or MnSOD 3'UTR} (using >=95% identity on the 2 distinguishing 3'UTRs strictly as an internal mRNAx screening heuristic, NOT a claim term), NEVER individually blocking ubiquitous alpha/beta-globin 5'UTRs.",
+      "source_url": "https://patents.google.com/patent/WO2024231621A1/en"
+    },
+    {
+      "publication": "US10106800B2",
+      "assignee": "BioNTech SE",
+      "pub_date": "2018-10-23",
+      "verified_legal_status_2026_11_27": "Expired - Lifetime (Google Patents index)",
+      "claim_scope": "RNA complementary to template comprising >=2 copies of human beta-globin 3'UTR.",
+      "role_in_mrnax": "Reference composition boundary; confirm national counterparts before deployment.",
+      "source_url": "https://patents.google.com/patent/US10106800B2/en"
+    },
+    {
+      "publication": "US11547673B1",
+      "assignee": "BioNTech SE",
+      "pub_date": "2023-01-10",
+      "verified_legal_status_2026_11_27": "GRANTED / Active",
+      "claim_scope": "Pharmaceutical composition comprising RNA of SEQ ID NO:9 with modified uridines; dependent claims recite hAg-Kozak 5'UTR, FI (AES-mtRNR1) 3'UTR, and segmented poly(A).",
+      "role_in_mrnax": "Active sequence/composition boundary enforced in companion patent_fto_guard_v2.json.",
+      "source_url": "https://patents.google.com/patent/US11547673B1/en"
+    },
+    {
+      "publication": "US9683233B2",
+      "assignee": "CureVac SE",
+      "pub_date": "2017-06-20",
+      "verified_legal_status_2026_11_27": "GRANTED / Active",
+      "claim_scope": "Artificial nucleic acid molecule comprising 5'->3': (a) 5'UTR element of a TOP gene, (b) ORF, and (c) >=1 histone stem-loop.",
+      "role_in_mrnax": "Active composition boundary; cross-referenced with CUREVAC_US9447431B2_HISTONE_STEM_LOOP_3UTR_GENUS in patent_fto_guard_v2.json.",
+      "source_url": "https://patents.google.com/patent/US9683233B2/en"
+    }
+  ],
+  "abandoned_withdrawn_or_non_blocking_status_notes": [
+    {
+      "publication": "US20170362627A1",
+      "assignee": "ModernaTx Inc",
+      "pub_date": "2017-12-21",
+      "verified_legal_status_2026_11_27": "Abandoned (Google Patents index)",
+      "companion_publication": {
+        "publication": "EP4324473A2",
+        "pub_date": "2024-02-21",
+        "verified_legal_status_2026_11_27": "Withdrawn (Google Patents index)",
+        "source_url": "https://patents.google.com/patent/EP4324473A2/en"
+      },
+      "audit_guidance": "Multiparametric optimization family; do NOT mischaracterize as active blanket ban, and do NOT extrapolate to entire global family without official register review.",
+      "source_url": "https://patents.google.com/patent/US20170362627A1/en"
+    },
+    {
+      "publication": "US11078247B2",
+      "assignee": "CureVac AG",
+      "pub_date": "2021-08-03",
+      "verified_legal_status_2026_11_27": "Expired - Fee Related",
+      "audit_guidance": "Expired CureVac HSP patent; does NOT clear active US10898584B2, US12533422B2, US20260284227A1, or US9683233B2.",
+      "source_url": "https://patents.google.com/patent/US11078247B2/en"
+    },
+    {
+      "publication": "US10385088B2",
+      "assignee": "ModernaTx Inc",
+      "pub_date": "2019-08-20",
+      "verified_legal_status_2026_11_27": "Active (non-algorithmic backbone chemistry)",
+      "audit_guidance": "Chemical backbone modifications only; excluded from algorithmic method guard.",
+      "source_url": "https://patents.google.com/patent/US10385088B2/en"
+    },
+    {
+      "publication": "US20230416324A1",
+      "assignee": "ModernaTx Inc",
+      "pub_date": "2023-12-28",
+      "verified_legal_status_2026_11_27": "Pending",
+      "audit_guidance": "Pending application on reduced-uracil nucleic acid molecules; monitor quarterly.",
+      "source_url": "https://patents.google.com/patent/US20230416324A1/en"
+    },
+    {
+      "publication": "US7741118",
+      "assignee": "Bayer / Monsanto (unverified secondary press report)",
+      "pub_date": "UNVERIFIED",
+      "verified_legal_status_2026_11_27": "UNVERIFIED",
+      "audit_guidance": "Secondary blog reference only; primary claims not retrieved; keep strictly UNVERIFIED."
+    }
+  ],
+  "unverified_items_requiring_official_register_followup": [
+    {
+      "publication": "US20250092387A1 (App 18/968,907)",
+      "unverified_aspect": "Current post-amendment pending claim text in USPTO Patent Center (only published A1 claims are visible on Google Patents).",
+      "followup_channel": "USPTO Patent Center (monthly watch)"
+    },
+    {
+      "publication": "US20220269951A1 (App 17/184,505)",
+      "unverified_aspect": "Exact post-amendment claims on appeal before PTAB (Examiner's Answer mailed 2026-09-11 verified, but amended claim text requires USPTO Patent Center file wrapper).",
+      "followup_channel": "USPTO Patent Center / PTAB docket"
+    },
+    {
+      "publication": "EP4682890A2/A3",
+      "unverified_aspect": "Any claim amendments filed after the 2026-04-01 A3 European search report (A2 published Claim 1 was live-verified as DFA x SCFG antibody sequence).",
+      "followup_channel": "EPO Register (quarterly watch)"
+    },
+    {
+      "publication": "CN114974428A",
+      "unverified_aspect": "Direct CNIPA examination/rejection/abandonment status (Google Patents shows no event since 2022-10-28, which can lag CNIPA).",
+      "followup_channel": "CNIPA official patent search before any CN launch"
+    },
+    {
+      "publication": "WO2024231621A1",
+      "unverified_aspect": "Definitive confirmation of US and CN national-phase non-entry (absent in Google/WIPO legal events; PATENTSCOPE national-phase tab CAPTCHA-gated).",
+      "followup_channel": "Official USPTO Patent Center & CNIPA search"
+    },
+    {
+      "publication": "CA2925021C & ES2806575T3 (CureVac US10898584B2 family)",
+      "unverified_aspect": "Individual foreign granted claim wording and maintenance status in CA/EP jurisdictions.",
+      "followup_channel": "CIPO / EPO Register prior to CA/EP commercial deployment"
+    }
+  ],
+  "enforceable_clean_room_architectural_rules": [
+    {
+      "rule_id": "CR-RULE-01_THREE_LAYER_PROVENANCE_AND_TRANSITIVE_DEPS",
+      "title": "Trace every commercial output across Code, Model Weights, and Training/Benchmark Data + transitive dependencies",
+      "mandatory": true,
+      "enforcement": "CI_AND_RUNTIME_MANIFEST",
+      "requirements": [
+        "Record version, upstream URL, pull date, SPDX/custom license, attribution, and permitted commercial scope separately for Code, Model Weights, and Training/Benchmark Data.",
+        "Preserve upstream provenance through distilled labels, surrogate training tables, and precomputed embeddings.",
+        "Audit recursive/default dependencies at build time (reference negative case: modernatx/MultiStructRNA is MIT wrapper, BUT live-verified pyproject.toml requires varnaapi==1.1.1 GPL-3.0 and Pixi lists viennarna>=2.5.0 Q — G-W9 missed varnaapi!)."
+      ]
+    },
+    {
+      "rule_id": "CR-RULE-02_AGENT_TOOL_LICENSE_GATE",
+      "title": "Enforce strict commercial-clean license allowlist at Agent tool selection time",
+      "mandatory": true,
+      "enforcement": "RUNTIME_TOOL_ROUTER_HARD_GATE",
+      "allowed_spdx_commercial_clean": [
+        "MIT",
+        "Apache-2.0",
+        "BSD-2-Clause",
+        "BSD-3-Clause",
+        "ISC",
+        "CC0-1.0",
+        "CC-BY-4.0"
+      ],
+      "blocked_licenses_and_sources_commercial_clean": [
+        "GPL-*",
+        "AGPL-*",
+        "*-NC*",
+        "*-ND*",
+        "UNVERIFIED",
+        "NO_LICENSE_ALL_RIGHTS_RESERVED (e.g. ziyaow1010/LIMBER, Azam-Shi/RNAtomy, xlab-BioAI/RNASTOP)",
+        "NOASSERTION_UNREVIEWED",
+        "CUSTOM_COMMERCIAL_CONTACT_REQUIRED (e.g. LinearFold, ViennaRNA)",
+        "github.com/LinearDesignSoftware/*",
+        "github.com/RainaBio/GEMORNA",
+        "github.com/Sanofi-Public/*",
+        "github.com/helicalAI/helical",
+        "huggingface.co/multimolecule/ribonanzanet (AGPL-3.0)"
+      ],
+      "anti_circumvention_clause": "Non-commercial, unlicensed, or copyleft models MUST NOT be bypassed via remote API calls, cached teacher outputs, or knowledge distillation into commercial_clean surrogates. Internal compute rights and customer raw-data redistribution rights MUST be gated separately."
+    },
+    {
+      "rule_id": "CR-RULE-03_INDEPENDENT_IMPLEMENTATION_AND_EXECUTION_TRACE",
+      "title": "Preserve clean-room implementation provenance and actual algorithmic execution trace",
+      "mandatory": true,
+      "enforcement": "GIT_SPEC_AND_RUNTIME_TRACE",
+      "legal_distinction_note": "Software copyright (PRC Regulations on Computer Software Protection Art. 6; 17 U.S.C. 102(b)) protects code expression, NOT underlying methods/algorithms. Clean-room authorship establishes copyright provenance; patent FTO still depends on country-specific method claims and executed steps.",
+      "requirements": [
+        "Build commercial engines solely from cleared specs, data, and dependencies with commit-level authorship trail.",
+        "Emit exact executed algorithm trajectory per run: region partitioning, search operator, update schedule, constraint handling (constructive vs post-hoc), and objective vector definitions.",
+        "Enforce CI lints rejecting: (i) any additive MFE + weighted regularizer scalar objective (precaution for pending US20240394558A1 Cl.1/Cl.4 & granted JP7367090B2), (ii) init_region_len/preset_nt frozen-prefix splits (CN119265214B / JP7892088B2), (iii) random synonymous sampling + motif-count argmin / weighted-random repair (US12706176B1), (iv) boosted GAM + protein_per_time scoring (EP3551758B1 Cl.1/Cl.14 / US11848074B2), and (v) DFA-CFG intersection or dual-hash backpointer DP (CN118038986B / JP7367090B2)."
+      ]
+    },
+    {
+      "rule_id": "CR-RULE-04_DUAL_FTO_RECORD_METHOD_AND_OUTPUT",
+      "title": "Emit separate machine-readable Method-FTO and Output-FTO records on every commercial run",
+      "mandatory": true,
+      "enforcement": "MANDATORY_RUN_RECEIPT",
+      "requirements": [
+        "Method-FTO record documents what steps the engine executed against method_fto_guard_v1.1.json boundaries (F1, F2, F3, F4A, F4B, F4C).",
+        "Output-FTO record documents delivered sequences, UTR/poly(A) combinations (incl. F5 WO2024231621 Cartesian pair check in EP/JP), and modifications against patent_fto_guard_v2.json.",
+        "Annotated Pareto fronts preserve scientific trade-offs and MUST NOT be substituted for jurisdiction-specific claim-chart counsel sign-off."
+      ]
+    }
+  ],
+  "required_commercial_run_audit_fields": {
+    "schema_version": "1.1.0",
+    "fields": [
+      {
+        "field": "run_id",
+        "type": "string",
+        "required": true,
+        "description": "Unique immutable run UUID."
+      },
+      {
+        "field": "timestamp_utc",
+        "type": "string (ISO-8601)",
+        "required": true,
+        "description": "UTC execution timestamp."
+      },
+      {
+        "field": "commercial_tier",
+        "type": "enum['commercial_clean', 'research_only']",
+        "required": true,
+        "description": "Must equal 'commercial_clean' for any commercial artifact."
+      },
+      {
+        "field": "target_deployment_jurisdictions",
+        "type": "array[string]",
+        "required": true,
+        "description": "Target jurisdictions (e.g., ['US', 'EP', 'CN', 'JP']) used to determine applicable patent counsel gates."
+      },
+      {
+        "field": "engine_git_commit",
+        "type": "string",
+        "required": true,
+        "description": "Exact git SHA of generator/optimizer engine."
+      },
+      {
+        "field": "input_origin_type",
+        "type": "enum['amino_acid_only', 'wildtype_mrna_reference']",
+        "required": true,
+        "description": "Tracks CureVac US10898584B2 / US12533422B2 / US20260284227A1 applicability."
+      },
+      {
+        "field": "wildtype_c_optimizable_replacement_fraction",
+        "type": "number|null",
+        "required": true,
+        "description": "Fraction of wild-type C-optimizable codons converted to higher-C synonyms (warn >=0.50, counsel gate >=0.65, hard ceiling <0.70)."
+      },
+      {
+        "field": "region_partition_strategy",
+        "type": "string",
+        "required": true,
+        "description": "Exact sequence partitioning trace (audited against CN119265214B / JP7892088B2 5'UTR+preset-N CDS split)."
+      },
+      {
+        "field": "optimization_schedule_and_operators",
+        "type": "array[string]",
+        "required": true,
+        "description": "Ordered list of search/update stages and operators (audited against F1 staged freeze, F2 dual-hash DFA DP, F3 DFAxCFG, F4B random sampling argmin, F4C boosted GAM)."
+      },
+      {
+        "field": "objective_formulation",
+        "type": "object",
+        "required": true,
+        "description": "Explicit mode ('pareto_non_dominated' vs 'scalar'), objective axes (must include >=1 axis outside {TIE, CAI, MFE}), and assertion that no additive MFE + lambda*CAI scalar is used."
+      },
+      {
+        "field": "three_layer_dependency_manifest",
+        "type": "array[object]",
+        "required": true,
+        "description": "Per-tool/model/dataset entries containing asset_id, version, code_license, weights_license, data_license, transitive_gpl_count, and sha256."
+      },
+      {
+        "field": "method_fto_boundary_checks",
+        "type": "object",
+        "required": true,
+        "description": "Map of boundary_id (F1..F4C) -> {status: 'PASS'|'WARN'|'BLOCK', evidence_note: string}."
+      },
+      {
+        "field": "sequence_fto_guard_v2_receipt",
+        "type": "object",
+        "required": true,
+        "description": "Output from companion patent_fto_guard_v2.json check (genus + sequence collisions + WO2024231621 Cartesian 5'x3' UTR pair check)."
+      },
+      {
+        "field": "counsel_fto_signoff_required",
+        "type": "boolean",
+        "required": true,
+        "description": "Always true prior to clinical/commercial release; engineering guard never auto-certifies '100% FTO'."
+      }
+    ]
+  },
+  "updated_at_utc": "2026-11-27T01:03:48Z",
+  "enforcement_status": "POLICY_SPECIFICATION_ONLY — defines mandatory commercial_clean engineering boundaries and runtime audit fields; does NOT constitute a passing commercial runtime receipt. Carbon must emit a passing paired Method-FTO + Output-FTO runtime receipt through the commercial entry point before claiming runtime enforcement."
+}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import math
 import os
@@ -10,6 +11,7 @@ import re
 import tempfile
 import threading
 import uuid
+from collections import defaultdict
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from decimal import Decimal, InvalidOperation
@@ -17,11 +19,13 @@ from functools import wraps
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, ValidationError, field_validator
 
 from mrnax.constraints.frameshift_m1psi import remediate_m1psi_slippery_runs
+from mrnax.constraints.fto_guard import COMMERCIAL_ZERO_GPL_REQUIREMENT
 from mrnax.constraints.registry import ScopedConstraintEngine, default_m1_constraints
-from mrnax.engine.pareto_director import next_report_timestamp_ns, run_design_pipeline
+from mrnax.engine.pareto_director import next_report_timestamp_ns, project_report_for_intent, run_design_pipeline
+from mrnax.engine.profiles import check_profile_readiness
 from mrnax.harness.sandbox import UntrustedExternalText, redact_secret_markers
 from mrnax.schemas.common import ComplianceProfile, SegmentScope, UridineChemistry
 from mrnax.schemas.construct_bundle import (
@@ -40,9 +44,9 @@ from mrnax.schemas.design_intent import (
     ObjectiveSpec,
     RuntimePolicySpec,
 )
-from mrnax.schemas.evaluation_report import EvaluationReport
+from mrnax.schemas.evaluation_report import EvaluationReport, serialize_report_artifact
 from mrnax.schemas.experiment_record import ExperimentRecord, FeedbackDecisionRecord
-from mrnax.schemas.run_manifest import RunManifest
+from mrnax.schemas.run_manifest import ArtifactChecksumRecord, RunManifest
 
 
 def parse_json_float_token_bounded(tok: str) -> Decimal:
@@ -173,15 +177,44 @@ def project_lock(store_dir: Path) -> Iterator[None]:
             _held_locks.paths = held
 
 
-def _project_mutation[**P, R](method: Callable[P, R]) -> Callable[P, R]:
+def _with_current_state[**P, R](method: Callable[P, R]) -> Callable[P, R]:
     @wraps(method)
     def serialized(self, *args, **kwargs):
-        with project_lock(self.store_dir):
-            meta = self.store_dir / "project_state.json"
-            if meta.exists() and json.loads(meta.read_bytes()).get("state_revision", 0) != self._state_revision:
-                self._load_existing()
+        with self.current_state():
             return method(self, *args, **kwargs)
     return serialized
+
+
+def _report_bundle_ids(report: EvaluationReport) -> set[str]:
+    ids = set(report.recommended_bundle_ids)
+    ids.update(ev.bundle_id for ev in report.candidate_evaluations)
+    ids.update(bid for trace in report.action_transparency for bid in trace.changed_candidate_ids)
+    ids.update(diagnostic.candidate_ref for diagnostic in report.failed_diagnostics)
+    return ids
+
+
+def _manifest_verifies_report(
+    manifest: RunManifest, report: EvaluationReport, raw_report: bytes, intent: DesignIntent, intent_file_sha: str,
+) -> bool:
+    if manifest.compliance_track != report.compliance_track or manifest.compliance_track != intent.compliance_track:
+        return False
+    reports = [a for a in manifest.artifacts if a.logical_name == "evaluation_report"]
+    if len(reports) != 1:
+        return False
+    pin = reports[0]
+    report_file_matches = pin.sha256 == hashlib.sha256(raw_report).hexdigest()
+    intent_pins = [a.sha256 for a in manifest.artifacts if a.logical_name == "input_intent"]
+    if intent_pins:
+        return report_file_matches and intent_pins == [intent_file_sha] and manifest.input_intent_digest == intent.digest()
+    if manifest.input_intent_digest == intent_file_sha and report_file_matches:
+        return True  # Legacy receipt pinned both files directly.
+    if (report.rule_snapshot_version is None or pin.local_relpath != "evaluation_report.json"
+            or manifest.input_intent_digest != intent.digest()):
+        return False
+    # A direct pipeline run pins the exported artifact. A project can store the same JSON in compact form.
+    artifact = serialize_report_artifact(json.loads(raw_report))
+    return (pin.sha256 == hashlib.sha256(artifact).hexdigest() and pin.bytes == len(artifact)
+            and pin.md5 == hashlib.md5(artifact).hexdigest())
 
 
 def _write_json(path: Path, value: dict, *, exclusive: bool = False) -> None:
@@ -345,8 +378,10 @@ class ProjectHarnessSession:
 
         self._intents: list[DesignIntent] = []
         self._bundles: dict[str, ConstructBundle] = {}
+        self.quarantined_bundles: dict[str, str] = {}
         self._reports: dict[str, EvaluationReport] = {}
         self._manifests: dict[str, RunManifest] = {}
+        self._historical_release_blocks: defaultdict[str, set[str]] = defaultdict(set)
         self._experiments: list[ExperimentRecord] = []
         self._bundle_intent_map: dict[str, str] = {}
         self._ambiguous_report_intents: set[str] = set()
@@ -358,21 +393,70 @@ class ProjectHarnessSession:
 
     MAX_PROJECT_TURNS: int = 120
 
+    @contextmanager
+    def current_state(self) -> Iterator[None]:
+        """Hold the same revision from loading project history through the caller's last use."""
+        with project_lock(self.store_dir):
+            meta = self.store_dir / "project_state.json"
+            if meta.is_file() and json.loads(meta.read_bytes()).get("state_revision", 0) != self._state_revision:
+                self._load_existing()
+            yield
+
+    def _read_stored_report(self, raw_report: bytes) -> EvaluationReport:
+        try:
+            return EvaluationReport.model_validate_json(raw_report)
+        except ValidationError:
+            # Retain the historical association so a malformed evaluation cannot become an unevaluated import.
+            data = json.loads(raw_report)
+            if not isinstance(data, dict):
+                raise
+            candidates = data.get("candidate_evaluations")
+            recommendations = data.get("recommended_bundle_ids")
+            if not isinstance(candidates, list) or not isinstance(recommendations, list):
+                raise
+            affected = {e["bundle_id"] for e in candidates if isinstance(e, dict) and isinstance(e.get("bundle_id"), str)}
+            affected.update(bid for bid in recommendations if isinstance(bid, str))
+            if not affected:
+                raise
+            rejected = EvaluationReport.model_validate(dict(
+                data, candidate_evaluations=[], recommended_bundle_ids=[], action_transparency=[],
+                outcome_status="UNCOMPARABLE_MISSING_APPROVED_COMPONENT",
+                uncomparable_reason="Stored report contains invalid evaluations or recommendation references.",
+            ))
+            for bid in affected:
+                self._historical_release_blocks[bid].add(rejected.uncomparable_reason)
+            return rejected
+
     def _load_existing(self) -> None:
         self._intents.clear()
         self._bundles.clear()
+        self.quarantined_bundles.clear()
         self._reports.clear()
         self._manifests.clear()
+        self._historical_release_blocks.clear()
         self._experiments.clear()
         self._bundle_intent_map.clear()
         self._ambiguous_report_intents.clear()
         intent_files = sorted((self.store_dir / "intents").glob("intent_v*.json"))
+        intent_files_by_revision: dict[tuple[str, int], tuple[DesignIntent, str]] = {}
         for p in intent_files:
-            self._intents.append(DesignIntent.model_validate_json(p.read_text(encoding="utf-8")))
+            raw_intent = p.read_bytes()
+            intent = DesignIntent.model_validate_json(raw_intent)
+            self._intents.append(intent)
+            intent_files_by_revision[(intent.intent_id, intent.intent_version)] = (intent, hashlib.sha256(raw_intent).hexdigest())
         bundle_files = (self.store_dir / "bundles").glob("*.json")
         for p in bundle_files:
-            b = ConstructBundle.model_validate_json(p.read_text(encoding="utf-8"))
+            try:
+                b = ConstructBundle.model_validate_json(p.read_bytes())
+            except ValidationError as exc:
+                errors = exc.errors(include_context=False, include_input=False, include_url=False)
+                self.quarantined_bundles[p.stem] = "; ".join(
+                    f"{'.'.join(map(str, err['loc'])) or 'bundle'}: {err['msg']}" for err in errors
+                )
+                continue
             self._bundles[b.bundle_id] = b
+        for bundle_id in self.quarantined_bundles:
+            self._bundles.pop(bundle_id, None)
 
         # Load any persisted RunManifest files in store_dir / manifests / reports for historical provenance hydration
         manifest_candidates: list[Path] = []
@@ -383,26 +467,39 @@ class ProjectHarnessSession:
         ):
             if mp.is_file():
                 manifest_candidates.append(mp)
+        ambiguous_executions: set[str] = set()
         for mp in manifest_candidates:
+            raw_manifest = mp.read_bytes()
             try:
-                man = RunManifest.model_validate_json(mp.read_text(encoding="utf-8"))
-                self._manifests[man.execution_id] = man
-            except Exception:
+                man = RunManifest.model_validate_json(raw_manifest)
+            except ValidationError:
+                try:
+                    data = json.loads(raw_manifest)
+                except ValueError:
+                    data = None
+                execution_id = data.get("execution_id") if isinstance(data, dict) else None
+                ambiguous_executions.add(mp.stem)
+                if isinstance(execution_id, str):
+                    ambiguous_executions.add(execution_id)
                 continue
+            if mp.parent == self.store_dir / "manifests" and mp.stem != man.execution_id:
+                # A file occupying another execution's manifest slot cannot make its report receipt-free.
+                ambiguous_executions.add(mp.stem)
+            previous = self._manifests.get(man.execution_id)
+            if previous is not None and previous != man:
+                ambiguous_executions.add(man.execution_id)
+            self._manifests[man.execution_id] = man
 
         state_meta = self.store_dir / "project_state.json"
         meta: dict[str, Any] = {}
         has_saved_bundle_map = False
-        has_saved_report_order = False
         report_order: list[str] = []
         has_saved_exp_order = False
         exp_order: list[str] = []
         if state_meta.is_file():
             meta = json.loads(state_meta.read_text(encoding="utf-8"))
-            self._state_revision = meta.get("state_revision", 0)
             self.active_reference_bundle_id = meta.get("active_reference_bundle_id")
             if isinstance(meta.get("report_order"), list):
-                has_saved_report_order = True
                 report_order = [str(x) for x in meta["report_order"]]
             if isinstance(meta.get("ambiguous_report_intents"), list):
                 self._ambiguous_report_intents.update(str(x) for x in meta["ambiguous_report_intents"])
@@ -421,13 +518,26 @@ class ProjectHarnessSession:
         loaded_reps: list[tuple[tuple[int, int, int, int, int, str], EvaluationReport]] = []
         legacy_mtime_by_intent: dict[str, list[int]] = {}
         for p in sorted((self.store_dir / "reports").glob("rep_*.json")):
-            rep = EvaluationReport.model_validate_json(p.read_text(encoding="utf-8"))
-            if rep.rule_snapshot_version is None and rep.execution_id in self._manifests:
-                man = self._manifests[rep.execution_id]
-                rep = rep.model_copy_validated(
-                    rule_snapshot_version=man.rule_snapshot_version,
-                    isolated_sandbox_override=rep.isolated_sandbox_override or man.isolated_sandbox_override,
-                )
+            raw_report = p.read_bytes()
+            rep = self._read_stored_report(raw_report)
+            man = self._manifests.get(rep.execution_id)
+            source = intent_files_by_revision.get((rep.intent_id, rep.intent_version))
+            manifest_block = None
+            if rep.execution_id in ambiguous_executions:
+                manifest_block = "Producing execution has invalid or conflicting manifests."
+            elif man is not None and source is None:
+                manifest_block = "Producing manifest lacks its matching persisted intent revision."
+            elif man is not None and source is not None:
+                intent, intent_sha = source
+                if not _manifest_verifies_report(man, rep, raw_report, intent, intent_sha):
+                    manifest_block = "Producing manifest does not verify the stored report, intent, and compliance track."
+                else:
+                    manifest_block = man.commercial_release_block()
+                    rep = rep.model_copy_validated(
+                        rule_snapshot_version=man.rule_snapshot_version if rep.rule_snapshot_version is None else rep.rule_snapshot_version,
+                        isolated_sandbox_override=rep.isolated_sandbox_override or man.isolated_sandbox_override,
+                    )
+            self._record_history_blocks(rep, manifest_block)
             ord_idx = order_rank.get(rep.report_id, 10**9)
             mtime_ns = p.stat().st_mtime_ns
             has_ns = 1 if rep.created_at_ns is not None else 0
@@ -474,20 +584,7 @@ class ProjectHarnessSession:
                     self._bundle_intent_map[bid] = earliest_iid
 
         self._reload_experiments_from_disk(meta=meta, exp_order=exp_order, has_saved_exp_order=has_saved_exp_order)
-
-        # Upgrade legacy report_order on writable stores when chronological order is unambiguous (e.g. before USTAR archival)
-        if (
-            state_meta.is_file()
-            and not has_saved_report_order
-            and len(self._reports) > 1
-            and not self._ambiguous_report_intents
-            and os.access(self.store_dir, os.W_OK)
-            and os.access(state_meta, os.W_OK)
-        ):
-            try:
-                self._save_state_meta()
-            except OSError:
-                pass
+        self._state_revision = meta.get("state_revision", 0)
 
     def _repair_experiment_in_memory(self, exp: ExperimentRecord) -> tuple[ExperimentRecord, bool]:
         """Stamp physical construct digests in memory and downgrade legacy over-counted approvals."""
@@ -611,6 +708,8 @@ class ProjectHarnessSession:
         }
         if self._ambiguous_report_intents:
             meta_payload["ambiguous_report_intents"] = sorted(self._ambiguous_report_intents)
+        if self.quarantined_bundles:
+            meta_payload["quarantined_bundles"] = self.quarantined_bundles
         _write_json(self.store_dir / "project_state.json", meta_payload)
         self._state_revision = revision
 
@@ -628,7 +727,7 @@ class ProjectHarnessSession:
         self._save_state_meta()
         return intent
 
-    @_project_mutation
+    @_with_current_state
     def register_bundle(
         self,
         bundle: ConstructBundle,
@@ -654,14 +753,19 @@ class ProjectHarnessSession:
             self.active_reference_bundle_id = bundle.bundle_id
         self._save_state_meta()
 
+    @_with_current_state
     def get_bundle(self, bundle_id: str) -> ConstructBundle:
+        if bundle_id in self.quarantined_bundles:
+            raise ValueError(f"Bundle '{bundle_id}' is quarantined: {self.quarantined_bundles[bundle_id]}")
         return self._bundles[bundle_id]
 
+    @_with_current_state
     def latest_intent(self) -> DesignIntent:
         if not self._intents:
             raise RuntimeError("No DesignIntent exists in this session yet")
         return self._intents[-1]
 
+    @_with_current_state
     def intent_for_bundle(self, bundle_id: str) -> DesignIntent:
         origin = self._bundle_intent_map.get(bundle_id)
         for intent in self._intents:
@@ -669,13 +773,106 @@ class ProjectHarnessSession:
                 return intent
         raise ValueError(f"Bundle '{bundle_id}' has no known originating intent")
 
+    def _record_history_blocks(self, report: EvaluationReport, manifest_block: str | None) -> None:
+        """Keep release vetoes even when a later report repeats the same immutable identity."""
+        evaluated_ids = {ev.bundle_id for ev in report.candidate_evaluations}
+        for bid in set(report.recommended_bundle_ids) - evaluated_ids:
+            self._historical_release_blocks[bid].add("Recommendation lacks an evaluation.")
+        for ev in report.candidate_evaluations:
+            bundle = self._bundles.get(ev.bundle_id)
+            if report.isolated_sandbox_override:
+                self._historical_release_blocks[ev.bundle_id].add(
+                    "Candidate originated from an isolated_sandbox_override execution."
+                )
+            if bundle is not None and ev.version_digest != bundle.version_digest:
+                self._historical_release_blocks[ev.bundle_id].add("Stored evaluation digest differs from the bundle digest.")
+        for trace in report.action_transparency:
+            if trace.requirement_id == COMMERCIAL_ZERO_GPL_REQUIREMENT and trace.stage_applied == "filtering":
+                for bid in trace.changed_candidate_ids:
+                    self._historical_release_blocks[bid].add("Producing run recorded a copyleft dependency.")
+        if manifest_block:
+            for bid in _report_bundle_ids(report):
+                self._historical_release_blocks[bid].add(manifest_block)
+
+    def _release_block(self, bundle_id: str, track: ComplianceProfile) -> str | None:
+        if bundle_id in self.quarantined_bundles:
+            return self.quarantined_bundles[bundle_id]
+        if track == "commercial_clean" and (blocks := self._historical_release_blocks.get(bundle_id)):
+            return "; ".join(sorted(blocks))
+        return None
+
+    @_with_current_state
+    def report_for_read(self, report: EvaluationReport) -> EvaluationReport:
+        denied = {}
+        claimed_ids = set(report.recommended_bundle_ids)
+        claimed_ids.update(ev.bundle_id for ev in report.candidate_evaluations)
+        for bid in claimed_ids:
+            reason = self._release_block(bid, report.compliance_track)
+            if reason:
+                denied[bid] = reason
+        if not denied:
+            return report
+        intent = next((i for i in self._intents if i.intent_id == report.intent_id), None)
+        available = {bid: b for bid, b in self._bundles.items() if bid not in denied}
+        view = project_report_for_intent(report, available, intent, seed_dir=self.seed_dir)
+        if not view.candidate_evaluations:
+            view = view.model_copy_validated(uncomparable_reason=denied[min(denied)])
+        return view
+
+    @_with_current_state
+    def intent_for_export(self, bundle: ConstructBundle) -> DesignIntent:
+        """Verify the bundle identity and producing reports before commercial export."""
+        origin = self.intent_for_bundle(bundle.bundle_id)
+        intent = origin
+        if origin.compliance_track != "commercial_clean":
+            active = self.latest_intent()
+            if active.compliance_track != "commercial_clean" or not any(
+                report.intent_id == active.intent_id and bundle.bundle_id in _report_bundle_ids(report)
+                for report in self._reports.values()
+            ):
+                return origin
+            intent = active
+
+        history_block = self._release_block(bundle.bundle_id, intent.compliance_track)
+        if history_block:
+            raise ValueError(f"Commercial export blocked: {history_block}")
+        eligible = False
+        reasons = set()
+        for report in self._reports.values():
+            if report.intent_id != intent.intent_id:
+                continue
+            if not any(e.bundle_id == bundle.bundle_id for e in report.candidate_evaluations):
+                continue
+            projected = project_report_for_intent(
+                report, self._bundles, intent, seed_dir=self.seed_dir, disallow_sandbox_override=True
+            )
+            if any(e.bundle_id == bundle.bundle_id for e in projected.candidate_evaluations):
+                eligible = True
+            else:
+                reasons.add(projected.uncomparable_reason or projected.outcome_status)
+        if not eligible and not reasons:
+            if intent is not origin:
+                raise ValueError("Commercial export blocked: research-origin bundle has no verified commercial evaluation.")
+            if bundle.derivation_action != "reference_import":
+                raise ValueError("Commercial export blocked: generated bundle has no verified evaluation.")
+            readiness = check_profile_readiness(intent)
+            if not readiness.is_runnable:
+                raise ValueError(f"Commercial export blocked: {readiness.uncomparable_reason}")
+        if reasons and not eligible:
+            raise ValueError(
+                f"Commercial export blocked: stored evaluation failed current commercial_clean eligibility ({'; '.join(sorted(reasons))})."
+            )
+        return intent
+
+    @_with_current_state
     def latest_report(self, intent_id: str | None = None) -> EvaluationReport | None:
         target = intent_id or (self._intents[-1].intent_id if self._intents else None)
         if target in self._ambiguous_report_intents:
             raise ValueError(
                 f"Ambiguous legacy report order for intent '{target}' (multiple un-ordered reports share identical filesystem timestamps)"
             )
-        return next((r for r in reversed(self._reports.values()) if r.intent_id == target), None)
+        report = next((r for r in reversed(self._reports.values()) if r.intent_id == target), None)
+        return self.report_for_read(report) if report is not None else None
 
     def attach_external_evidence_readonly(self, sandboxed: UntrustedExternalText) -> None:
         """Store quarantined external text; strictly forbidden from modifying any DesignIntent or lock."""
@@ -690,7 +887,7 @@ class ProjectHarnessSession:
         with log_path.open("a", encoding="utf-8") as fh:
             fh.write(redact_secret_markers(json.dumps(redacted.model_dump(mode="json"))) + "\n")
 
-    @_project_mutation
+    @_with_current_state
     def create_initial_intent(
         self,
         *,
@@ -1113,7 +1310,7 @@ class ProjectHarnessSession:
             protected_tissues=prot_tiss,
         )
 
-    @_project_mutation
+    @_with_current_state
     def apply_incremental_intent_update(
         self,
         *,
@@ -1251,7 +1448,7 @@ class ProjectHarnessSession:
         )
         return self._persist_intent(updated)
 
-    @_project_mutation
+    @_with_current_state
     def resolve_conflict_with_pareto_tracks(self, *, turn_id: str, user_utterance: str) -> DesignIntent:
         prev = self.latest_intent()
         resolved = prev.model_copy_validated(
@@ -1265,7 +1462,7 @@ class ProjectHarnessSession:
         )
         return self._persist_intent(resolved)
 
-    @_project_mutation
+    @_with_current_state
     def execute_design(self, intent: DesignIntent | None = None) -> list[ConstructBundle]:
         active_intent = intent or self.latest_intent()
         ref = self._bundles.get(active_intent.reference_bundle_id) if active_intent.reference_bundle_id else None
@@ -1282,7 +1479,16 @@ class ProjectHarnessSession:
             report = report.model_copy_validated(created_at_ns=next_report_timestamp_ns())
         self._ambiguous_report_intents.discard(active_intent.intent_id)
         self._reports[report.report_id] = report
+        if isinstance(manifest, RunManifest):
+            intent_path = self.store_dir / "intents" / f"intent_v{active_intent.intent_version:03d}_{active_intent.intent_id}.json"
+            if intent_path.is_file():
+                content = intent_path.read_bytes()
+                manifest = manifest.model_copy_validated(artifacts=[*manifest.artifacts, ArtifactChecksumRecord(
+                    logical_name="input_intent", local_relpath=str(intent_path.relative_to(self.store_dir)),
+                    sha256=hashlib.sha256(content).hexdigest(), md5=hashlib.md5(content).hexdigest(), bytes=len(content),
+                )])
         self._manifests[manifest.execution_id] = manifest
+        self._record_history_blocks(report, manifest.commercial_release_block() if isinstance(manifest, RunManifest) else None)
         if hasattr(manifest, "model_dump"):
             (self.store_dir / "manifests").mkdir(exist_ok=True)
             _write_json(self.store_dir / "manifests" / f"{manifest.execution_id}.json", manifest.model_dump(mode="json"))
@@ -1290,7 +1496,7 @@ class ProjectHarnessSession:
         self._save_state_meta()
         return bundles
 
-    @_project_mutation
+    @_with_current_state
     def build_multi_segment_variant_for_comparison(self, base_bundle: ConstructBundle) -> ConstructBundle:
         """Helper producing a distinct 5'UTR + synonymous CDS variant for multi-segment attribution tests."""
         utr_reg = json.loads((self.seed_dir / "utr_components_v1.json").read_text(encoding="utf-8"))
@@ -1392,7 +1598,7 @@ class ProjectHarnessSession:
 
         return None
 
-    @_project_mutation
+    @_with_current_state
     def ingest_experiment_feedback(
         self,
         record: ExperimentRecord,

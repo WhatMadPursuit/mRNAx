@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Literal, Self
+import json
+from typing import Any, Literal, Self
 
 from pydantic import Field, model_validator
 
 from mrnax.schemas.common import ChemistryEvalMode, ComplianceProfile, ConstraintScope
 from mrnax.schemas.construct_bundle import FrozenSchemaModel
+
+
+def serialize_report_artifact(data: dict[str, Any]) -> bytes:
+    """Serialize the evaluation_report.json artifact pinned by the pipeline receipt."""
+    return (json.dumps(data, indent=2, sort_keys=True) + "\n").encode("utf-8")
 
 
 class MetricResult(FrozenSchemaModel):
@@ -28,6 +34,24 @@ class MetricResult(FrozenSchemaModel):
     chain_values: list[float] | None = None
     notes: str | None = None
 
+    @model_validator(mode="after")
+    def _forbid_eternafold_mfe_conflation(self) -> Self:
+        mid_low = self.metric_id.lower()
+        unit_low = self.unit.lower()
+        tool_low = self.tool_name.lower()
+        is_prob_tool = "eternafold" in tool_low or "contrafold" in tool_low or "eternafold" in mid_low
+        is_mfe_field = "mfe" in mid_low or "kcal" in mid_low or "kcal" in unit_low
+        if is_prob_tool and is_mfe_field:
+            raise ValueError(
+                f"MetricResult '{self.metric_id}' (tool='{self.tool_name}', unit='{self.unit}') illegally conflates "
+                "EternaFold/CONTRAfold pairing probabilities or dimensionless CRF scores with thermodynamic kcal/mol MFE"
+            )
+        if unit_low == "probability" and self.value is not None and not (0.0 <= float(self.value) <= 1.0):
+            raise ValueError(
+                f"MetricResult '{self.metric_id}' declares unit='probability' but value={self.value} is outside [0, 1]"
+            )
+        return self
+
 
 class FTOAlert(FrozenSchemaModel):
     rule_id: str
@@ -37,6 +61,9 @@ class FTOAlert(FrozenSchemaModel):
     identity_or_pattern: str
     blocked: bool
     summary: str
+    bundle_id: str | None = None
+    molecule_id: str | None = None
+    paired_intervals: list[tuple[int, int]] | None = None
 
 
 class AdvisoryNote(FrozenSchemaModel):

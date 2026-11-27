@@ -71,7 +71,7 @@ from mrnax.schemas.construct_bundle import (
     SegmentSpan,
 )
 from mrnax.schemas.design_intent import DesignIntent
-from mrnax.schemas.evaluation_report import EvaluationReport
+from mrnax.schemas.evaluation_report import BundleEvaluation, EvaluationReport
 
 DEFAULT_SEED_DIR = resolve_default_seed_dir()
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
@@ -154,10 +154,9 @@ def _serialize_molecule_view(mol: Any) -> dict[str, Any]:
     }
 
 
-def _serialize_candidate_card(bundle: ConstructBundle, eval_map: dict[str, Any]) -> dict[str, Any]:
+def _serialize_candidate_card(bundle: ConstructBundle, ev: BundleEvaluation | None) -> dict[str, Any]:
     mol_views = [_serialize_molecule_view(m) for m in bundle.molecules]
     primary = mol_views[0]
-    ev = eval_map.get(bundle.bundle_id)
     metrics = ev.metrics if ev is not None else []
     partial_ids = {
         m.metric_id for m in metrics
@@ -246,12 +245,11 @@ def _serialize_report_with_candidates(
         seed_dir=seed_dir,
         disallow_sandbox_override=disallow_sandbox_override,
     )
-    evaluations = {evaluation.bundle_id: evaluation for evaluation in projected.candidate_evaluations}
     cards: list[dict[str, Any]] = []
     for ev in projected.candidate_evaluations:
         bundle = bundles_by_id.get(ev.bundle_id)
         if bundle is not None:
-            card = _serialize_candidate_card(bundle, evaluations)
+            card = _serialize_candidate_card(bundle, ev)
             if card["pareto_rank"] is not None:
                 cards.append(card)
     return projected.model_dump(mode="json"), cards
@@ -654,6 +652,7 @@ def create_control_plane_app(
             )
             return {
                 "project_id": session.project_id,
+                "quarantined_bundles": session.quarantined_bundles,
                 "intent_count": len(intents),
                 "intents": intents,
                 "latest_report": report_view,
@@ -844,26 +843,11 @@ def create_control_plane_app(
             safe_bid = _validate_safe_id(bundle_id, "bundle_id")
             try:
                 bundle = session.get_bundle(safe_bid)
+                intent = session.intent_for_export(bundle)
             except KeyError as exc:
                 raise HTTPException(status_code=404, detail=f"Unknown bundle '{safe_bid}'") from exc
-
-            try:
-                intent = session.intent_for_bundle(safe_bid)
             except ValueError as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
-            if intent.compliance_track == "commercial_clean":
-                for rep in session._reports.values():
-                    if rep.intent_id == intent.intent_id and any(
-                        e.bundle_id == safe_bid for e in rep.candidate_evaluations
-                    ):
-                        if rep.isolated_sandbox_override or (
-                            rep.rule_snapshot_version is not None
-                            and not rep.rule_snapshot_version.startswith("rules_commercial_clean@")
-                        ):
-                            raise HTTPException(
-                                status_code=409,
-                                detail="Commercial export blocked: candidate originated from an isolated_sandbox_override or non-commercial rule snapshot.",
-                            )
             constraint_engine = ScopedConstraintEngine.from_seed_dir(resolved_seed)
             with tempfile.TemporaryDirectory(prefix="mrnax_web_exp_") as td:
                 out_dir = Path(td)

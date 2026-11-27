@@ -33,7 +33,7 @@ def two_chain_bundle():
 
 
 def test_card_exposes_each_molecule_and_its_target(two_chain_bundle):
-    card = _serialize_candidate_card(two_chain_bundle, {})
+    card = _serialize_candidate_card(two_chain_bundle, None)
     assert card["target_stoichiometry"] == two_chain_bundle.target_stoichiometry
     assert card["molecules_count"] == 2
     for molecule, view in zip(two_chain_bundle.molecules, card["molecules"], strict=True):
@@ -57,7 +57,7 @@ def partial_evaluation(two_chain_bundle):
 
 
 def test_card_with_incomplete_chain_measurement_has_no_score_or_rank(two_chain_bundle, partial_evaluation):
-    card = _serialize_candidate_card(two_chain_bundle, {two_chain_bundle.bundle_id: partial_evaluation})
+    card = _serialize_candidate_card(two_chain_bundle, partial_evaluation)
     assert card["pareto_rank"] is None
     assert card["metrics"] == {}
     assert all(m["value"] is None and "aggregated_" not in m["notes"] for m in card["metric_details"])

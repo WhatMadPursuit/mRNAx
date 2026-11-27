@@ -7,8 +7,9 @@ import json
 import re
 from typing import Any, Literal, Self
 
+from Bio.Data import CodonTable
 from Bio.Seq import Seq
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SerializerFunctionWrapHandler, field_validator, model_serializer, model_validator
 
 from mrnax.schemas.common import (
     CapChemistry,
@@ -22,7 +23,6 @@ from mrnax.schemas.common import (
 )
 
 _RNA_RE = re.compile(r"^[ACGU]+$")
-_STOP_CODONS = frozenset({"UAA", "UAG", "UGA"})
 _SEGMENT_ORDER: dict[str, int] = {
     "five_prime_utr": 0,
     "cds": 1,
@@ -58,6 +58,23 @@ class ProteinTargetSpec(FrozenSchemaModel):
     has_signal_peptide: bool = False
     is_secreted_or_membrane: bool = False
     confirmation_status: Literal["confirmed", "needs_protein_confirmation"] = "confirmed"
+    wildtype_cds_rna: str | None = None
+
+    @field_validator("transl_table")
+    @classmethod
+    def _known_translation_table(cls, value: int) -> int:
+        if value not in CodonTable.unambiguous_rna_by_id:
+            raise ValueError(f"Unknown NCBI translation table {value}")
+        return value
+
+    @model_serializer(mode="wrap")
+    def _omit_unset_wildtype_cds(
+        self, handler: SerializerFunctionWrapHandler
+    ) -> dict[str, Any]:
+        out: dict[str, Any] = handler(self)
+        if out.get("wildtype_cds_rna") is None:
+            out.pop("wildtype_cds_rna", None)
+        return out
 
 
 class SegmentSpan(FrozenSchemaModel):
@@ -155,12 +172,16 @@ class RNAMoleculeSpec(FrozenSchemaModel):
         if not cds_spans:
             raise ValueError("RNAMoleculeSpec must contain at least one 'cds' segment")
 
+        table = self.effective_translation_target.transl_table
+        if not self._valid_stop_cassette(table):
+            raise ValueError(f"stop_cassette must begin with a stop codon for NCBI translation table {table}")
+
         if self.effective_translation_target.confirmation_status == "confirmed":
             cds_nt = "".join(self.sequence[s.start : s.end] for s in cds_spans)
             if len(cds_nt) % 3 != 0:
                 raise ValueError(f"CDS length ({len(cds_nt)}) must be a multiple of 3")
             translated = str(
-                Seq(cds_nt).translate(table=self.effective_translation_target.transl_table, to_stop=False)
+                Seq(cds_nt).translate(table=table, to_stop=False)
             )
             if not stop_spans and translated.endswith("*"):
                 translated = translated[:-1]
@@ -170,12 +191,6 @@ class RNAMoleculeSpec(FrozenSchemaModel):
                 raise ValueError(
                     "CDS translation does not match effective_translation_target.protein_sequence"
                 )
-            for st in stop_spans:
-                st_seq = self.sequence[st.start : st.end]
-                if len(st_seq) < 3 or st_seq[:3] not in _STOP_CODONS:
-                    raise ValueError(
-                        f"stop_cassette '{st_seq}' must begin with a canonical stop codon (UAA/UAG/UGA)"
-                    )
         return self
 
     def get_segment(self, segment_type: SegmentScope) -> SegmentSpan | None:
@@ -188,7 +203,11 @@ class RNAMoleculeSpec(FrozenSchemaModel):
         seg = self.get_segment(segment_type)
         return "" if seg is None else self.sequence[seg.start : seg.end]
 
-    def translate_cds_protein(self) -> str | None:
+    def _valid_stop_cassette(self, table: int) -> bool:
+        cassette = self.get_segment_sequence("stop_cassette")
+        return not cassette or cassette[:3] in CodonTable.unambiguous_rna_by_id[table].stop_codons
+
+    def translate_cds_protein(self, *, translation_table: int | None = None) -> str | None:
         """Translate actual CDS nucleotide span(s) directly from RNA sequence; returns None if frame/stop is invalid."""
         cds_spans = [s for s in self.segments if s.segment_type == "cds"]
         stop_spans = [s for s in self.segments if s.segment_type == "stop_cassette"]
@@ -197,17 +216,14 @@ class RNAMoleculeSpec(FrozenSchemaModel):
         cds_nt = "".join(self.sequence[s.start : s.end] for s in cds_spans)
         if len(cds_nt) % 3 != 0:
             return None
-        translated = str(
-            Seq(cds_nt).translate(table=self.effective_translation_target.transl_table, to_stop=False)
-        )
+        table = self.effective_translation_target.transl_table if translation_table is None else translation_table
+        if table not in CodonTable.unambiguous_rna_by_id or not self._valid_stop_cassette(table):
+            return None
+        translated = str(Seq(cds_nt).translate(table=table, to_stop=False))
         if not stop_spans and translated.endswith("*"):
             translated = translated[:-1]
         if "*" in translated:
             return None
-        for st in stop_spans:
-            st_seq = self.sequence[st.start : st.end]
-            if len(st_seq) < 3 or st_seq[:3] not in _STOP_CODONS:
-                return None
         return translated
 
 

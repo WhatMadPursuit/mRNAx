@@ -92,8 +92,9 @@ class AtomicToolbox:
     ) -> dict[str, Any]:
         if compliance_track is not None and compliance_track not in ("research_max", "commercial_clean"):
             raise ValueError(f"Unsupported compliance_track '{compliance_track}'")
-        bundle = self.session.get_bundle(bundle_id)
-        intent = self.session.intent_for_bundle(bundle_id)
+        with self.session.current_state():
+            bundle = self.session.get_bundle(bundle_id)
+            intent = self.session.intent_for_bundle(bundle_id)
         effective_track = intent.compliance_track if compliance_track is None else compliance_track
         outcome = self.constraint_engine.evaluate_bundle(
             bundle,
@@ -219,8 +220,9 @@ class AtomicToolbox:
 
     # 5. compare_bundles
     def compare_bundles(self, bundle_id_a: str, bundle_id_b: str) -> dict[str, Any]:
-        ba = self.session.get_bundle(bundle_id_a)
-        bb = self.session.get_bundle(bundle_id_b)
+        with self.session.current_state():
+            ba = self.session.get_bundle(bundle_id_a)
+            bb = self.session.get_bundle(bundle_id_b)
         comparisons = []
         totals: dict[str, dict[str, Any]] = {}
         for ma, mb in paired_chains(ba, bb):
@@ -254,21 +256,22 @@ class AtomicToolbox:
     def explain_tradeoffs(self, report_id: str | None = None) -> dict[str, Any]:
         if report_id is not None and not isinstance(report_id, str):
             raise ValueError("report_id must be a string or null")
-        rep = (
-            self.session._reports[report_id]
-            if report_id is not None
-            else self.session.latest_report()
-        )
-        if rep is None:
-            raise ValueError("No evaluation report available in session")
-        intent = next((i for i in self.session._intents if i.intent_id == rep.intent_id), None)
-        projected = project_report_for_intent(
-            rep,
-            self.session._bundles,
-            intent,
-            seed_dir=self.session.seed_dir,
-            disallow_sandbox_override=True,
-        )
+        with self.session.current_state():
+            rep = (
+                self.session.report_for_read(self.session._reports[report_id])
+                if report_id is not None
+                else self.session.latest_report()
+            )
+            if rep is None:
+                raise ValueError("No evaluation report available in session")
+            intent = next((i for i in self.session._intents if i.intent_id == rep.intent_id), None)
+            projected = project_report_for_intent(
+                rep,
+                self.session._bundles,
+                intent,
+                seed_dir=self.session.seed_dir,
+                disallow_sandbox_override=True,
+            )
         return {
             "report_id": projected.report_id,
             "outcome_status": projected.outcome_status,
@@ -280,12 +283,13 @@ class AtomicToolbox:
 
     # 8. get_job_status
     def get_job_status(self) -> dict[str, Any]:
-        return {
-            "project_id": self.session.project_id,
-            "intent_versions": len(self.session._intents),
-            "bundle_count": len(self.session._bundles),
-            "active_reference_bundle_id": self.session.active_reference_bundle_id,
-        }
+        with self.session.current_state():
+            return {
+                "project_id": self.session.project_id,
+                "intent_versions": len(self.session._intents),
+                "bundle_count": len(self.session._bundles),
+                "active_reference_bundle_id": self.session.active_reference_bundle_id,
+            }
 
     _TOOL_INPUT_MODELS: dict[str, type[BaseModel]] = {
         "search_protein_assets": _SearchProteinAssetsInput,
@@ -304,45 +308,34 @@ class AtomicToolbox:
     def export_bundle(self, bundle_id: str, out_dir: str = "") -> dict[str, Any]:
         if not isinstance(out_dir, str):
             raise ValueError("out_dir must be a string")
-        b = self.session.get_bundle(bundle_id)
-        intent = self.session.intent_for_bundle(bundle_id)
-        if intent.compliance_track == "commercial_clean":
-            for rep in self.session._reports.values():
-                if rep.intent_id == intent.intent_id and any(
-                    e.bundle_id == bundle_id for e in rep.candidate_evaluations
-                ):
-                    if rep.isolated_sandbox_override or (
-                        rep.rule_snapshot_version is not None
-                        and not rep.rule_snapshot_version.startswith("rules_commercial_clean@")
-                    ):
-                        raise ValueError(
-                            "Commercial export blocked: candidate originated from an isolated_sandbox_override or non-commercial rule snapshot."
-                        )
-        base_store = self.session.store_dir.resolve()
-        raw_target = Path(out_dir) if out_dir else (base_store / "exports" / bundle_id)
-        unres = raw_target if raw_target.is_absolute() else (base_store / raw_target)
-        if unres.is_symlink() or any(p.is_symlink() for p in unres.parents if p != base_store.parent):
-            raise ValueError(f"Export out_dir '{out_dir}' must not traverse symlinks")
-        target_dir = unres.resolve()
-        if not target_dir.is_relative_to(base_store) or target_dir == base_store:
-            raise ValueError(
-                f"Export out_dir '{out_dir}' must resolve inside project store_dir '{base_store}'"
+        with self.session.current_state():
+            b = self.session.get_bundle(bundle_id)
+            intent = self.session.intent_for_export(b)
+            base_store = self.session.store_dir.resolve()
+            raw_target = Path(out_dir) if out_dir else (base_store / "exports" / bundle_id)
+            unres = raw_target if raw_target.is_absolute() else (base_store / raw_target)
+            if unres.is_symlink() or any(p.is_symlink() for p in unres.parents if p != base_store.parent):
+                raise ValueError(f"Export out_dir '{out_dir}' must not traverse symlinks")
+            target_dir = unres.resolve()
+            if not target_dir.is_relative_to(base_store) or target_dir == base_store:
+                raise ValueError(
+                    f"Export out_dir '{out_dir}' must resolve inside project store_dir '{base_store}'"
+                )
+            for fn in ("full_rna.fasta", "cds_only.fasta", "construct.gb", "chemistry_metadata.json"):
+                cand_f = target_dir / fn
+                if cand_f.is_symlink():
+                    raise ValueError(f"Refusing to overwrite symlinked export target '{cand_f}'")
+            manifest = export_construct_package(
+                b,
+                target_dir,
+                constraint_engine=self.constraint_engine,
+                constraints=intent.constraints,
+                compliance_track=intent.compliance_track,
+                expected_chemistry=intent.uridine_chemistry,
+                locked_scopes=intent.locked_scopes,
+                expected_protein_targets=intent.protein_targets,
             )
-        for fn in ("full_rna.fasta", "cds_only.fasta", "construct.gb", "chemistry_metadata.json"):
-            cand_f = target_dir / fn
-            if cand_f.is_symlink():
-                raise ValueError(f"Refusing to overwrite symlinked export target '{cand_f}'")
-        manifest = export_construct_package(
-            b,
-            target_dir,
-            constraint_engine=self.constraint_engine,
-            constraints=intent.constraints,
-            compliance_track=intent.compliance_track,
-            expected_chemistry=intent.uridine_chemistry,
-            locked_scopes=intent.locked_scopes,
-            expected_protein_targets=intent.protein_targets,
-        )
-        return manifest
+            return manifest
 
     def openai_tool_schemas(self) -> list[dict[str, Any]]:
         specs = [

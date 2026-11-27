@@ -1,78 +1,111 @@
-card_id: "RC-004-ETERNAFOLD-1.3.1-BSD3"
-component_id: "eternafold_bpp_engine"
-approved_software_version: "1.3.1"
+card_id: RC-004-ETERNAFOLD-1.3.1-BSD3
+component_id: eternafold_structure_head
+approved_software_version: 1.3.1
 approved_artifact_digests:
-  v1.3.1.tar.gz: "8aa00b81b6068bff02954ef1621e7aa92f48aadcb3e89b322af46433553691b5"
-  LICENSE: "8431990ae8dd84812802a5ef3d7cfe05d90257c96ed740c6e6f04ff32bc22afc"
-  parameters/EternaFoldParams.v1: "1421e89cc8df24b53a320eff6c72b8acfdb2771faba29ab9c798f7bdfc853a8a"
-component_name_and_version: "EternaFold 1.3.1"
-role_in_pipeline: >
-  Permissive BSD-3-Clause base-pair probability and unpaired accessibility engine (Wayment-Steele et al., Nature Methods 2022,
-  https://github.com/WaymentSteeleLab/EternaFold/releases/tag/v1.3.1). Evaluates zero-royalty commercial_clean secondary-structure
-  unpaired posteriors without linking to or invoking ViennaRNA (verified via ldd: zero libRNA linkage). Because EternaFoldParams.v1
-  multi-task chemical-probing posteriors improve empirical 1M7/SHAPE-MaP rank correlation over Turner thermodynamic McCaskill while
-  exhibiting a systematic posterior scale offset on short Kozak windows (MAE=0.1167 vs ViennaRNA), unmodified secondary-structure
-  scoring uses EternaFold rank/reactivity mode alongside MIT structRFM (RC-002) for modified m1Psi/5moU chemistries.
-current_license_track: "commercial_clean"
-code_rights_basis: >
-  Official release tag v1.3.1 (https://github.com/WaymentSteeleLab/EternaFold/releases/tag/v1.3.1, tarball SHA-256
-  8aa00b81b6068bff02954ef1621e7aa92f48aadcb3e89b322af46433553691b5) is licensed under the 3-Clause BSD License (LICENSE SHA-256
-  8431990ae8dd84812802a5ef3d7cfe05d90257c96ed740c6e6f04ff32bc22afc, Copyright Stanford University / Das Lab & CONTRAfold contributors).
-  Retain copyright notice, conditions list, and disclaimer in distributions.
-weights_rights_basis: >
-  Bundled parameter file parameters/EternaFoldParams.v1 (SHA-256 1421e89cc8df24b53a320eff6c72b8acfdb2771faba29ab9c798f7bdfc853a8a)
-  is distributed inside the same BSD-3-Clause v1.3.1 release archive with zero separate non-commercial restriction.
-training_and_parameter_data_rights_basis: >
-  Multi-task parameter training in Wayment-Steele et al. 2022 used public Stanford RMDB / Eterna chemical mapping datasets
-  (CC0-1.0 / open scientific benchmark). mRNAx validation used RMDB ETERNA_R69_0000.rdat (CC0-1.0, SHA-256
-  ed7e5716e497f68aed4dd1d7d73b18b700c911f220e24d4c1b4051769eed40c2) and NCBI GEO GSE139176 (Mauger et al. 2019, CC-BY-4.0 PMC6883848).
-runtime_dependency_rights_basis: >
-  Standalone C++11 contrafold binary linked exclusively against system glibc/libstdc++/libm/libgcc_s (verified via ldd on Linux x86_64:
-  zero ViennaRNA, zero GPL, zero AGPL libraries).
-derived_assets_clean_room_rule: >
-  Unpaired accessibility features and structural scores computed by EternaFold v1.3.1 carry zero ViennaRNA provenance and may be used
-  directly in commercial_clean candidate ranking and downstream surrogate feature extraction.
+  LICENSE: 8431990ae8dd84812802a5ef3d7cfe05d90257c96ed740c6e6f04ff32bc22afc
+  parameters/EternaFoldParams.v1: 1421e89cc8df24b53a320eff6c72b8acfdb2771faba29ab9c798f7bdfc853a8a
+component_name_and_version: EternaFold 1.3.1
+role_in_pipeline: WaymentSteeleLab/EternaFold tag v1.3.1 (git commit 702d3e485e768a6f2355d5d065e1241b04618e61, parameters/EternaFoldParams.v1,
+  BSD-3-Clause code & weights). Standalone C++11 probabilistic RNA secondary-structure head (`src/contrafold`, zero ViennaRNA
+  shared-library linkage in ldd). HELD AT commercial_clearance_pending (C3 A-W11 remediation) pending asset-specific training-data
+  rights clearance for its upstream mixed training sets (S-Processed train/holdout + Eterna chemical mapping); verified BSD-3
+  code & parameter pins retained. Outputs pairing/unpaired probabilities [0,1] and dimensionless CONTRAfold CRF log-partition
+  values — strictly NOT kcal/mol MFE.
+current_license_track: commercial_clearance_pending
+code_rights_basis: Official source repository https://github.com/WaymentSteeleLab/EternaFold pinned to release tag v1.3.1
+  (git commit 702d3e485e768a6f2355d5d065e1241b04618e61) declares BSD-3-Clause license (Leland Stanford Junior University +
+  Chuong Do CONTRAfold, LICENSE SHA-256 8431990ae8dd84812802a5ef3d7cfe05d90257c96ed740c6e6f04ff32bc22afc). Compiled natively
+  with g++ 13.3.0; ldd verified ZERO ViennaRNA/libRNA shared-library linkage (links only standard OS/GNU system libraries
+  libc.so.6, libm.so.6, libstdc++.so.6, libgcc_s.so.1 under the GCC Runtime Library Exception).
+weights_rights_basis: 'Multitask parameter file `parameters/EternaFoldParams.v1` shipped inside tag v1.3.1 (verified SHA-256
+  1421e89cc8df24b53a320eff6c72b8acfdb2771faba29ab9c798f7bdfc853a8a) is distributed under the repository BSD-3-Clause license
+  by Stanford / Wayment-Steele et al. (Nature Methods 2022, doi:10.1038/s41592-022-01605-0). Applies ONLY to the exact hash-verified
+  parameter file; excludes LinearFold-E patch (commercial-contact clause in LinearFold).
+
+  '
+training_and_parameter_data_rights_basis: 'MIXED / CLEARANCE PENDING (A-W11 C3 remediation): Per Wayment-Steele et al. Nature
+  Methods 2022 (PMC9839360), EternaFold multitask parameters were trained on Eterna Cloud Lab high-throughput chemical mapping
+  (Stanford RMDB CC0-1.0) plus S-Processed structural train/holdout sets and riboswitch affinity data, with ArchiveII-NR used
+  for testing (NOT training). Because upstream third-party structural subsets in S-Processed carry mixed provenance (quarantined
+  in A-W8 / G-W8_vs_A-W8_cross_audit.md:67), commercial activation is HELD at commercial_clearance_pending until asset-specific
+  rights for all training inputs are cleared or replaced by clean-room retraining. Wave 10 evaluation benchmarks use RMDB
+  CC0-1.0 and CC-BY-4.0 datasets (note: EternaBench lists 38 Mauger constructs; historical overlap audit pending).'
+runtime_dependency_rights_basis: Standalone C++11 native executable (`contrafold`) linked solely to standard OS/GNU runtime
+  libraries (`libc.so.6`, `libm.so.6`, `libstdc++.so.6`, `libgcc_s.so.1`, `ld-linux-x86-64.so.2`) governed by the GCC Runtime
+  Library Exception. Zero ViennaRNA/libRNA shared-library linkage, zero LinearFold commercial-contact patch, zero GPU required.
+derived_assets_clean_room_rule: Pairing probabilities, AUP metrics and downstream probes derived from EternaFold v1.3.1
+  inherit commercial_clearance_pending. Use them only in research until upstream training-data rights are cleared.
+  Keep dimensionless log-partition scores separate from thermodynamic kcal/mol MFE fields.
 commercial_replacement_paths:
-  - "Unmodified / 5moU Secondary Structure Accessibility: EternaFold v1.3.1 --params EternaFoldParams.v1 --posteriors (BSD-3-Clause)."
-  - "Modified m1Psi Native Reactivity: Route m1Psi constructs to RC-002 structRFM MIT m1Psi SHAPE-MaP probe (Spearman 0.5918 vs EternaFold 0.4077 / ViennaRNA 0.4142)."
-frozen_benchmark_dataset_and_protocol: >
-  Dual frozen shootout executed on Colab runtime g8-verify-l4 (2026-11-26T23:26:29Z): (1) Stanford RMDB ETERNA_R69_0000 1M7 chemical
-  mapping (120 constructs, 9,480 evaluated nucleotides); (2) Moderna Mauger 2019 GSE139176 fLuc SHAPE-MaP across U (39 constructs,
-  68,531 nt), 5moU (39 constructs, 68,225 nt), and m1Psi (39 constructs, 68,291 nt); (3) 40 supplemental 90-nt 5'UTR+CDS initiation
-  windows (6 mRNAx fixture constructs + 34 seeded random windows under RNG seed 20261127, scoring mean unpaired probabilities across
-  positions -15 through +17 relative to start AUG, i.e. Python slice [-15:+18]).
+- EternaFold v1.3.1 deployment is research-only during the commercial clearance hold. Use cleared RC-002 structRFM
+  for commercial structure measurements or a cleared surrogate stability head for stability measurements.
+- RC-002 structRFM supplies the native U, m1psi and 5mou per-nucleotide SHAPE-MaP reactivity probes.
+  RC-003 Orthrus supplies the full-transcript half-life metric orthrus_halflife_pred as an endogenous_unmodified_proxy.
+- 'Research-only Long-Construct Mode: Use 500-nt sliding window (stride 250) on >900-nt transcripts (3.7x faster than full 1,815-nt
+  fold and higher Spearman 0.5237 vs 0.5187 on Mauger U).'
+frozen_benchmark_dataset_and_protocol: 'Wave 9/10 Commercial-Clean Structure Suite (Drive 1ORULrQfMmE64o478k5WrDJI2xOqv-Q4Z):
+  RMDB ETERNA_R69_0000 (1,600 constructs / 126,400 nt, 1M7 SHAPE, CC0-1.0, project-grouped; pre-2022 parity check); RMDB OK7BLIB_2A3_0000
+  (4,932 constructs / 1,178,519 valid nt, 2A3, CC0-1.0; grouped across 3,701 group_key strings [3,568 singletons; 20 distinct
+  nonempty target structures, 784 rows missing target_structure]); Mauger 2019 Moderna SHAPE-MaP (39 x 1,815-nt fLuc constructs
+  x U/5moU/m1Psi, CC-BY-4.0; note EternaBench historical list contains 38 Mauger constructs); Leppek 2022 CDS24 author_aup_eternafold
+  parity (n=24, CC-BY-4.0).'
 acceptance_metrics:
-  - metric_id: "rmdb_eterna_r69_1m7_spearman_rho"
-    definition_and_scale: "Per-nucleotide Spearman rank correlation between predicted unpaired probability and RMDB ETERNA_R69_0000 1M7 reactivity across 120 constructs (9,480 nt)"
-    direction: "higher_is_better"
-    frozen_baseline_reference: "ViennaRNA v2.8.0 McCaskill Spearman rho = 0.6747; EternaFold v1.3.1 measured rho = 0.6993 (delta = +0.0246, unpaired Pearson r = 0.8895)"
-    max_acceptable_degradation: "Must achieve Spearman rho >= 0.6547 (within -0.020 of ViennaRNA v2.8.0 baseline)"
-    measured_value: 0.6993
-    numeric_min_bound: 0.6547
-  - metric_id: "moderna_shapemap_unmodified_u_zeroshot_spearman"
-    definition_and_scale: "Zero-shot per-nucleotide Spearman rho on Mauger 2019 unmodified-U fLuc SHAPE-MaP (39 constructs, 68,531 nt)"
-    direction: "higher_is_better"
-    frozen_baseline_reference: "ViennaRNA v2.8.0 zero-shot rho = 0.4517; EternaFold v1.3.1 measured rho = 0.4972 (delta = +0.0455; 5moU also +0.0544 at 0.4642 vs 0.4098)"
-    max_acceptable_degradation: "Must achieve Spearman rho >= 0.4317 on unmodified U"
-    measured_value: 0.4972
-    numeric_min_bound: 0.4317
-  - metric_id: "moderna_shapemap_m1psi_zeroshot_spearman"
-    definition_and_scale: "Zero-shot per-nucleotide Spearman rho on Mauger 2019 m1Psi fLuc SHAPE-MaP (39 constructs, 68,291 nt)"
-    direction: "higher_is_better"
-    frozen_baseline_reference: "ViennaRNA v2.8.0 zero-shot rho = 0.4142; EternaFold v1.3.1 measured rho = 0.4077 (delta = -0.0065; m1Psi primary scorer remains RC-002 structRFM at 0.5918)"
-    max_acceptable_degradation: "Zero-shot m1Psi Spearman rho >= 0.3942 (within -0.020 of ViennaRNA)"
-    measured_value: 0.4077
-    numeric_min_bound: 0.3942
-  - metric_id: "construct_latency_ms_cpu"
-    definition_and_scale: "Mean wall-clock folding latency in milliseconds per construct on RMDB ETERNA_R69_0000"
-    direction: "lower_is_better"
-    frozen_baseline_reference: "Measured EternaFold v1.3.1 latency = 25.3 ms/construct"
-    max_acceptable_degradation: "Mean latency <= 250.0 ms/construct"
-    measured_value: 25.3
-    numeric_max_bound: 250.0
-max_compute_cost_budget: "CPU-only C++ binary; <= 250 ms/construct (measured 25.3 ms/construct); zero GPU VRAM; zero commercial royalty."
-overall_switch_rule: >
-  Approve EternaFold v1.3.1 (BSD-3-Clause) as commercial_clean secondary-structure accessibility replacement for unmodified and 5moU
-  RNA constructs whenever all four acceptance_metrics meet their explicit numeric bounds above and ldd confirms zero ViennaRNA linkage;
-  route m1Psi constructs to RC-002 structRFM MIT m1Psi probe rather than uncalibrated thermodynamic posteriors.
-rollback_version: "CommercialCleanSurrogateV1 pure-sequence k-mer LightGBM + RC-002 structRFM MIT SHAPE-MaP probe"
+- metric_id: rmdb_eterna_r69_1m7_global_spearman
+  definition_and_scale: Zero-shot per-nucleotide Spearman rho between EternaFold unpaired probability and 1M7 SHAPE reactivity
+    across all 1,600 ETERNA_R69_0000 constructs (126,400 nt, [-1, 1])
+  direction: higher_is_better
+  frozen_baseline_reference: 'Measured Wave 10 EternaFold v1.3.1: global rho=0.65883 (AUROC>=0.4=0.85586; construct median
+    rho=0.75197; 20-project pooled mean rho=0.66336)'
+  max_acceptable_degradation: Must maintain global per-nt Spearman rho >= 0.6000 on frozen RMDB ETERNA_R69_0000
+  measured_value: 0.65883
+  numeric_min_bound: 0.6
+- metric_id: rmdb_ok7blib_2a3_group_key_spearman
+  definition_and_scale: Zero-shot group_key-pooled mean Spearman rho across all 4,932 OK7BLIB_2A3_0000 constructs (3,701 group_key
+    strings [3,568 singletons; 20 distinct nonempty target structures], 1,178,519 valid nt, [-1, 1])
+  direction: higher_is_better
+  frozen_baseline_reference: 'Measured Wave 10 EternaFold v1.3.1: group_key pooled mean rho=0.52229 (median=0.54214; global
+    rho=0.54112; global AUROC>=0.4=0.80093)'
+  max_acceptable_degradation: Must maintain group_key pooled mean Spearman rho >= 0.4800 across all 4,932 OK7BLIB_2A3 constructs
+  measured_value: 0.52229
+  numeric_min_bound: 0.48
+- metric_id: moderna_shapemap_zeroshot_spearman_u
+  definition_and_scale: Zero-shot per-nucleotide Spearman rho on Mauger 2019 Moderna unmodified-U 1,815-nt fLuc SHAPE-MaP
+    (window500 stride250, 68,531 valid nt, [-1, 1])
+  direction: higher_is_better
+  frozen_baseline_reference: ViennaRNA RNAplfold zero-shot U=0.4517 (moU=0.4098, mpU=0.4142); EternaFold v1.3.1 w500 U=0.52374
+    (moU=0.49499, mpU=0.42449; full-1815nt U=0.51867)
+  max_acceptable_degradation: Must beat ViennaRNA RNAplfold zero-shot U (0.4517) by >= +0.040 (numeric_min_bound >= 0.4917)
+  measured_value: 0.52374
+  numeric_min_bound: 0.4917
+- metric_id: leppek2022_author_aup_parity_pearson
+  definition_and_scale: Pearson r parity between mRNAx EternaFold v1.3.1 wrapper AUP and Leppek 2022 published author_aup_eternafold
+    across 24 full-length constructs ([-1, 1])
+  direction: higher_is_better
+  frozen_baseline_reference: 'Measured Wave 10: Pearson r=0.99987 (MAE=0.00574); full AUP vs in-solution half-life Spearman
+    rho=-0.76174 (p=1.53e-5)'
+  max_acceptable_degradation: Wrapper AUP parity MUST maintain Pearson r >= 0.9950 to guard against upper-triangular BPP parsing
+    regressions
+  measured_value: 0.99987
+  numeric_min_bound: 0.995
+- metric_id: cpu_determinism_max_abs_diff
+  definition_and_scale: Maximum absolute per-nucleotide unpaired probability difference across repeated runs
+  direction: lower_is_better
+  frozen_baseline_reference: 'Measured Wave 10 on 10 Leppek2022 CDS constructs: max_abs_diff = 0.0'
+  max_acceptable_degradation: max_abs_diff <= 0.000001
+  measured_value: 0.0
+  numeric_max_bound: 1.0e-06
+- metric_id: cpu_12core_latency_ms_per_seq_307nt
+  definition_and_scale: Parallelized 12-core CPU wall latency in ms/seq on 307-nt RNAs (OK7BLIB_2A3, n=4,932)
+  direction: lower_is_better
+  frozen_baseline_reference: 'Measured Wave 10 on 12-core Colab CPU: 46.29 ms/seq (21.6 seq/s; 107-nt R69 = 3.194 ms/seq /
+    313.1 seq/s)'
+  max_acceptable_degradation: latency <= 150.0 ms/seq on 12-core CPU at 307 nt
+  measured_value: 46.29
+  numeric_max_bound: 150.0
+max_compute_cost_budget: Research benchmarks used a 12-core CPU with zero GPUs. Runtime was 3.19 ms/seq at 107 nt,
+  46.29 ms/seq at 307 nt, and 1.92 s/seq in parallel for 500-nt windows on 1,815-nt mRNAs.
+overall_switch_rule: Keep commercial deployment on hold until upstream training-data rights receive asset-specific approval
+  or clean-room retraining receives approval, and the commercial policy admits the approved release.
+  Activation also requires verified release pins, all six passing acceptance_metrics, and zero ViennaRNA/libRNA
+  linkage. Keep outputs separate from mfe_kcal_mol and route m1Psi per-nucleotide reactivity measurements to RC-002 structRFM.
+rollback_version: RC-002 structRFM MIT (GPU) or pure-sequence CommercialCleanSurrogateV2 (CPU)

@@ -1,13 +1,13 @@
 {
-  "schema_version": "1.2.0",
-  "updated_at_utc": "2026-11-26T21:12:44Z",
+  "schema_version": "1.3.1",
+  "updated_at_utc": "2026-11-27T01:03:48Z",
   "draft_claim_inbox": [],
   "is_isolated_sandbox": false,
   "registry_track": "commercial_clean",
   "rules": [
     {
       "rule_id": "RUL-CC-5UTR-UAUG-001",
-      "version": "1.0.0",
+      "version": "1.1.1",
       "status": "conditional_rule",
       "allowed_track": "commercial_clean",
       "target_scopes": [
@@ -18,14 +18,20 @@
       ],
       "applicable_contexts": [
         "HEK293T",
-        "mammalian_reporter_5utr_mpra"
+        "mammalian_reporter_5utr_mpra",
+        "HEK293T_endogenous_TrIPseq_isoforms"
       ],
-      "readout_name_exact": "Mean Ribosome Load (MRL) / Top-2.5% GFP Bin Enrichment",
-      "statement": "Out-of-frame upstream AUG (uAUG) in the 5'UTR strongly reduces translation (GSE232927 N=25000: rho=-0.5821, 95% CI [-0.5945, -0.5754]; Cao2021 GSE176581 pre-filtered all 5'UTRs to 0 uAUGs so cannot independently test uAUG).",
+      "readout_name_exact": "Mean Ribosome Load (MRL) in Synthetic 5'UTR MPRA & Within-Gene Centered Polysome MRL (TrIP-seq)",
+      "statement": "Upstream AUG (uAUG) motifs in the 5'UTR correlate negatively with translation across two distinct CC-BY-4.0 datasets: (1) Seelig Lab UW (Castillo-Hair et al. 2024 Nat Commun, GSE232927, HEK293T synthetic 50-nt 5'UTR MPRA, N=25,000: Spearman rho=-0.5821, 95% CI [-0.5945, -0.5754]); and (2) Doudna Lab UC Berkeley (Floor & Doudna 2016 eLife 10921, PMC4764583, floor_doudna_elife10921_tripseq_isoforms_v1.parquet SHA-256 prefix 2590b50dad0dcfd1, 50,739 mapped isoforms across 11,928 multi-isoform genes; RiboNN external-eval overlap disclosed): retrospective descriptive correlation between uncentered 5'UTR uAUG count and within-gene centered MRL is rho=-0.1055 (separate uORF count rho=-0.10083). HELD AT conditional_rule (A-W11 remediation) pending gene-cluster bootstrap uncertainty over within-gene centered uAUG features and an independently dated pre-analysis specification. Cao 2021 (GSE176581) pre-filtered 5'UTRs to 0 uAUGs and contributes 0 votes.",
       "linked_observations": [
         {
           "claim_id": "CC-MRNAX-M15-GSE232927-UAUG",
           "underlying_dataset_id": "GSE232927",
+          "evidence_layer": "raw_observation"
+        },
+        {
+          "claim_id": "CC-MRNAX-W10-FLOOR2016-TRIPSEQ-UAUG",
+          "underlying_dataset_id": "eLife_10921_FloorDoudna2016_TrIPseq",
           "evidence_layer": "raw_observation"
         }
       ],
@@ -37,8 +43,23 @@
           "new_status": "conditional_rule",
           "reason": "Direct Colab empirical verification on strictly commercial-clean public GEO/CC-BY-4.0 datasets (deduplicated by underlying_dataset_id).",
           "is_simulated_sandbox_only": false
+        },
+        {
+          "timestamp_utc": "2026-11-27T00:40:00Z",
+          "previous_status": "conditional_rule",
+          "new_status": "verified_rule",
+          "reason": "Wave 10/11 independent concordant negative replication confirmed on Floor & Doudna 2016 eLife 10921 CC-BY-4.0 endogenous HEK293T TrIP-seq (50,739 isoforms / 11,928 multi-isoform genes; within-gene centered MRL uAUG rho=-0.1055, uORF rho=-0.10083). Cao 2021 honestly excluded (0 uAUGs by design); RiboNN benchmark overlap disclosed.",
+          "is_simulated_sandbox_only": false
+        },
+        {
+          "timestamp_utc": "2026-11-27T01:03:48Z",
+          "previous_status": "verified_rule",
+          "new_status": "conditional_rule",
+          "reason": "A-W11 Important finding remediation: held at conditional_rule because Floor-Doudna analysis was retrospective without a dated preregistration and paired uncentered uAUG with isoform-pooled within-gene centered MRL; retain descriptive association pending gene-cluster uncertainty.",
+          "is_simulated_sandbox_only": false
         }
-      ]
+      ],
+      "expected_effect_direction": "negative"
     },
     {
       "rule_id": "RUL-CC-5UTR-KOZAK-M3-002",
@@ -77,7 +98,7 @@
     },
     {
       "rule_id": "RUL-CC-CDS-CODON-OPT-STAB-003",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "status": "conditional_rule",
       "allowed_track": "commercial_clean",
       "target_scopes": [
@@ -99,7 +120,14 @@
           "evidence_layer": "raw_observation"
         }
       ],
-      "model_interpretations": [],
+      "model_interpretations": [
+        {
+          "source_model_name": "CodonTransformer_v1.0_Apache2_HomoSapiens [pin: RC-005-codontransformer-v1.0.yaml, Apache-2.0/Apache-2.0/CC-BY-4.0]",
+          "source_model_license_track": "commercial_clean",
+          "method": "regression_weight",
+          "summary": "Wave 10 RC-005 (Apache-2.0/Apache-2.0/CC-BY-4.0, Homo sapiens id=59) zero-shot synonymous log-likelihood exceeds classical CAI magnitude across all 4 Wu 2019 human cell lines (13,568 scored CDSs: 293T +0.1514 vs +0.1042, K562 +0.1676 vs +0.1175, HeLa -0.1898 vs -0.1701, RPE -0.1873 vs -0.1485) and Leppek 2022 CDS24 6h/24h expression (+0.5052/+0.4365 vs +0.0191/+0.1930)."
+        }
+      ],
       "audit_history": [
         {
           "timestamp_utc": "2026-11-26T19:33:02Z",
@@ -175,7 +203,7 @@
     },
     {
       "rule_id": "RUL-CC-CDS-AUP-HYDROLYSIS-005",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "status": "conditional_rule",
       "allowed_track": "commercial_clean",
       "target_scopes": [
@@ -200,10 +228,16 @@
       ],
       "model_interpretations": [
         {
-          "source_model_name": "EternaFold_BSD3_TableS5_AUP",
-          "source_model_license_track": "commercial_clean",
+          "source_model_name": "EternaFold_BSD3_TableS5_AUP [pin: RC-004-eternafold-v1.3.1.yaml, clearance_pending]",
+          "source_model_license_track": "commercial_clearance_pending",
           "method": "regression_weight",
           "summary": "BSD-3-Clause EternaFold predicted average unpaired probability (author_aup_eternafold in Leppek 2022 CC-BY-4.0 Table S5, N=24) strongly anticorrelates with measured in-solution hydrolysis half-life (Spearman rho=-0.7635, p=1.424e-05); recorded strictly in model_interpretations separate from wet-lab half-life decoupling."
+        },
+        {
+          "source_model_name": "EternaFold_v1.3.1_BSD3_Standalone [pin: RC-004-eternafold-v1.3.1.yaml, clearance_pending]",
+          "source_model_license_track": "commercial_clearance_pending",
+          "method": "regression_weight",
+          "summary": "Wave 10 RC-004 live C++11 build (commit 702d3e48, ldd verified 0 ViennaRNA/GPL) reproduced Leppek 2022 author_aup_eternafold at Pearson r=0.99987 (MAE=0.00574) and in-solution half-life Spearman rho=-0.76174 (p=1.53e-5, n=24)."
         }
       ],
       "audit_history": [
@@ -218,7 +252,7 @@
     },
     {
       "rule_id": "RUL-CC-CHEM-M1PSI-STRUCT-SHIFT-006",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "status": "conditional_rule",
       "allowed_track": "commercial_clean",
       "target_scopes": [
@@ -245,10 +279,16 @@
       ],
       "model_interpretations": [
         {
-          "source_model_name": "structRFM_MIT_v0.0.9_RidgeProbe",
+          "source_model_name": "structRFM_MIT_v0.0.9_RidgeProbe [pin: RC-002 structRFM 0.0.9 MIT]",
           "source_model_license_track": "commercial_clean",
           "method": "regression_weight",
           "summary": "MIT structRFM per-nt probe achieves OOD Spearman 0.5858 on U and 0.5918 when trained natively on m1Psi (mpU), whereas applying the U-trained probe zero-shot to m1Psi drops to 0.5124."
+        },
+        {
+          "source_model_name": "EternaFold_v1.3.1_BSD3_Standalone [pin: RC-004-eternafold-v1.3.1.yaml, clearance_pending]",
+          "source_model_license_track": "commercial_clearance_pending",
+          "method": "regression_weight",
+          "summary": "Wave 10 RC-004 chemistry-agnostic EternaFold v1.3.1 (w500) beats ViennaRNA zero-shot on all 3 Mauger 2019 chemistries (U=0.52374 vs 0.4517, 5moU=0.49499 vs 0.4098, m1Psi=0.42449 vs 0.4142), yet degrades by -0.099 on m1Psi vs U — confirming m1Psi per-nt structure must route to supervised structRFM (0.5918) or Orthrus 6-track (0.5714)."
         }
       ],
       "audit_history": [
@@ -263,7 +303,7 @@
     },
     {
       "rule_id": "RUL-CC-5UTR-GC-TIS-007",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "status": "verified_rule",
       "allowed_track": "commercial_clean",
       "target_scopes": [
@@ -278,7 +318,7 @@
         "human_endogenous_5utr"
       ],
       "readout_name_exact": "Mean Ribosome Load (MRL) / Top-2.5% GFP Bin Enrichment / Endogenous TE",
-      "statement": "High GC content in the 15 nt immediately upstream of the canonical AUG start codon (gc_tail15) consistently reduces translation across TWO independent strictly commercial-clean labs: Castillo-Hair 2024 GSE232927 (N=25,000, rho=-0.0550, p=3.15e-18) AND Cao 2021 MIT GSE176581 after 5'/3' adapter stripping (Top-2.5% MPRA N=4,000 rho=-0.0482, p=2.28e-3; Endogenous TE N=4,000 rho=-0.0986, p=4.15e-10).",
+      "statement": "High GC content in the 15 nt immediately upstream of the canonical AUG start codon (gc_tail15) consistently reduces translation across TWO independent strictly commercial-clean CC-BY-4.0 labs and synthetic 5'UTR MPRA screens: (1) Castillo-Hair et al. 2024 GSE232927 (Seelig Lab UW, HEK293T MRL MPRA, N=25,000: rho=-0.0550, p=3.15e-18); AND (2) Cao et al. 2021 GSE176581 (Lu Lab MIT, HEK293T Top-2.5% GFP MPRA after 5'/3' adapter stripping, N=4,000: rho=-0.0482, p=2.28e-3). (Note: Cao et al.'s endogenous TE comparison rho=-0.0986 originates from separate external ribosome-profiling accessions and is NOT counted under GSE176581.)",
       "linked_observations": [
         {
           "claim_id": "CC-MRNAX-M15-GSE232927-GCTIS",
@@ -298,6 +338,13 @@
           "previous_status": "insufficient_evidence",
           "new_status": "verified_rule",
           "reason": "Independent concordant negative direction confirmed across two distinct labs and underlying datasets (GSE232927 + GSE176581).",
+          "is_simulated_sandbox_only": false
+        },
+        {
+          "timestamp_utc": "2026-11-27T01:03:48Z",
+          "previous_status": "verified_rule",
+          "new_status": "verified_rule",
+          "reason": "A-W11 Important finding remediation: aligned CC-MRNAX-M15-CAO2021-GCTIS ledger effect to the exact GSE176581 Top-2.5% GFP MPRA endpoint (rho=-0.0482, p=2.28e-3, N=4,000) rather than external endogenous TE accessions.",
           "is_simulated_sandbox_only": false
         }
       ],
@@ -342,8 +389,8 @@
     },
     {
       "rule_id": "RUL-CC-M1PSI-FRAMESHIFT-009",
-      "version": "1.0.0",
-      "status": "verified_rule",
+      "version": "1.2.0",
+      "status": "conditional_rule",
       "allowed_track": "commercial_clean",
       "target_scopes": [
         "cds"
@@ -355,8 +402,8 @@
         "m1Psi_IVT_mRNA_in_vivo",
         "m1Psi_cell_free_recoding"
       ],
-      "readout_name_exact": "+1 Ribosomal Frameshift T-cell ELISpot (Mulroney 2024) & Slippery-Site Recoding Ratio (Poulis/Rodnina 2026)",
-      "statement": "N1-methylpseudouridine (m1Psi) substitution induces +1 ribosomal frameshifting and recoding at slippery uridine-rich CDS runs (U{4,} / U-rich stretches) across TWO independent explicit CC-BY-4.0 labs: (1) Mulroney et al. 2024 Nature (Willis lab, PMC10764286, CC BY 4.0; Fig 2b source data n=8/group): BNT162b2 m1Psi +1FS Spike ELISpot mean=249.06 SFU/M (median 236.25) vs ChAdOx1 unmodified mean=19.06 (median 3.75) vs untreated 5.0; AND (2) Poulis, Rodnina et al. 2026 Nat Commun (MPI Goettingen, doi:10.1038/s41467-026-77796-3, PMID 42805987, CC BY 4.0; Fig 1e source data): m1Psi elevates recoding over unmodified U at slippery U-rich Spike sites (U3238-C3241: 2.61 vs 0.82 [3.16x]; U1981-C1984: 2.67 vs 1.60 [1.67x]; U1543-C1546: 1.80 vs 1.12 [1.61x]) while non-slippery background stays lower (0.42 vs 1.03). Supports mandatory synonymous elimination of >=4-U slippery runs in m1Psi CDS design (`remediate_m1psi_slippery_runs`).",
+      "readout_name_exact": "Cross-Platform Vaccine +1FS T-Cell ELISpot (Mulroney 2024 Fig 2b) & HEK293T Dual-Fluorescence Recoding Ratio Across 6 Spike Sites (Poulis & Rodnina 2026 Fig 1e/4e/4h)",
+      "statement": "BIOLOGICAL OBSERVATION (DEMOTED TO conditional_rule per A-W11 C5 pending matched-chemistry re-adjudication): Two independent CC-BY-4.0 labs report m1Psi-associated +1 ribosomal frameshifting/recoding at uridine-rich slippery motifs (zero double-counting of G-W9 s41467-026-77796-3, which IS Poulis & Rodnina 2026): (1) Mulroney et al. 2024 Nature (PMC10764286, Fig 2b n=8/group): mouse T-cell +1FS ELISpot after BNT162b2 m1Psi-mRNA (mean 249.06 SFU/10^6) vs ChAdOx1 adenoviral vector (mean 19.06) vs untreated (5.0) — note Fig 2b is a cross-platform vaccine immune readout, NOT a matched U-IVT vs m1Psi-IVT chemistry comparison (re-adjudication must extract Mulroney's matched Fig 1 reporter data); AND (2) Poulis, Rodnina et al. 2026 Nat Commun (PMC13620113, PMID:42805987, m1psi_poulis_rodnina2026_recoding_ccby4_v1.parquet SHA-256 518d441b2ffb48c4485e1f150276abc5ef6c1a2d911468ff4c7cb5915b70687a): Fig 1e HEK293T dual-fluorescence reporter (NOT reconstituted translation) m1Psi/U mean ratios across ALL 6 tested Spike sites are 0.842 (U3319-C3322, opposite direction), 1.080 (U3178-U3181), 1.484 (U766-C769), 1.606 (U1543-C1546), 1.671 (U1981-C1984), and 3.162 (U3238-C3241) vs background 0.410; Fig 4h 1st-codon-position C vs U Mann-Whitney p=5.04e-4 (1.4439 vs 0.9430, n=10 vs 10); Fig 4e BNT162b2 UUCC replacement ratio=1.048x. SEPARATE OPERATIONAL POLICY: Independently of verified biological-rule adjudication, mRNAx retains conservative deterministic synonymous avoidance of UUUC and U{4,} runs in m1Psi CDS designs as an engineering safety heuristic (preferring synonymous UUCC where valid).",
       "linked_observations": [
         {
           "claim_id": "CC-MRNAX-W7-MULRONEY2024-FS",
@@ -376,6 +423,20 @@
           "previous_status": "insufficient_evidence",
           "new_status": "verified_rule",
           "reason": "Direct source-data verification across two completely independent CC-BY-4.0 author lineages (Willis lab Cambridge Nature 2024 + Rodnina lab MPI Goettingen Nat Commun 2026) on native m1Psi chemistry.",
+          "is_simulated_sandbox_only": false
+        },
+        {
+          "timestamp_utc": "2026-11-27T00:40:00Z",
+          "previous_status": "verified_rule",
+          "new_status": "verified_rule",
+          "reason": "Wave 11 ingested full Poulis & Rodnina 2026 Source Data Parquet (SHA-256 518d441b2ffb48c4), confirming UUUC->UUCC abolition (Fig 4e/4h p=5.04e-4) while preserving exact 2-independent-lab count (no double-counting of G-W9).",
+          "is_simulated_sandbox_only": false
+        },
+        {
+          "timestamp_utc": "2026-11-27T01:03:48Z",
+          "previous_status": "verified_rule",
+          "new_status": "conditional_rule",
+          "reason": "A-W11 Critical Finding C5 remediation: withdrawn from verified_rule pending matched-chemistry re-adjudication (Mulroney Fig 2b compares BNT162b2 vs ChAdOx1 platforms rather than matched U vs m1Psi IVT; Poulis Fig 1e is HEK293T dual-fluorescence across 6 sites [0.842..3.162] with 1 site opposite). Operational safety heuristic cleanly separated.",
           "is_simulated_sandbox_only": false
         }
       ],
@@ -414,6 +475,374 @@
           "is_simulated_sandbox_only": false
         }
       ]
+    },
+    {
+      "rule_id": "RUL-CC-STRUCT-UNPAIRED-REACTIVITY-011",
+      "version": "1.1.0",
+      "status": "conditional_rule",
+      "allowed_track": "commercial_clean",
+      "target_scopes": [
+        "cds",
+        "full_transcript"
+      ],
+      "applicable_chemistries": [
+        "unmodified_u"
+      ],
+      "applicable_contexts": [
+        "in_vitro_SHAPEMaP_Fluc_CDS",
+        "in_vitro_circRNA_SVA_IRES_SHAPE",
+        "in_vitro_2A3_OpenKnot_RNA"
+      ],
+      "readout_name_exact": "Model-Benchmark Evidence: Per-Nucleotide EternaFold v1.3.1 Unpaired Probability Calibration vs Chemical Probing Reactivity",
+      "expected_effect_direction": null,
+      "statement": "MODEL-BENCHMARK CALIBRATION EVIDENCE (DEMOTED FROM verified_rule TO conditional_rule per A-W11 C4 — NOT a raw biological rule): Per-nucleotide unpaired probabilities from one model (EternaFold v1.3.1, currently HELD AT commercial_clearance_pending per A-W11 C3) correlate positively with unmodified-U nucleotide-level chemical probing reactivity across three datasets, with explicit unit & overlap bounds: (1) Mauger 2019 (GSE139176, 39 x 1,815-nt fLuc mRNAs / 68,531 U nt): pooled per-nt rho=+0.52374 (per-construct median 0.52539), HOWEVER construct-level mean AUP vs mean SHAPE is null (rho=0.03462, p=0.8343, n=39) and EternaBench lists 38 Mauger constructs (historical overlap audit pending); (2) Huang / Ling-Ling Chen Lab 2026 (PMC13092624, circrna_cellres2026_ires_cargo_v1.parquet SHA-256 prefix 3ec2f6d9e2308296): 9 physical constructs represent only 5 unique scored SV-A IRES sequences (scored without cargo; pooled 6,053-nt rho=+0.42677, construct median 0.42839; nucleotide-pooled p does not measure construct-level uncertainty); (3) RMDB OK7BLIB_2A3_0000 (PMID:42239184, rmdb_ok7blib_2a3_cc0_v1.parquet SHA-256 prefix 62eed84fcd79a2b9, Das Lab — EternaFold developer lineage): 4,932 constructs / 1,178,519 valid nt, global rho=+0.54112, group_key-pooled mean rho=+0.52229 across 3,701 group_key strings (3,568 singletons; only 20 distinct nonempty target structures, 784 missing target_structure). ETERNA_R69_0000 (rho=0.65883) excluded from OOD claims.",
+      "linked_observations": [],
+      "model_interpretations": [
+        {
+          "source_model_name": "EternaFold_v1.3.1_BSD3_Standalone (RC-004-eternafold-v1.3.1.yaml; track=commercial_clearance_pending)",
+          "source_model_license_track": "commercial_clearance_pending",
+          "method": "regression_weight",
+          "summary": "Frozen zero-shot per-nt p_unpaired benchmarked against Mauger 2019 U SHAPE-MaP (per-nt rho=0.52374; construct mean rho=0.03462 p=0.8343), Huang 2026 SV-A IRES SHAPE (5 unique IRES seqs / 9 constructs, per-nt rho=0.42677), and OK7BLIB_2A3 (4,932 constructs / 20 nonempty target structures, global rho=0.54112). Held inactive pending S-Processed training-data rights clearance (A-W11 C3); outputs strictly separate from mfe_kcal_mol."
+        }
+      ],
+      "audit_history": [
+        {
+          "timestamp_utc": "2026-11-27T00:40:00Z",
+          "previous_status": "insufficient_evidence",
+          "new_status": "verified_rule",
+          "reason": "Wave 10/11 empirical shootout verified positive per-nucleotide unpaired-probability vs wet-lab SHAPE/2A3 reactivity concordance across 3 independent CC0/CC-BY-4.0 labs (Moderna Mauger 2019 + CAS Ling-Ling Chen 2026 + Stanford OpenKnot OK7BLIB_2A3), excluding pre-2022 ETERNA_R69 and duplicate-lineage Leppek 2022 from OOD vote count.",
+          "is_simulated_sandbox_only": false
+        },
+        {
+          "timestamp_utc": "2026-11-27T01:03:48Z",
+          "previous_status": "verified_rule",
+          "new_status": "conditional_rule",
+          "reason": "A-W11 Critical Finding C4 remediation: withdrawn from verified_rule and reclassified as conditional model-benchmark calibration evidence (model outputs belong in model_interpretations; fixed construct-level vs nt-pooled units, EternaBench 38-construct Mauger overlap, 5 unique SV-A IRES seqs, and OK7BLIB singleton/target-structure counts).",
+          "is_simulated_sandbox_only": false
+        }
+      ]
+    },
+    {
+      "rule_id": "RUL-CC-CDS-CODONTRANSFORMER-M1PSI-FILTER-012",
+      "version": "1.0.0",
+      "status": "conditional_rule",
+      "allowed_track": "commercial_clean",
+      "target_scopes": [
+        "cds"
+      ],
+      "applicable_chemistries": [
+        "unmodified_u",
+        "m1psi"
+      ],
+      "applicable_contexts": [
+        "Homo_sapiens_CDS_generation",
+        "m1Psi_IVT_mRNA_design"
+      ],
+      "readout_name_exact": "Zero-Shot Synonymous Log-Likelihood Rank vs Expression/Stability & m1Psi Slippery-Run Emission Audit",
+      "statement": "Apache-2.0/CC-BY-4.0 CodonTransformer v1.0 (Homo sapiens id=59, RC-005) outperforms classical human CAI in zero-shot synonymous ranking on Leppek 2022 CDS24 cellular expression (6h rho=+0.5052, p=0.0118; 24h +0.4365 vs CAI +0.0191/+0.1930), PERSIST-233 ribosome load (+0.1582) & in-cell half-life (+0.1701), and all 4 Wu 2019 cell lines (|rho|=0.151-0.190), with 100% exact AA identity across eGFP/FLuc/NLuc. HOWEVER, it does NOT optimize in-solution hydrolysis (Leppek24 rho=-0.2765) and emits m1Psi-slippery poly-U runs on long ORFs (1 UUUU on FLuc 550aa deterministic; up to 2 UUUU + 1 UUUUU at T=0.2). Operational requirement: ALWAYS pair CodonTransformer proposals with deterministic m1Psi slippery-motif elimination (UUUC and U{4,}) and cleared commercial_clean structure/stability reranking (CommercialCleanSurrogateV2 / structRFM / Orthrus; note EternaFold v1.3.1 RC-004 remains held at commercial_clearance_pending).",
+      "linked_observations": [
+        {
+          "claim_id": "CC-MRNAX-W10-CODONTRANSFORMER-FLUC-SLIPPERY",
+          "underlying_dataset_id": "Wave10_RC005_CodonTransformer_Shootout",
+          "evidence_layer": "raw_observation"
+        }
+      ],
+      "model_interpretations": [
+        {
+          "source_model_name": "CodonTransformer_v1.0_Apache2_HomoSapiens [pin: RC-005-codontransformer-v1.0.yaml, Apache-2.0/Apache-2.0/CC-BY-4.0]",
+          "source_model_license_track": "commercial_clean",
+          "method": "regression_weight",
+          "summary": "HF revision 9744dcc920d8 (model.safetensors SHA-256 23994e1e..., Apache-2.0/Apache-2.0/CC-BY-4.0): 2.565 GB L4 VRAM, 101.05 seq/s, 0.0 drift."
+        }
+      ],
+      "audit_history": [
+        {
+          "timestamp_utc": "2026-11-27T00:40:00Z",
+          "previous_status": "insufficient_evidence",
+          "new_status": "conditional_rule",
+          "reason": "Wave 10 Exp 2 operational shootout finding; kept strictly conditional_rule.",
+          "is_simulated_sandbox_only": false
+        }
+      ]
+    },
+    {
+      "rule_id": "RUL-CC-UTR-JOINT-SURROGATE-NOISEFLOOR-013",
+      "version": "1.0.1",
+      "status": "conditional_rule",
+      "allowed_track": "commercial_clean",
+      "target_scopes": [
+        "five_prime_utr",
+        "three_prime_utr",
+        "full_transcript"
+      ],
+      "applicable_chemistries": [
+        "unmodified_u",
+        "m1psi"
+      ],
+      "applicable_contexts": [
+        "HeLa",
+        "DC24",
+        "BALBc_in_vivo",
+        "dual_UTR_factorial_calibration"
+      ],
+      "readout_name_exact": "Descriptive Surrogate Score Spread Across 8 Prose-Grouped HeLa Non-Significant Dual-UTR Pairs (PMC12355064)",
+      "statement": "On the Medjmedj et al. 2025 CC-BY-4.0 full-factorial 3x3=9 dual-UTR benchmark (PMC12355064, pmc12355064_utr_pair_factorial_v1.parquet SHA-256 prefix 16544b1ab0386965), ALL 8 non-reference pairs are marked ANOVA non-significant ('ns') versus hAg-AES in HeLa (including UTR4-SOD; the study supplies neither an equivalence margin nor a formal equivalence test). Across the 8 prose-grouped HeLa non-significant pairs (hAg-AES reference + 7 pairs, excluding UTR4-SOD based on prose), unmodified-U commercial-clean surrogates exhibit descriptive score spreads of 0.9083 (utr5_mrl_pred), 0.1662 (utr3_stability_pred), 1.2962 (saluki_nluc), and 2.1510 (saluki_fluc), and Saluki ranks UTR3-AES #1 on FLuc despite its 10-fold in-vivo CDS-switch drop. Treat these ranges as descriptive sensitivity cautions, NOT a formally calibrated equivalence threshold.",
+      "linked_observations": [
+        {
+          "claim_id": "CC-MRNAX-W10-PMC12355064-NOISEFLOOR",
+          "underlying_dataset_id": "PMC12355064_Medjmedj2025_DualUTR_3x3",
+          "evidence_layer": "raw_observation"
+        }
+      ],
+      "model_interpretations": [
+        {
+          "source_model_name": "CommercialCleanSurrogateV2_LightGBM [pin: LICENSE_RECORD_m15_commercial_clean_v1.json]",
+          "source_model_license_track": "commercial_clean",
+          "method": "regression_weight",
+          "summary": "Read-only WO2024231621 Tableau 1 UTR evaluation measured descriptive score spreads of pure-sequence LightGBM heads across 8 prose-grouped HeLa ANOVA non-significant pairs (descriptive sensitivity caution only, NOT an equivalence test or calibrated threshold; UTR pairs screened by sequence FTO)."
+        }
+      ],
+      "audit_history": [
+        {
+          "timestamp_utc": "2026-11-27T00:40:00Z",
+          "previous_status": "insufficient_evidence",
+          "new_status": "conditional_rule",
+          "reason": "Wave 10 Exp 3A single-lab empirical falsification warning; kept strictly conditional_rule.",
+          "is_simulated_sandbox_only": false
+        }
+      ]
+    },
+    {
+      "rule_id": "RUL-CC-UTR-VARIANT-CROSSCELL-TRANSFER-014",
+      "version": "1.0.0",
+      "status": "conditional_rule",
+      "allowed_track": "commercial_clean",
+      "target_scopes": [
+        "five_prime_utr",
+        "three_prime_utr"
+      ],
+      "applicable_chemistries": [
+        "unmodified_u"
+      ],
+      "applicable_contexts": [
+        "HEK293T",
+        "SH-SY5Y",
+        "UTR_variant_MPRA"
+      ],
+      "readout_name_exact": "UTR Reference-vs-Variant Half-Life log2FC Cross-Cell Concordance & Gene-Grouped OOD CV (Su 2025 eLife 97682)",
+      "statement": "Across 5,072 HGMD-stripped UTR reference/variant stability pairs on fixed EGFP in Su et al. 2025 eLife 97682 (PMC11835390, CC-BY-4.0, su2025_elife97682_utr_variants_v1.parquet SHA-256 4c956ac99399c86e, 100% hg38 ref match), empirical cross-cell transfer between HEK293T and SH-SY5Y is very low (n=2,335 paired: Spearman rho=0.07856, p=1.45e-4, 53.96% same direction). Both zero-shot commercial surrogates (rho=-0.038 to +0.035) and strict gene_symbol-grouped 5-fold OOD LightGBM/Ridge probes failed the >=0.25 deployment gate (HEK293T=-0.0364, SH-SY5Y=-0.0176; 0 weak joblibs deployed). Single-nucleotide UTR variant delta predictions MUST NOT be assumed transferable across cell types without target-cell wet-lab screening.",
+      "linked_observations": [
+        {
+          "claim_id": "CC-MRNAX-W10-SU2025-CROSSCELL-WARNING",
+          "underlying_dataset_id": "PMC11835390_Su2025_eLife97682_UTR_MPRA",
+          "evidence_layer": "raw_observation"
+        }
+      ],
+      "model_interpretations": [],
+      "audit_history": [
+        {
+          "timestamp_utc": "2026-11-27T00:40:00Z",
+          "previous_status": "insufficient_evidence",
+          "new_status": "conditional_rule",
+          "reason": "Wave 10 Exp 3B single-lab empirical negative/cautionary finding; kept strictly conditional_rule.",
+          "is_simulated_sandbox_only": false
+        }
+      ]
+    },
+    {
+      "rule_id": "RUL-CC-CIRCRNA-YEO-RBP-MODULATORS-015",
+      "version": "1.0.0",
+      "status": "conditional_rule",
+      "allowed_track": "commercial_clean",
+      "target_scopes": [
+        "full_transcript"
+      ],
+      "applicable_chemistries": [
+        "unmodified_u"
+      ],
+      "applicable_contexts": [
+        "HeLa_circRNA_tethering",
+        "HEK293T_circRNA_tethering"
+      ],
+      "readout_name_exact": "Arrayed RBP Tethering Luciferase log2FC on Circular vs Linear Reporter mRNA (Yeo Lab NSMB 2026)",
+      "statement": "Across 846 RBP isoforms (734 unique gene symbols; 625 significant at FDR<0.05: 577 activators, 48 repressors) in Yu et al. 2026 Nat Struct Mol Biol (Gene Yeo Lab, PMC13759317, CC-BY-4.0, circrna_nsmb2026_rbp_tethering_v1.parquet SHA-256 0d3f01b50af2b626), RBP tethering effects on circRNA translation are highly reproducible between HeLa and HEK293T (secondary n=77 rho=0.86661, p=2.4e-24; exocircFirefly n=48 rho=0.81513) yet diverge strongly from linear mRNA tethering (circ vs linear Luo screen n=748 rho=0.22913). Top circRNA-preferential activators include DDX52 (+2.70 log2FC), DDX19A (+2.05), ANXA2 (+1.92); top repressors include TOB2 (-2.52), CNOT7 (-2.21), RBM15 (-2.02). Single lab -> kept strictly conditional_rule for circRNA RBP-motif steering.",
+      "linked_observations": [
+        {
+          "claim_id": "CC-MRNAX-W10-YEOLAB2026-CIRCRNA-RBP",
+          "underlying_dataset_id": "PMC13759317_YeoLab2026_NSMB_circRNA_RBP",
+          "evidence_layer": "raw_observation"
+        }
+      ],
+      "model_interpretations": [],
+      "audit_history": [
+        {
+          "timestamp_utc": "2026-11-27T00:40:00Z",
+          "previous_status": "insufficient_evidence",
+          "new_status": "conditional_rule",
+          "reason": "Wave 10 Exp 3D single-lab circRNA RBP finding (strictly stratified by source_lab); kept conditional_rule.",
+          "is_simulated_sandbox_only": false
+        }
+      ]
+    },
+    {
+      "rule_id": "RUL-CC-CIRCRNA-CHANG-IRES-HAIRPIN-ARE-016",
+      "version": "1.0.1",
+      "status": "conditional_rule",
+      "allowed_track": "commercial_clean",
+      "target_scopes": [
+        "full_transcript",
+        "three_prime_utr"
+      ],
+      "applicable_chemistries": [
+        "unmodified_u"
+      ],
+      "applicable_contexts": [
+        "HEK293T_circRNA",
+        "HeLa_circRNA",
+        "HepG2_circRNA"
+      ],
+      "readout_name_exact": "circRNA IRES & Structural Element Translation Output Across Human Cell Lines (Chen 2023 Nat Biotechnol)",
+      "statement": "Across 381 quantitative circRNA engineering assays (161 sequence-joined) in Chen et al. 2023 Nat Biotechnol (Howard Chang Lab, PMC9931579, CC-BY-4.0, circrna_chen2023_engineering_v1.parquet SHA-256 240e36e072d158e4), viral IRES translation rank (Fig 5a, n=39) is strongly conserved across HEK293T, HeLa, and HepG2 (rho=0.737-0.890, p<1e-7). Global GC, length, and EternaFold AUP alone do not significantly predict IRES output (p>0.31), whereas specific local structural elements (Fig 3d predicted MFE rho=0.833, p=0.0053; hairpin dG rho=0.800, p=0.0096, n=9) and 3' AU-rich elements (HeLa Fig 5a n_are rho=-0.319, p=0.055) modulate output. Independence caveat: upstream GSE178718 (related earlier Chang Lab screen) overlaps structRFM IRES data per A-W8; an explicit sequence/construct intersection is required before claiming any Chen 2023 subset is unseen by structRFM; kept strictly conditional_rule (single lab).",
+      "linked_observations": [
+        {
+          "claim_id": "CC-MRNAX-W10-CHEN2023-CIRCRNA-IRES",
+          "underlying_dataset_id": "PMC9931579_Chen2023_NatBiotechnol_circRNA",
+          "evidence_layer": "raw_observation"
+        }
+      ],
+      "model_interpretations": [],
+      "audit_history": [
+        {
+          "timestamp_utc": "2026-11-27T00:40:00Z",
+          "previous_status": "insufficient_evidence",
+          "new_status": "conditional_rule",
+          "reason": "Wave 10 Exp 3D single-lab circRNA IRES/hairpin/ARE finding with explicit GSE178718 overlap disclosure; kept conditional_rule.",
+          "is_simulated_sandbox_only": false
+        }
+      ]
+    },
+    {
+      "rule_id": "RUL-CC-POLYA-COMPOSITION-AND-LENGTH-017",
+      "version": "1.0.1",
+      "status": "conditional_rule",
+      "allowed_track": "commercial_clean",
+      "target_scopes": [
+        "poly_a"
+      ],
+      "applicable_chemistries": [
+        "unmodified_u",
+        "m1psi"
+      ],
+      "applicable_contexts": [
+        "human_nanopore_dRNAseq",
+        "IVT_mRNA_manufacturing",
+        "murine_BMDM_mRNA1273_kinetics"
+      ],
+      "readout_name_exact": "Single-Read Nanopore Poly(A) Tail Length (nt) & Internal Non-Adenosine (C/G/U) Composition Rate",
+      "statement": "Poly(A) tail length and non-adenosine (G/C/U) decoration are dynamic, process-sensitive design variables across two Wave 11 verified CC-BY-4.0 nanopore data tables: (1) Gumińska et al. 2025 Nat Commun (Ninetails data layer ONLY — software/weights excluded, Dziembowski Lab, PMC11920217, Zenodo 13837855 cc-by-4.0, polya_ninetails2025_ivt_and_mrna1273_ccby4_v1.parquet SHA-256 prefix 21a6ef0991b662f8, 101,138 rows): IVT protocol alters the fraction of reads carrying >=1 non-A decoration (mutT7 2.98% vs WT T7 9.58% vs PAP+ATP 5.62% vs PAP+equal rNTPs 79.56%), and therapeutic mRNA-1273 tails remodel in MURINE bone-marrow-derived macrophages (BMDM) from 0h input (median 99.80 nt, 4.61% decorated reads, n=58,083) to 24h WT (115.24 nt, 13.72% decorated) vs AC mutant (86.79 nt, 3.96% decorated); AND (2) Fuhrmann et al. 2026 PLOS Pathogens (Depledge Lab, PMC13271517, polya_fuhrmann2026_plospath_human_tails_ccby4_v1.parquet SHA-256 prefix e70bc4d564ed02fa, 4336 rows): clean uninfected human baselines show median poly(A) 83.86 nt (NHDF), 95.52 nt (A549), and 100.55 nt (MeWo); in HCMV-infected NHDF (72 hpi), siCNOT1 knockdown elongates median human poly(A) from 93-104 nt (siCTRL) to 126-128 nt; S5 Table logs 1,560 non-A incorporation rate-ratio rows across 1,114 distinct transcript IDs. Kept strictly conditional_rule.",
+      "linked_observations": [
+        {
+          "claim_id": "CC-MRNAX-W11-NINETAILS2025-POLYA",
+          "underlying_dataset_id": "PMC11920217_Ninetails2025_Zenodo13837855",
+          "evidence_layer": "raw_observation"
+        },
+        {
+          "claim_id": "CC-MRNAX-W11-FUHRMANN2026-POLYA",
+          "underlying_dataset_id": "PMC13271517_Fuhrmann2026_PLOSPath_PolyA",
+          "evidence_layer": "raw_observation"
+        }
+      ],
+      "model_interpretations": [],
+      "audit_history": [
+        {
+          "timestamp_utc": "2026-11-27T00:40:00Z",
+          "previous_status": "insufficient_evidence",
+          "new_status": "conditional_rule",
+          "reason": "Wave 11 verified CC-BY-4.0 human & IVT poly(A) length/composition datasets; conservatively held at conditional_rule (descriptive/manufacturing dynamics, not directional expression slope).",
+          "is_simulated_sandbox_only": false
+        }
+      ]
+    },
+    {
+      "rule_id": "RUL-CC-M1PSI-INNATE-ISG-SUPPRESSION-018",
+      "version": "1.0.1",
+      "status": "conditional_rule",
+      "allowed_track": "commercial_clean",
+      "target_scopes": [
+        "full_transcript",
+        "cds"
+      ],
+      "applicable_chemistries": [
+        "unmodified_u",
+        "m1psi"
+      ],
+      "applicable_contexts": [
+        "THP1_human_monocytes",
+        "A549_human_epithelial",
+        "IVT_mRNA_innate_sensing"
+      ],
+      "readout_name_exact": "Innate-Immune Sensor & ISG qPCR CT Shift (m1Psi-mRNA vs Unmodified U-mRNA, Kuzmin 2024 Fig 1D)",
+      "statement": "In Kuzmin et al. 2024 Nat Commun (PMC11289437, PMID:39080316, CC-BY-4.0, m1psi_kuzmin2024_u_vs_m1psi_immunity_ccby4_v1.parquet SHA-256 prefix dae73ad46caca3d9, Fig 1D 495 qPCR rows across 34 genes), full m1Psi substitution blunts unmodified-U mRNA innate-immune sensor and ISG induction back toward mock baseline in human THP-1 monocytes (stable 18s/GAPDH controls: DDX58/RIG-I +5.19 Ct, IFIH1/MDA5 +4.33 Ct, IFNB +6.12 Ct, IFNL1 +6.32 Ct, IFIT1 +7.46 Ct, IFIT3 +6.72 Ct, MX1 +7.34 Ct, MX2 +6.03 Ct, ISG20 +6.31 Ct). Censoring & housekeeping caveats (A-W11): 80/495 raw Ct readings were 'Undetermined' (right-censored) and assigned 40.0 ONLY in the imputed summary column (e.g. THP-1 IFNL1 m1Psi & mock are censored at 40.0); in A549, m1Psi-minus-U housekeeping shifted -10.72 Ct (18S) and -7.67 Ct (GAPDH), prohibiting direct unnormalized cross-cell Ct comparisons. Single CC-BY-4.0 dataset -> kept strictly conditional_rule.",
+      "linked_observations": [
+        {
+          "claim_id": "CC-MRNAX-W11-KUZMIN2024-M1PSI-ISG",
+          "underlying_dataset_id": "PMC11289437_Kuzmin2024_NatComm_Fig1D",
+          "evidence_layer": "raw_observation"
+        }
+      ],
+      "model_interpretations": [],
+      "audit_history": [
+        {
+          "timestamp_utc": "2026-11-27T00:40:00Z",
+          "previous_status": "insufficient_evidence",
+          "new_status": "conditional_rule",
+          "reason": "Wave 11 verified CC-BY-4.0 single-lab m1Psi innate-immune sensing dataset; kept strictly conditional_rule.",
+          "is_simulated_sandbox_only": false
+        }
+      ]
+    },
+    {
+      "rule_id": "RUL-CC-SARNA-DOSESPARING-INNATE-AXIS-019",
+      "version": "1.0.0",
+      "status": "conditional_rule",
+      "allowed_track": "commercial_clean",
+      "target_scopes": [
+        "full_transcript"
+      ],
+      "applicable_chemistries": [
+        "unmodified_u"
+      ],
+      "applicable_contexts": [
+        "saRNA_alphavirus_replicon",
+        "in_vitro_expression",
+        "NHP_in_vivo_innate_cytokines"
+      ],
+      "readout_name_exact": "saRNA In Vitro Antigen Expression (%) & NHP 0h-vs-24h Innate Cytokine Panel (Vijayan 2024 Nat Commun)",
+      "statement": "In Vijayan et al. 2024 Nat Commun (PMC11564874, PMID:39543172, CC-BY-4.0, sarna_vijayan2024_rsv_smarrt_ccby4_v1.parquet SHA-256 fe3d7176b786df3d, 1,881 rows), unmodified SMARRT.RSV.preF saRNA reaches near-saturating in vitro antigen expression at 6.25-25 ng across two independent batches (total RSV.F 86.65%->94.90%; surface 79.10%->92.85% vs 0.02-0.08% at 0 ng) and elicits NHP neutralizing immunity while triggering measurable 0h->24h innate cytokine responses (1,577 analyte readings). Supports tracking saRNA replication potency and innate reactogenicity on separate Pareto axes. Single CC-BY-4.0 dataset -> kept strictly conditional_rule.",
+      "linked_observations": [
+        {
+          "claim_id": "CC-MRNAX-W11-VIJAYAN2024-SARNA-RSV",
+          "underlying_dataset_id": "PMC11564874_Vijayan2024_NatComm_saRNA",
+          "evidence_layer": "raw_observation"
+        }
+      ],
+      "model_interpretations": [],
+      "audit_history": [
+        {
+          "timestamp_utc": "2026-11-27T00:40:00Z",
+          "previous_status": "insufficient_evidence",
+          "new_status": "conditional_rule",
+          "reason": "Wave 11 verified CC-BY-4.0 single-lab saRNA benchmark dataset; kept strictly conditional_rule.",
+          "is_simulated_sandbox_only": false
+        }
+      ]
     }
-  ]
+  ],
+  "upstream_handoff_manifest": {
+    "manifest_id": "CARBON_INTEGRATION_MANIFEST_V9",
+    "upstream_filename": "rules_commercial_v1.3.0.json",
+    "upstream_drive_id": "1FJH-TrvKtbSCHcoVJw1VzJRYPbN3kV-t",
+    "upstream_sha256": "6ff00bfd71c20d95072dda64c1724b1b712b37e81652bfdc0cc14c9710350124",
+    "integration_remediation": "Aligned 4 EternaFold model_interpretations source_model_license_track from commercial_clean to commercial_clearance_pending to match RC-004-eternafold-v1.3.1.yaml."
+  }
 }

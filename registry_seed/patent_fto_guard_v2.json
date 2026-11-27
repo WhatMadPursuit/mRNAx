@@ -1,11 +1,13 @@
 {
   "registry_id": "patent_fto_guard_v2",
-  "version": "2.0.0",
+  "version": "2.1.0",
+  "schema_version": "2.1.0",
   "verified_from_audit": [
     "G-P01_pilot_license_fto.md",
     "G-B1_patent_fto_guard.md",
     "C-B2_wave2_cross_audit.md",
-    "G-W6_patent_fto_guard_v2_candidates.json (live Google Patents granted-claim fetch 2026-11-27)"
+    "G-W6_patent_fto_guard_v2_candidates.json (live Google Patents granted-claim fetch 2026-11-27)",
+    "WO2024231621A1 / EP4704918A1 / JP2026515056A (Wave 11 live Tableau 1 & Claim 1-12 fetch 2026-11-27)"
   ],
   "disclaimer": "Engineering sequence collision & genus alert registry based on verified granted patent claims/examples; NOT a formal legal FTO opinion. Confirm national-phase status with patent counsel.",
   "excluded_non_blocking_patents_audited": [
@@ -108,6 +110,64 @@
       "block_in_commercial_clean": true,
       "block_in_research_max": false,
       "summary": "Verbatim 278-nt full FI (AES + mitochondrial 12S rRNA MT-RNR1) 3'UTR from granted US11547673B1 / EP3636764B1."
+    }
+  ],
+  "cartesian_utr_pair_rules": [
+    {
+      "rule_id": "WO2024231621_CNRS_DUAL_UTR_CARTESIAN_PAIR",
+      "patent_family_or_pub": "WO2024231621A1 (Cl.1 composition & Cl.12 in-vitro use) / EP4704918A1 / JP2026515056A (US/CN national phase UNVERIFIED)",
+      "block_in_commercial_clean": true,
+      "block_in_research_max": false,
+      "utr5_identity_threshold": 0.9,
+      "utr3_identity_threshold": 0.95,
+      "screening_heuristic_note": ">=95% identity on the 2 distinguishing 3UTR elements is strictly an internal mRNAx screening heuristic (NOT a Claim 1 term). Never individually blocks ubiquitous alpha/beta-globin 5UTRs.",
+      "five_prime_utr_candidates": [
+        {
+          "id": "SEQ_ID_4_human_beta_globin_tableau1",
+          "seq_id_no": 4,
+          "source_kind": "patent_tableau1_seq_id",
+          "sequence_rna": "AUCCAAAGUUGAGCGUUUAUUCUGAGCUUCUGCAAAAAGAACAAGCCG"
+        },
+        {
+          "id": "canonical_HBB_5utr_screening_alias",
+          "seq_id_no": null,
+          "source_kind": "internal_screening_alias_not_in_tableau1",
+          "sequence_rna": "ACAUUUGCUUCUGACACAACUGUGUUCACUAGCAACCUCAAACAGACACC"
+        },
+        {
+          "id": "SEQ_ID_5_synthetic_5NeoUTR3",
+          "seq_id_no": 5,
+          "source_kind": "patent_tableau1_seq_id",
+          "sequence_rna": "AUCUUGUCUCGCUCCGGGGAACGCUCGGAAACUCCCGGCCGCCGCCACCCGCGUCUGUUCUGUUACACAAGGGAAGAAAAGCCGCUGCCGCACUCCGAGUGUCCG"
+        },
+        {
+          "id": "SEQ_ID_6_human_alpha_globin_tableau1",
+          "seq_id_no": 6,
+          "source_kind": "patent_tableau1_seq_id",
+          "sequence_rna": "GAAUAAACUAGUAUUCUUCUGGUCCCCACAGACUCAGAGAGAACCCGCCACC"
+        },
+        {
+          "id": "SEQ_ID_7_synthetic_5UTR4",
+          "seq_id_no": 7,
+          "source_kind": "patent_tableau1_seq_id",
+          "sequence_rna": "CUGAAACACGGUGGAGAGUUUAUUGCAAAAUAACGCGUCCAUUCGACA"
+        }
+      ],
+      "three_prime_utr_candidates": [
+        {
+          "id": "SEQ_ID_1_rotavirus_VP6_3utr",
+          "seq_id_no": 1,
+          "source_kind": "patent_tableau1_seq_id",
+          "sequence_rna": "GGACCAAGCUAACAACUUGGUAUCCAACUUUGGUGAGUAUGUAGCUAUAUCAAGCUGUU"
+        },
+        {
+          "id": "SEQ_ID_2_rat_MnSOD_3utr_tableau1",
+          "seq_id_no": 2,
+          "source_kind": "patent_tableau1_seq_id",
+          "sequence_rna": "CAUAUGUGUAAGCAUACAGUUAUGAUAAUUUCUUAAUUAAAUGUAUUGUUAGGCAACUGUUUGAGAACAGUACAUACUUGGUGUGAGCUGCUCUUGAUUGAACAUUUUCAUUAGAGGCUUGAAUUGCUUGGACGCUGUCACUGUCAUCAUAAGGCCAUCAAAGAUAUUCCAUCUCUGUGUUGGGGCCUGUGGGGAGGCUGUAAUCCUGUUCUACUGCAG"
+        }
+      ],
+      "summary": "CNRS WO2024231621A1 Cl.1/Cl.12 closed-list Cartesian 5UTR x 3UTR pair ({beta-globin, 5NeoUTR3, alpha-globin, 5UTR4} x {rotavirus VP6, MnSOD}); confirmed live in EP (EP4704918A1) and JP (JP2026515056A), US/CN UNVERIFIED."
     }
   ]
 }

@@ -152,14 +152,26 @@ def test_wave8_three_layer_and_transitive_license_traps_blocked_in_commercial_cl
         assert readiness.uncomparable_reason is not None
         assert trap_id in readiness.uncomparable_reason
 
-    # BSD-3-Clause EternaFold v1.3.1 (RC-004) passes strict replacement card verification
+    # RC-004 EternaFold v1.3.1 is HELD at commercial_clearance_pending per Wave 11 A-W11 C3 (S-Processed data clearance pending),
+    # while RC-005 CodonTransformer v1.0 passes strict replacement card verification when paired with surrogate_v1_clean!
     rc004_path = resolve_default_cards_dir() / "RC-004-eternafold-v1.3.1.yaml"
-    card = load_replacement_card_yaml(rc004_path)
-    verify_replacement_card_strict(card, expected_component_id="eternafold_bpp_engine", expected_version="1.3.1")
+    card004 = load_replacement_card_yaml(rc004_path)
+    assert card004.current_license_track == "commercial_clearance_pending"
+    with pytest.raises(ValueError, match="commercial_clean"):
+        verify_replacement_card_strict(card004, expected_component_id="eternafold_structure_head", expected_version="1.3.1")
     pol_ef = base_intent.runtime_policy.model_copy_validated(
         enabled_evaluators=["surrogate_v1_clean", "eternafold_bpp_engine"]
     )
-    assert check_profile_readiness(base_intent.model_copy_validated(runtime_policy=pol_ef)).is_runnable is True
+    assert check_profile_readiness(base_intent.model_copy_validated(runtime_policy=pol_ef)).is_runnable is False
+
+    rc005_path = resolve_default_cards_dir() / "RC-005-codontransformer-v1.0.yaml"
+    card005 = load_replacement_card_yaml(rc005_path)
+    verify_replacement_card_strict(card005, expected_component_id="codontransformer_cds_baseline", expected_version="1.0.0")
+    pol_ct = base_intent.runtime_policy.model_copy_validated(
+        enabled_generators=["codontransformer_cds_baseline"],
+        enabled_evaluators=["surrogate_v1_clean"],
+    )
+    assert check_profile_readiness(base_intent.model_copy_validated(runtime_policy=pol_ct)).is_runnable is True
 
     # Two-hop and wrapper transitive component readiness must reject outer wrappers over restricted components
     middle_spec = ComponentLicenseSpec(

@@ -35,4 +35,5 @@ def test_default_runtime_resources_outside_checkout(tmp_path: Path, monkeypatch)
         "RC-002-STRUCTRFM-0.0.9-MIT",
         "RC-003-ORTHRUS-1.0-MIT",
         "RC-004-ETERNAFOLD-1.3.1-BSD3",
+        "RC-005-CODONTRANSFORMER-1.0-APACHE2",
     }

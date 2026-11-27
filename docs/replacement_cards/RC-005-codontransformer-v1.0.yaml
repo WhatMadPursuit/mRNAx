@@ -1,0 +1,122 @@
+card_id: RC-005-CODONTRANSFORMER-1.0-APACHE2
+component_id: codontransformer_cds_baseline
+approved_software_version: 1.0.0
+approved_artifact_digests:
+  config.json: 669ad8f2f97469569e67d43ce47049a5423d01e3c064d9426985035008ac49e7
+  model.safetensors: 23994e1e7324e78c9d9da71040e8677c0a635287cf1c7c9ea5096b7eadc44dfd
+  special_tokens_map.json: e4a7a265361e1a1cf7986b728af2b14a3816a9b25c5e06465fc048e703263e09
+  tokenizer.json: ed67da0846097c8ea4425c4b84fb31c18cbfb52fde30813109a0d8d32a40217b
+  tokenizer_config.json: ca1eac71db28162f532126ada424f0e0a9c7bd8010e76dbceb4a4e29f89dc818
+component_name_and_version: CodonTransformer 1.0.0
+role_in_pipeline: 'adibvafa/CodonTransformer HF revision 9744dcc920d813066391fc828d7a590207f148e8 (BigBirdForMaskedLM 12L/768H,
+  164 organisms, Homo sapiens organism_id=59, Apache-2.0/Apache-2.0/CC-BY-4.0). Triple-clean commercial_clean (Apache-2.0
+  code / Apache-2.0 weights / CC-BY-4.0 training data) Homo sapiens CDS codon-optimization generator and zero-shot synonymous
+  log-likelihood scorer, loaded natively via HuggingFace transformers BigBirdForMaskedLM without external pip bloat or GPL
+  dependencies. Serves as the evidence-backed CDS proposal baseline in `protein -> evidence-backed CDS -> CDS-conditioned
+  UTR -> joint/alternating optimization`: beats classical human CAI on Leppek 2022 CDS24 6h/24h cellular expression (+0.505/+0.437
+  vs +0.019/+0.193), PERSIST-233 ribosome load & in-cell half-life (+0.158/+0.170 vs -0.060/-0.059), and all 4 Wu 2019 human
+  cell lines (|rho|=0.151-0.190 vs CAI 0.104-0.170). Honest limitation: does NOT optimize cell-free hydrolysis resistance
+  (Leppek24 in-solution half-life rho=-0.277) and can occasionally emit a UUUU/UUUUU slippery run on long ORFs (1 UUUU in
+  FLuc 550aa). Commercial use requires a cleared RC-002 structRFM structure measurement or a cleared surrogate stability
+  measurement and deterministic m1Psi slippery-run elimination constraints. RC-004 EternaFold is research-only during its
+  commercial clearance hold.
+
+  '
+current_license_track: commercial_clean
+code_rights_basis: 'Official repository https://github.com/Adibvafa/CodonTransformer (Fallahpour et al., Nature Communications
+  2025, doi:10.1038/s41467-025-58588-7, PMC11968976) declares Apache-2.0 License. mRNAx loads the model natively via Apache-2.0
+  HuggingFace `transformers.BigBirdForMaskedLM` + `AutoTokenizer` using Homo sapiens organism_id=59, avoiding unnecessary
+  transitive pip dependencies (`pytorch_lightning`, `onnxruntime`, `numpy<2`). Retain Apache-2.0 notice and attribution.
+
+  '
+weights_rights_basis: 'Official HuggingFace model repository `adibvafa/CodonTransformer` pinned to exact git revision SHA
+  `9744dcc920d813066391fc828d7a590207f148e8` (`model.safetensors`, `config.json`, `tokenizer.json`) declares Apache-2.0 License
+  in its model card metadata. Applies ONLY to this exact revision-pinned checkpoint.
+
+  '
+training_and_parameter_data_rights_basis: Training corpus (>1M DNA-protein pairs across 164 organisms) is archived on Zenodo
+  record 12509224 (doi:10.5281/zenodo.12509224, verified via Zenodo REST API license.id='cc-by-4.0') and HuggingFace datasets/adibvafa/CodonTransformer.
+  Retain CC-BY-4.0 attribution. Remediated Wave 10 commercial shootout evaluates strictly CC-BY-4.0 wet-lab datasets (Leppek
+  2022 GSE173083, Wu 2019 eLife 45396, Mauger 2019 GSE139176 measured SHAPE columns only — precomputed mfe_first300_vienna
+  quarantined and removed per A-W11 C2).
+runtime_dependency_rights_basis: 'Standard PyTorch (2.14.1+cu130, BSD-3-Clause) + HuggingFace transformers (Apache-2.0) +
+  safetensors (Apache-2.0) + tokenizers (Apache-2.0); zero GPL/AGPL, zero non-commercial packages, zero `CodonTransformer`
+  monolithic pip install required at inference time.
+
+  '
+derived_assets_clean_room_rule: Generated CDS sequences and downstream CDS-conditioned fine-tuning/LoRA adapters remain commercial_clean
+  ONLY if all incorporated training/evaluation labels carry an explicit commercial-clean allowlisted SPDX license (MIT, Apache-2.0,
+  BSD-2/3-Clause, ISC, CC0-1.0, CC-BY-4.0) with versioned provenance, OR separately documented proprietary/legal grants routed
+  explicitly outside the 7-license open-source allowlist (never on the basis of bare 'public-GEO' availability). Zero CodonBERT/RiboNN/GEMORNA
+  non-commercial models or ViennaRNA targets may enter commercial_clean; all m1Psi designs must pass deterministic UUUC/U{4,}
+  slippery-run remediation and sequence FTO screening.
+commercial_replacement_paths:
+- 'Primary Commercial-Clean Neural CDS Generator & Zero-Shot Scorer: Deploy CodonTransformer (Apache-2.0/Apache-2.0/CC-BY-4.0)
+  with Homo sapiens organism_id=59 + mandatory synonymous mask (`match_protein=True`) + deterministic m1Psi UUUU/UUUUU elimination
+  filter.'
+- Use cleared RC-002 structRFM or a commercial-clean surrogate stability head as the commercial partner.
+- 'Zero-GPU Fallback / Rollback: Deterministic human CAI/GC3/m1Psi-aware CDS optimizer + CommercialCleanSurrogateV2 CDS stability
+  LightGBM head (Wu 2019 OOD Spearman 0.4535).'
+frozen_benchmark_dataset_and_protocol: 'Wave 10 Commercial-Clean CDS Shootout Suite (Drive 1ORULrQfMmE64o478k5WrDJI2xOqv-Q4Z):
+  Leppek 2022 CDS24 (n=24 synonymous NLuc CDSs, 6h/24h expression + in-solution half-life, CC-BY-4.0); Leppek 2022 PERSIST-233
+  (n=233 ribosome load, n=203 in-cell half-life, n=191 in-solution half-life, CC-BY-4.0); Wu 2019 human endogenous stability
+  (13,568 scored CDSs <=2,046 codons across HEK293T, HeLa, RPE, K562 SLAM-seq, CC-BY-4.0); Mauger 2019 Moderna 39 synonymous
+  fLuc constructs (SHAPE-MaP summary; live PNAS sd02 audit confirmed 0 published numeric expression columns); controlled Homo
+  sapiens CDS generation across eGFP (239aa), FLuc (550aa), NLuc (171aa & 206aa).
+
+  '
+acceptance_metrics:
+- metric_id: leppek2022_cds24_6h_expression_spearman
+  definition_and_scale: Zero-shot Homo sapiens synonymous log-likelihood Spearman rho vs measured 6h NLuc/FLuc cellular protein
+    expression across 24 synonymous CDS designs ([-1, 1])
+  direction: higher_is_better
+  frozen_baseline_reference: Classical author_cai rho=0.01913 (p=0.929); CodonTransformer syn_ll rho=0.50522 (p=0.0118; 24h
+    rho=0.43652 vs CAI 0.19304)
+  max_acceptable_degradation: Must beat classical human CAI by >= +0.200 Spearman (numeric_min_bound >= 0.2500)
+  measured_value: 0.50522
+  numeric_min_bound: 0.25
+- metric_id: wu2019_k562_slamseq_stability_spearman
+  definition_and_scale: Zero-shot Homo sapiens synonymous log-likelihood Spearman rho vs endogenous K562 SLAM-seq mRNA stability
+    across 8,551 human transcripts (3,600 paralog groups, [-1, 1])
+  direction: higher_is_better
+  frozen_baseline_reference: Classical human CAI rho=0.11747 (group=0.08430); CodonTransformer syn_ll rho=0.16756 (group=0.17578,
+    p=6.99e-55; 293T rho=0.15139 vs CAI 0.10419; HeLa |rho|=0.18976 vs CAI 0.17012; RPE |rho|=0.18730 vs CAI 0.14849)
+  max_acceptable_degradation: Must exceed classical human CAI (0.1175) on K562 SLAM-seq (numeric_min_bound >= 0.1300)
+  measured_value: 0.16756
+  numeric_min_bound: 0.13
+- metric_id: controlled_reporter_aa_identity_min
+  definition_and_scale: Minimum exact amino-acid translation identity across eGFP (239aa), FLuc (550aa), NLuc (171aa), and
+    NLuc-3xHA (206aa) deterministic & stochastic Homo sapiens generations ([0, 1])
+  direction: higher_is_better
+  frozen_baseline_reference: 'Measured Wave 10: 1.000000 (exact 100% match across all 4 deterministic matched, 4 unconstrained,
+    and 12 T=0.2 stochastic generations)'
+  max_acceptable_degradation: Must maintain exact 1.000000 amino-acid identity with match_protein=True
+  measured_value: 1.0
+  numeric_min_bound: 1.0
+- metric_id: gpu_determinism_max_abs_diff
+  definition_and_scale: Maximum absolute synonymous log-likelihood difference across repeated L4 forward passes
+  direction: lower_is_better
+  frozen_baseline_reference: 'Measured Wave 10 on NVIDIA L4: max_abs_diff = 0.0'
+  max_acceptable_degradation: max_abs_diff <= 0.0010
+  measured_value: 0.0
+  numeric_max_bound: 0.001
+- metric_id: gpu_l4_peak_vram_mb
+  definition_and_scale: Peak allocated GPU VRAM in MB during batched Homo sapiens CDS scoring on NVIDIA L4
+  direction: lower_is_better
+  frozen_baseline_reference: 'Measured Wave 10 on NVIDIA L4: peak VRAM = 2,626.05 MB (2.565 GB)'
+  max_acceptable_degradation: peak VRAM <= 4,096.0 MB
+  measured_value: 2626.05
+  numeric_max_bound: 4096.0
+- metric_id: gpu_l4_latency_ms_per_seq
+  definition_and_scale: Batched scoring latency in ms/seq on 256 human CDSs (300-1,500 nt) on NVIDIA L4 GPU
+  direction: lower_is_better
+  frozen_baseline_reference: 'Measured Wave 10 on NVIDIA L4: 9.896 ms/seq (101.05 seq/s; full 13,568-gene Wu2019 = 49.1 seq/s)'
+  max_acceptable_degradation: latency <= 25.0 ms/seq on L4 GPU
+  measured_value: 9.896
+  numeric_max_bound: 25.0
+max_compute_cost_budget: Peak VRAM <= 4,096 MB (measured 2,626.05 MB on L4); 101.05 seq/s (9.90 ms/seq) on 300-1,500 nt human
+  CDSs; zero commercial royalty.
+overall_switch_rule: Use the registered codontransformer_cds_baseline release (CodonTransformer v1.0, Homo sapiens id=59)
+  when the release pins are verified, all six acceptance_metrics pass, synonymous-only masking (match_protein=True) and deterministic m1Psi UUUC/U{4,}
+  remediation are enforced, and downstream structure/hydrolysis reranking uses cleared commercial heads.
+rollback_version: Deterministic human CAI/GC3/m1Psi CDS optimizer + CommercialCleanSurrogateV2 CDS LightGBM head (zero GPU)

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Literal, NamedTuple, Self
 
 import yaml
-from pydantic import Field, model_validator
+from pydantic import AliasChoices, Field, model_validator
 
 from mrnax.schemas.common import ConstraintScope, LicenseTrack, RuleStatus, UridineChemistry
 from mrnax.schemas.construct_bundle import FrozenSchemaModel
@@ -45,7 +45,13 @@ class EvidenceObservationLink(FrozenSchemaModel):
 class ModelInterpretationNote(FrozenSchemaModel):
     """Kept strictly separated from raw experimental observations (Clean-Room & Joint Ruling #5)."""
 
-    source_model_name: str
+    source_component_id: str | None = Field(
+        default=None, validation_alias=AliasChoices("source_component_id", "component_id")
+    )
+    source_model_name: str = Field(validation_alias=AliasChoices("source_model_name", "display_name"))
+    model_id: str | None = None
+    card_pin: str | None = None
+    replacement_card: str | None = None
     source_model_license_track: LicenseTrack
     method: Literal["SHAP", "ISM", "TF_MoDISco", "regression_weight"]
     summary: str
@@ -177,9 +183,27 @@ APPROVED_REPLACEMENT_RELEASES = {
         "EternaFold",
         "1.3.1",
         {
-            "v1.3.1.tar.gz": "8aa00b81b6068bff02954ef1621e7aa92f48aadcb3e89b322af46433553691b5",
             "LICENSE": "8431990ae8dd84812802a5ef3d7cfe05d90257c96ed740c6e6f04ff32bc22afc",
             "parameters/EternaFoldParams.v1": "1421e89cc8df24b53a320eff6c72b8acfdb2771faba29ab9c798f7bdfc853a8a",
+        },
+    ),
+    "eternafold_structure_head": ApprovedComponentRelease(
+        "EternaFold",
+        "1.3.1",
+        {
+            "LICENSE": "8431990ae8dd84812802a5ef3d7cfe05d90257c96ed740c6e6f04ff32bc22afc",
+            "parameters/EternaFoldParams.v1": "1421e89cc8df24b53a320eff6c72b8acfdb2771faba29ab9c798f7bdfc853a8a",
+        },
+    ),
+    "codontransformer_cds_baseline": ApprovedComponentRelease(
+        "CodonTransformer",
+        "1.0.0",
+        {
+            "config.json": "669ad8f2f97469569e67d43ce47049a5423d01e3c064d9426985035008ac49e7",
+            "model.safetensors": "23994e1e7324e78c9d9da71040e8677c0a635287cf1c7c9ea5096b7eadc44dfd",
+            "special_tokens_map.json": "e4a7a265361e1a1cf7986b728af2b14a3816a9b25c5e06465fc048e703263e09",
+            "tokenizer.json": "ed67da0846097c8ea4425c4b84fb31c18cbfb52fde30813109a0d8d32a40217b",
+            "tokenizer_config.json": "ca1eac71db28162f532126ada424f0e0a9c7bd8010e76dbceb4a4e29f89dc818",
         },
     ),
 }
@@ -202,10 +226,28 @@ _MANDATORY_CARD_METRICS_BY_COMPONENT: dict[str, set[str]] = {
         "triton_l4_latency_ms_per_seq",
     },
     "eternafold_bpp_engine": {
-        "rmdb_eterna_r69_1m7_spearman_rho",
-        "moderna_shapemap_unmodified_u_zeroshot_spearman",
-        "moderna_shapemap_m1psi_zeroshot_spearman",
-        "construct_latency_ms_cpu",
+        "rmdb_eterna_r69_1m7_global_spearman",
+        "rmdb_ok7blib_2a3_group_key_spearman",
+        "moderna_shapemap_zeroshot_spearman_u",
+        "leppek2022_author_aup_parity_pearson",
+        "cpu_determinism_max_abs_diff",
+        "cpu_12core_latency_ms_per_seq_307nt",
+    },
+    "eternafold_structure_head": {
+        "rmdb_eterna_r69_1m7_global_spearman",
+        "rmdb_ok7blib_2a3_group_key_spearman",
+        "moderna_shapemap_zeroshot_spearman_u",
+        "leppek2022_author_aup_parity_pearson",
+        "cpu_determinism_max_abs_diff",
+        "cpu_12core_latency_ms_per_seq_307nt",
+    },
+    "codontransformer_cds_baseline": {
+        "leppek2022_cds24_6h_expression_spearman",
+        "wu2019_k562_slamseq_stability_spearman",
+        "controlled_reporter_aa_identity_min",
+        "gpu_determinism_max_abs_diff",
+        "gpu_l4_peak_vram_mb",
+        "gpu_l4_latency_ms_per_seq",
     },
 }
 

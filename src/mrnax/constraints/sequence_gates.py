@@ -104,6 +104,37 @@ def check_m1psi_frameshift(
     return out
 
 
+_RC005_ORIGIN = re.compile(r"(?<![a-z0-9])(?:codontransformer|rc[-_]?005)(?![a-z0-9])", re.I)
+
+
+def has_rc005_cds_provenance(bundle: ConstructBundle) -> bool:
+    return any(
+        _RC005_ORIGIN.search(tag)
+        for mol in bundle.molecules
+        for seg in mol.segments if seg.segment_type == "cds"
+        for tag in (seg.origin_source, seg.component_id or "")
+    )
+
+
+def check_rc005_chemistry(bundle: ConstructBundle, candidate_ref: str) -> list[FailedCandidateDiagnostic]:
+    diagnostics = []
+    for mol in bundle.molecules:
+        if mol.chemistry_track.uridine_chemistry not in {"m1psi", "pseudouridine"}:
+            continue
+        for _, offset, cds in _iter_scoped_slices(mol, frozenset({"cds"})):
+            spans = find_m1psi_slippery_spans(cds, include_uuuc=True)
+            if spans:
+                start, end, motif = spans[0]
+                diagnostics.append(FailedCandidateDiagnostic(
+                    candidate_ref=candidate_ref,
+                    violated_requirement_id="rc005:m1psi_uuuc_u4_slippery_free",
+                    violated_scope="cds",
+                    transcript_coordinates=(offset + start, offset + end),
+                    reason=f"RC-005 final admission blocked slippery motif '{motif}' on molecule '{mol.molecule_id}'.",
+                ))
+    return diagnostics
+
+
 def check_restriction_sites(
     mol: RNAMoleculeSpec, spec: ConstraintSpec, candidate_ref: str
 ) -> list[FailedCandidateDiagnostic]:

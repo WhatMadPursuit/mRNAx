@@ -8,14 +8,31 @@ import importlib.util
 from pathlib import Path
 import re
 
+import yaml
+
+from mrnax.engine.surrogates import STRUCTRFM_NATIVE_CHEMISTRIES
 from mrnax.rules.models import APPROVED_REPLACEMENT_RELEASES, load_replacement_card_yaml, verify_replacement_card_strict
 from mrnax.schemas.common import LicenseTrack
 from mrnax.schemas.design_intent import DesignIntent
 
 _REPLACEMENT_CARD_BY_COMPONENT: dict[str, str] = {
+    "viennarna_thermo": "RC-001-viennarna-v2.8.0.yaml",
     "structrfm_rna_foundation": "RC-002-structrfm-v0.0.9.yaml",
     "orthrus_mamba_rna_foundation": "RC-003-orthrus-v1.0.yaml",
     "eternafold_bpp_engine": "RC-004-eternafold-v1.3.1.yaml",
+    "eternafold_structure_head": "RC-004-eternafold-v1.3.1.yaml",
+    "codontransformer_cds_baseline": "RC-005-codontransformer-v1.0.yaml",
+}
+
+_TRANSCRIPT_REGIONS = frozenset({"five_prime_utr", "cds", "three_prime_utr"})
+RC005_PARTNER_METRICS = {
+    "surrogate_v1_clean": {
+        "cds_stability_pred": frozenset({"cds"}),
+        "utr3_stability_pred": frozenset({"three_prime_utr"}),
+        "consensus_halflife_pred": _TRANSCRIPT_REGIONS,
+    },
+    "structrfm_rna_foundation": {"structrfm_cds_median_shape": frozenset({"cds"})},
+    "orthrus_mamba_rna_foundation": {"orthrus_halflife_pred": _TRANSCRIPT_REGIONS},
 }
 
 _FORBIDDEN_CLEAN_ROOM_LICENSE_RE = re.compile(
@@ -77,6 +94,9 @@ def _resolve_catalog_dependency(
     stripped = raw_dep.strip()
     if stripped in catalog:
         return catalog[stripped]
+    display_match = next((s for s in catalog.values() if s.display_name == stripped), None)
+    if display_match is not None:
+        return display_match
     head = re.split(r"[<>=!~\[\s;@()]", stripped, maxsplit=1)[0].strip()
     if head in catalog:
         return catalog[head]
@@ -138,6 +158,9 @@ def validate_three_layer_and_transitive_clean_room(
             )
 
 
+_JOBLIB_PROBE_PACKAGES = ("joblib", "scikit-learn", "numpy", "scipy")
+
+
 COMPONENT_CATALOG: dict[str, ComponentLicenseSpec] = {
     "stage0_random": ComponentLicenseSpec(
         component_id="stage0_random",
@@ -148,6 +171,7 @@ COMPONENT_CATALOG: dict[str, ComponentLicenseSpec] = {
         weights_license="n/a",
         data_license="NCBI Genetic Code Table 1 (Public Domain)",
         license_track="commercial_clean",
+        transitive_dependencies=("biopython", "dnachisel"),
     ),
     "dnachisel_cds": ComponentLicenseSpec(
         component_id="dnachisel_cds",
@@ -158,6 +182,7 @@ COMPONENT_CATALOG: dict[str, ComponentLicenseSpec] = {
         weights_license="n/a",
         data_license="Public codon frequency tables",
         license_track="commercial_clean",
+        transitive_dependencies=("dnachisel", "biopython"),
     ),
     "pareto_nsga2": ComponentLicenseSpec(
         component_id="pareto_nsga2",
@@ -168,6 +193,7 @@ COMPONENT_CATALOG: dict[str, ComponentLicenseSpec] = {
         weights_license="n/a",
         data_license="miRBase (Public Domain) + FANTOM5 (CC-BY-4.0) + NCBI RefSeq",
         license_track="commercial_clean",
+        transitive_dependencies=("biopython", "dnachisel", "numpy"),
     ),
     "viennarna_thermo": ComponentLicenseSpec(
         component_id="viennarna_thermo",
@@ -178,6 +204,7 @@ COMPONENT_CATALOG: dict[str, ComponentLicenseSpec] = {
         weights_license="n/a",
         data_license="Turner 2004 nearest-neighbor parameters",
         license_track="needs_vendor_license",
+        transitive_dependencies=("ViennaRNA",),
     ),
     "surrogate_v1_clean": ComponentLicenseSpec(
         component_id="surrogate_v1_clean",
@@ -188,6 +215,7 @@ COMPONENT_CATALOG: dict[str, ComponentLicenseSpec] = {
         weights_license="Proprietary Clean-Room LightGBM (zero ViennaRNA labels)",
         data_license="GSE232927 + eLife 45396 Wu2019 + Agarwal&Kelley2022 Saluki (CC-BY-4.0 / Apache-2.0)",
         license_track="commercial_clean",
+        transitive_dependencies=(*_JOBLIB_PROBE_PACKAGES, "lightgbm"),
     ),
     "structrfm_rna_foundation": ComponentLicenseSpec(
         component_id="structrfm_rna_foundation",
@@ -198,6 +226,7 @@ COMPONENT_CATALOG: dict[str, ComponentLicenseSpec] = {
         weights_license="MIT License (Zenodo 16754363 v0.0.3 deposit MD5 e572a7781a8099ff45692fcd46f83043)",
         data_license="RNAcentral (upstream license) + Mauger2019 Moderna fLuc SHAPE-MaP (CC-BY-4.0)",
         license_track="commercial_clean",
+        transitive_dependencies=(*_JOBLIB_PROBE_PACKAGES, "torch", "transformers", "safetensors", "tokenizers"),
     ),
     "orthrus_mamba_rna_foundation": ComponentLicenseSpec(
         component_id="orthrus_mamba_rna_foundation",
@@ -208,18 +237,48 @@ COMPONENT_CATALOG: dict[str, ComponentLicenseSpec] = {
         weights_license="MIT License (HuggingFace antichronology/orthrus-6-track)",
         data_license="Saluki Agarwal&Kelley2022 13,642-gene consensus half-life (Apache-2.0 / CC-BY-4.0)",
         license_track="commercial_clean",
-        transitive_dependencies=("torch (BSD-3-Clause)", "safetensors (Apache-2.0)"),
+        transitive_dependencies=(*_JOBLIB_PROBE_PACKAGES, "torch", "safetensors", "triton", "huggingface-hub"),
     ),
     "eternafold_bpp_engine": ComponentLicenseSpec(
         component_id="eternafold_bpp_engine",
-        display_name="EternaFold v1.3.1 BSD-3-Clause Base-Pair Probability & Accessibility Engine",
+        display_name="EternaFold v1.3.1 BSD-3-Clause Base-Pair Probability & Accessibility Engine (Held Pending S-Processed Data Clearance)",
         version=APPROVED_REPLACEMENT_RELEASES["eternafold_bpp_engine"].version,
         role="evaluator",
-        code_license="BSD-3-Clause (WaymentSteeleLab/EternaFold v1.3.1; zero libRNA linkage)",
+        code_license="BSD-3-Clause (WaymentSteeleLab/EternaFold v1.3.1; zero libRNA linkage under GCC Runtime Library Exception)",
         weights_license="BSD-3-Clause (parameters/EternaFoldParams.v1 inside v1.3.1 release archive)",
-        data_license="Stanford RMDB ETERNA_R69_0000 (CC0-1.0) + Mauger2019 GSE139176 (CC-BY-4.0)",
-        license_track="commercial_clean",
+        data_license="MIXED / commercial_clearance_pending: Stanford RMDB (CC0-1.0) + S-Processed structural train/holdout (upstream mixed provenance pending clearance per A-W11 C3)",
+        license_track="commercial_clearance_pending",
         transitive_dependencies=("glibc/libstdc++/libm",),
+    ),
+    "eternafold_structure_head": ComponentLicenseSpec(
+        component_id="eternafold_structure_head",
+        display_name="EternaFold v1.3.1 Probabilistic RNA Secondary-Structure Head (Held Pending S-Processed Data Clearance)",
+        version=APPROVED_REPLACEMENT_RELEASES["eternafold_structure_head"].version,
+        role="evaluator",
+        code_license="BSD-3-Clause (WaymentSteeleLab/EternaFold v1.3.1; zero libRNA linkage under GCC Runtime Library Exception)",
+        weights_license="BSD-3-Clause (parameters/EternaFoldParams.v1 inside v1.3.1 release archive)",
+        data_license="MIXED / commercial_clearance_pending: Stanford RMDB (CC0-1.0) + S-Processed structural train/holdout (upstream mixed provenance pending clearance per A-W11 C3)",
+        license_track="commercial_clearance_pending",
+        transitive_dependencies=("glibc/libstdc++/libm",),
+    ),
+    "codontransformer_cds_baseline": ComponentLicenseSpec(
+        component_id="codontransformer_cds_baseline",
+        display_name="CodonTransformer v1.0 Homo sapiens Synonymous CDS Generator & Scorer",
+        version=APPROVED_REPLACEMENT_RELEASES["codontransformer_cds_baseline"].version,
+        role="generator",
+        code_license="Apache-2.0 (Adibvafa/CodonTransformer via Apache-2.0 HuggingFace transformers BigBirdForMaskedLM)",
+        weights_license="Apache-2.0 (HuggingFace adibvafa/CodonTransformer git revision SHA 9744dcc920d813066391fc828d7a590207f148e8)",
+        data_license="CC-BY-4.0 (Zenodo record 12509224 >1M DNA-protein corpus across 164 organisms)",
+        license_track="commercial_clean",
+        transitive_dependencies=(
+            "numpy",
+            "biopython",
+            "torch",
+            "transformers",
+            "huggingface-hub",
+            "safetensors",
+            "tokenizers",
+        ),
     ),
     # Wave 8 Three-Layer & Transitive Dependency Trap Registry (Blocked in commercial_clean)
     "multistructrna_varnaapi": ComponentLicenseSpec(
@@ -385,6 +444,12 @@ def _audit_component_for_commercial_clean(
         )
     except ValueError as exc:
         return f"{comp_id} (three_layer_or_transitive_violation: {exc})"
+    if not visiting:
+        from mrnax.constraints.fto_guard import count_component_gpl_dependencies
+
+        count = count_component_gpl_dependencies(comp_id, spec.code_license, spec.weights_license)
+        if count:
+            return f"{comp_id} (transitive_gpl_count={count})"
     card_fname = _REPLACEMENT_CARD_BY_COMPONENT.get(comp_id)
     if card_fname is not None:
         card_path = resolved_cards_dir / card_fname
@@ -395,7 +460,7 @@ def _audit_component_for_commercial_clean(
             verify_replacement_card_strict(
                 card, expected_component_id=comp_id, expected_version=spec.version
             )
-        except ValueError as exc:
+        except (ValueError, OSError, yaml.YAMLError) as exc:
             return f"{comp_id} (failed_replacement_threshold: {exc})"
     next_visiting = visiting | {comp_id}
     for dep in spec.transitive_dependencies:
@@ -409,6 +474,12 @@ def _audit_component_for_commercial_clean(
             if sub_err is not None:
                 return f"{comp_id} -> {sub_err}"
     return None
+
+
+def structrfm_unavailable_reason(chemistry: str) -> str | None:
+    if chemistry in STRUCTRFM_NATIVE_CHEMISTRIES:
+        return None
+    return f"RC-002 structRFM: unsupported chemistry '{chemistry}' for native SHAPE-MaP probes."
 
 
 def check_profile_readiness(intent: DesignIntent, *, cards_dir: Path | None = None) -> ProfileReadiness:
@@ -430,7 +501,8 @@ def check_profile_readiness(intent: DesignIntent, *, cards_dir: Path | None = No
                 return True
         return False
 
-    if any(_uses_viennarna_recursively(cid) for cid in requested) and importlib.util.find_spec("RNA") is None:
+    if (intent.compliance_track == "research_max" and any(_uses_viennarna_recursively(cid) for cid in requested)
+            and importlib.util.find_spec("RNA") is None):
         return ProfileReadiness(
             is_runnable=False,
             uncomparable_reason=(
@@ -438,23 +510,162 @@ def check_profile_readiness(intent: DesignIntent, *, cards_dir: Path | None = No
             ),
         )
 
+    # RC-005 operational safety contract: CodonTransformer does NOT optimize in-solution hydrolysis
+    # (Leppek24 rho=-0.2765) and MUST be paired with at least one cleared commercial structure/stability head
+    # across ALL tracks (RC-004 EternaFold or ViennaRNA alone cannot satisfy RC-005's cleared partner requirement).
+    uses_codontransformer = "codontransformer_cds_baseline" in intent.runtime_policy.enabled_generators
+    resolved_cards_dir = cards_dir or resolve_default_cards_dir()
+    unsupported = (structrfm_unavailable_reason(intent.uridine_chemistry)
+                   if "structrfm_rna_foundation" in intent.runtime_policy.enabled_evaluators else None)
+    if unsupported and set(intent.runtime_policy.enabled_evaluators) == {"structrfm_rna_foundation"}:
+        return ProfileReadiness(False, unsupported)
+    if uses_codontransformer:
+        partners = set(intent.runtime_policy.enabled_evaluators) & RC005_PARTNER_METRICS.keys()
+        if unsupported:
+            partners.discard("structrfm_rna_foundation")
+        if not any(_audit_component_for_commercial_clean(cid, resolved_cards_dir=resolved_cards_dir) is None
+                   for cid in partners):
+            return ProfileReadiness(
+                is_runnable=False,
+                uncomparable_reason=(
+                    (unsupported + " " if unsupported else "") + "无法比较：RC-005 (codontransformer_cds_baseline) 不优化体外水解稳定性 (Leppek24 rho=-0.2765)，"
+                    "上线必须与已放行的商业洁净结构/稳定性评估头 (cleared structure/stability head: surrogate_v1_clean / structrfm_rna_foundation / orthrus_mamba_rna_foundation) 联用。"
+                ),
+            )
+
     if intent.compliance_track == "research_max":
         return ProfileReadiness(is_runnable=True)
 
     # In `commercial_clean`, block any requested component (or transitive dependency) that is not strictly `commercial_clean`
-    resolved_cards_dir = cards_dir or resolve_default_cards_dir()
     blocked: list[str] = []
     for comp_id in requested:
         err = _audit_component_for_commercial_clean(comp_id, resolved_cards_dir=resolved_cards_dir)
         if err is not None:
-            blocked.append(err)
+            card = _REPLACEMENT_CARD_BY_COMPONENT.get(comp_id)
+            blocked.append(f"{err}（详见 {card}）" if card else err)
 
     if blocked:
         return ProfileReadiness(
             is_runnable=False,
             uncomparable_reason=(
                 "无法比较：commercial_clean 档阻断未获纯商用产品放行的组件 "
-                f"[{', '.join(blocked)}]（详见组件商用替换评估卡 RC-001-viennarna-v2.8.0.yaml）"
+                f"[{', '.join(blocked)}]"
             ),
         )
     return ProfileReadiness(is_runnable=True)
+
+
+def _canonical_producer_name(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+_NAMED_HEADS = {
+    _canonical_producer_name(name): (component, metric)
+    for name, component, metric in (
+        ("CommercialCleanSurrogateV1:utr5_mrl_lgbm", "surrogate_v1_clean", "utr5_mrl_pred"),
+        ("CommercialCleanSurrogateV1:cds_stability_lgbm", "surrogate_v1_clean", "cds_stability_pred"),
+        ("CommercialCleanSurrogateV1:saluki_consensus_lgbm", "surrogate_v1_clean", "consensus_halflife_pred"),
+        ("CommercialCleanSurrogateV1:fastutr_3utr_lgbm", "surrogate_v1_clean", "utr3_stability_pred"),
+        ("StructRFMNativeScorer:mauger2019_probe", "structrfm_rna_foundation", "structrfm_cds_median_shape"),
+    )
+}
+_TOOL_NAME_TO_COMPONENT_ID: dict[str, str] = {
+    **{name: component for name, (component, _) in _NAMED_HEADS.items()},
+    "commercialcleansurrogatev1": "surrogate_v1_clean",
+    "commercialcleansurrogatev2": "surrogate_v1_clean",
+    "surrogatev2": "surrogate_v1_clean",
+    "commercialcleansurrogatev2lightgbm": "surrogate_v1_clean",
+    "structrfmmitv009ridgeprobe": "structrfm_rna_foundation",
+    "codontransformerv10apache2homosapiens": "codontransformer_cds_baseline",
+    "eternafoldbsd3tables5aup": "eternafold_structure_head",
+    "eternafoldv131bsd3standalone": "eternafold_structure_head",
+    "ribonn": "ribonn_noncommercial",
+    "helixmrna": "helix_mrna_helical",
+    "helical": "helix_mrna_helical",
+    "multistructrna": "multistructrna_varnaapi",
+    "gemorna": "gemorna_noncommercial",
+    "aidorna": "aido_rna_noncommercial",
+    "lineardesign": "lineardesign_academic",
+    "ribonanzanet": "ribonanzanet_unverified_weights",
+    "rhofold": "rhofold_plus_nc_data",
+    "mrnaxseqstats": "__builtin_stats__",
+    "structrfm": "structrfm_rna_foundation",
+    "structrfmnativemit": "structrfm_rna_foundation",
+    "structrfmnativescorer": "structrfm_rna_foundation",
+    "orthrus6trackmit": "orthrus_mamba_rna_foundation",
+    "orthrus": "orthrus_mamba_rna_foundation",
+    "codontransformerapache2": "codontransformer_cds_baseline",
+    "codontransformer": "codontransformer_cds_baseline",
+    "eternafoldbsd3": "eternafold_structure_head",
+    "eternafold": "eternafold_structure_head",
+    "viennarna": "viennarna_thermo",
+}
+
+
+def resolve_tool_name_to_component_id(tool_name: str, metric_id: str = "") -> str | None:
+    """Resolve the recorded producer, independent of the metric it claims to measure."""
+    normalized = _canonical_producer_name(tool_name)
+    for cid, spec in COMPONENT_CATALOG.items():
+        if normalized in (
+            _canonical_producer_name(cid),
+            _canonical_producer_name(spec.display_name),
+        ):
+            return cid
+    return _TOOL_NAME_TO_COMPONENT_ID.get(normalized)
+
+
+_RESEARCH_OBSERVATION_SCOPES = {
+    "ribonn_noncommercial": {"ribonn_translation_efficiency": {"full_transcript"}},
+    "utr_lm_gpl3": {"utr_lm_mrl": {"five_prime_utr"}},
+    "helix_mrna_helical": {"helix_mrna_next_token_loss": {"full_transcript"}},
+    "codonbert_noncommercial": {"codonbert_masked_codon_loss": {"cds"}},
+    "rhofold_plus_nc_data": {"rhofold_mean_plddt": {"full_transcript"}},
+}
+
+_METRIC_SCOPES = {
+    **RC005_PARTNER_METRICS,
+    **_RESEARCH_OBSERVATION_SCOPES,
+    "surrogate_v1_clean": {**RC005_PARTNER_METRICS["surrogate_v1_clean"], "utr5_mrl_pred": {"five_prime_utr"}},
+    "codontransformer_cds_baseline": {"codontransformer_syn_loglik": {"cds"}},
+    "__builtin_stats__": {"cds_gc_fraction": {"cds"}},
+    "viennarna_thermo": {
+        "kozak_unpaired_prob": {"five_prime_utr", "cds"}, "cds_mean_window_mfe": {"cds"},
+        "junction_folding_mfe": _TRANSCRIPT_REGIONS, "full_transcript_mfe": {"full_transcript"},
+        "mirna_detarget_dg_total": {"cds", "three_prime_utr"},
+    },
+}
+for _cid in ("eternafold_bpp_engine", "eternafold_structure_head"):
+    _METRIC_SCOPES[_cid] = dict.fromkeys(("eternafold_kozak_unpaired_prob", "eternafold_aup"), {"five_prime_utr", "cds"})
+
+
+def producer_covers_metric(
+    component: str | None, producer: str, metric_id: str, scopes: list[str], *,
+    display_only: bool = False, research: bool = False,
+) -> bool:
+    if component in _RESEARCH_OBSERVATION_SCOPES and not display_only:
+        return False
+    head = _NAMED_HEADS.get(_canonical_producer_name(producer))
+    if head is not None and head != (component, metric_id):
+        return False
+    required = _METRIC_SCOPES.get(component or "", {}).get(metric_id)
+    if required is None:
+        if any(metric_id in domain for domain in _METRIC_SCOPES.values()):
+            return False
+        # Historical research reports may carry additional, unranked observations.
+        return component is None or (research and display_only and component in COMPONENT_CATALOG)
+    regions = set(scopes)
+    return regions == required or (regions == {"full_transcript"} and required == _TRANSCRIPT_REGIONS)
+
+
+def rc005_partner_covers_metric(component: str | None, producer: str, metric_id: str, scopes: list[str]) -> bool:
+    return (metric_id in RC005_PARTNER_METRICS.get(component or "", {})
+            and producer_covers_metric(component, producer, metric_id, scopes))
+
+
+def audit_component_commercial_clean(comp_id: str, *, cards_dir: Path | None = None) -> str | None:
+    """Public wrapper verifying `comp_id` and its transitive dependencies pass `commercial_clean`."""
+    if comp_id == "__builtin_stats__":
+        return None
+    return _audit_component_for_commercial_clean(
+        comp_id, resolved_cards_dir=(cards_dir or resolve_default_cards_dir())
+    )

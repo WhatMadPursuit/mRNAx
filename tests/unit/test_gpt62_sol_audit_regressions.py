@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -463,14 +464,14 @@ def test_reg05_schema_digests_hashseed_replay_checksums_and_rule_sandbox(tmp_pat
     )
     d1 = subprocess.run(
         [sys.executable, "-c", code],
-        env={"PYTHONPATH": str(REPO_ROOT / "src"), "PYTHONHASHSEED": "1"},
+        env={**os.environ, "PYTHONPATH": str(REPO_ROOT / "src"), "PYTHONHASHSEED": "1"},
         check=True,
         capture_output=True,
         text=True,
     ).stdout.strip()
     d2 = subprocess.run(
         [sys.executable, "-c", code],
-        env={"PYTHONPATH": str(REPO_ROOT / "src"), "PYTHONHASHSEED": "99999"},
+        env={**os.environ, "PYTHONPATH": str(REPO_ROOT / "src"), "PYTHONHASHSEED": "99999"},
         check=True,
         capture_output=True,
         text=True,

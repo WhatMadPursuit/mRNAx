@@ -4,21 +4,26 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
-from mrnax.constraints.fto_guard import SequenceFTOGuard
+from mrnax.constraints.fto_guard import (
+    SequenceFTOGuard, SequenceScanAlerts, compute_curevac_c_optimizable_conversion, normalize_sense_cds,
+)
 from mrnax.constraints.sequence_gates import (
     check_dsrna_and_3p_loopback,
     check_homopolymer,
     check_m1psi_frameshift,
+    check_rc005_chemistry,
     check_restriction_sites,
     check_t7_terminator,
     check_uaug,
     collect_soft_advisories,
+    has_rc005_cds_provenance,
 )
 from mrnax.schemas.common import ComplianceProfile, UridineChemistry
 from mrnax.schemas.construct_bundle import ConstructBundle
 from mrnax.schemas.design_intent import ConstraintSpec, LockedRegionSpec
-from mrnax.schemas.evaluation_report import AdvisoryNote, FailedCandidateDiagnostic, FTOAlert
+from mrnax.schemas.evaluation_report import AdvisoryNote, FailedCandidateDiagnostic
 
 
 @dataclass(frozen=True)
@@ -26,8 +31,10 @@ class ConstraintEvaluationOutcome:
     passed_all_hard_gates: bool
     fto_blocked: bool
     violations: list[FailedCandidateDiagnostic]
-    fto_alerts: list[FTOAlert]
+    fto_alerts: SequenceScanAlerts
     advisories: list[AdvisoryNote]
+    max_curevac_any_c: float | None = None
+    max_curevac_no_higher_g: float | None = None
 
 
 def default_m1_constraints(
@@ -116,7 +123,7 @@ class ScopedConstraintEngine:
             raise FileNotFoundError(
                 f"Mandatory patent_fto_guard_v2.json missing at '{v2_path}'; refusing silent downgrade to v1."
             )
-        return cls(fto_guard=SequenceFTOGuard.from_json_path(v2_path), seed_dir=seed_dir)
+        return cls(fto_guard=SequenceFTOGuard.from_json_path(v2_path, require_v2=True), seed_dir=seed_dir)
 
     def evaluate_bundle(
         self,
@@ -128,9 +135,17 @@ class ScopedConstraintEngine:
         expected_chemistry: UridineChemistry | None = None,
         locked_scopes: dict[str, LockedRegionSpec] | None = None,
         expected_protein_targets: list[Any] | None = None,
+        wildtype_cds_by_chain: dict[int, str] | None = None,
+        rc005_active: bool = False,
     ) -> ConstraintEvaluationOutcome:
         ref_id = candidate_ref or bundle.bundle_id
         violations: list[FailedCandidateDiagnostic] = []
+        requested_tables = [
+            target.get("transl_table", 1) if isinstance(target, dict) else getattr(target, "transl_table", 1)
+            for target in expected_protein_targets or ()
+        ]
+        if rc005_active or has_rc005_cds_provenance(bundle):
+            violations.extend(check_rc005_chemistry(bundle, ref_id))
 
         if expected_protein_targets is not None and len(expected_protein_targets) >= 1:
             if len(bundle.molecules) != len(expected_protein_targets):
@@ -152,7 +167,19 @@ class ScopedConstraintEngine:
                     exp_seq = getattr(tgt, "protein_sequence", None) or (
                         tgt.get("protein_sequence") if isinstance(tgt, dict) else None
                     )
-                    actual_translated = mol.translate_cds_protein()
+                    requested_table = requested_tables[idx]
+                    actual_table = mol.effective_translation_target.transl_table
+                    if actual_table != requested_table:
+                        violations.append(
+                            FailedCandidateDiagnostic(
+                                candidate_ref=ref_id,
+                                violated_requirement_id=f"intent:target_chain_{idx + 1}_transl_table",
+                                violated_scope="cds",
+                                transcript_coordinates=(0, len(mol.sequence)),
+                                reason=f"Chain {idx + 1} declares translation table {actual_table}, target requires {requested_table}",
+                            )
+                        )
+                    actual_translated = mol.translate_cds_protein(translation_table=requested_table)
                     if exp_seq and (
                         mol.effective_translation_target.protein_sequence != exp_seq
                         or actual_translated != exp_seq
@@ -308,10 +335,81 @@ class ScopedConstraintEngine:
                 )
 
         advisories = collect_soft_advisories(bundle)
+        max_cv_any_c: float | None = None
+        max_cv_nog_c: float | None = None
+        for ch_idx, mol in enumerate(bundle.molecules):
+            references = [mol.effective_translation_target.wildtype_cds_rna]
+            if wildtype_cds_by_chain is not None:
+                references.append(wildtype_cds_by_chain.get(ch_idx))
+            if expected_protein_targets is not None and ch_idx < len(expected_protein_targets):
+                target = expected_protein_targets[ch_idx]
+                references.append(target.get("wildtype_cds_rna") if isinstance(target, dict) else getattr(target, "wildtype_cds_rna", None))
+            references = [ref for ref in references if ref is not None]
+            if references:
+                cds_seg = mol.get_segment("cds")
+                coords = (cds_seg.start, cds_seg.end) if cds_seg is not None else (0, len(mol.sequence))
+                try:
+                    table = requested_tables[ch_idx] if ch_idx < len(requested_tables) else mol.effective_translation_target.transl_table
+                    declared = {normalize_sense_cds(ref, table) for ref in references}
+                    if len(declared) != 1:
+                        raise ValueError("Conflicting wild-type CDS references for the same chain")
+                    wt_cds = declared.pop()
+                    cv_stats = compute_curevac_c_optimizable_conversion(
+                        wt_cds, mol.get_segment_sequence("cds"), translation_table=table,
+                    )
+                except ValueError as exc:
+                    violations.append(
+                        FailedCandidateDiagnostic(
+                            candidate_ref=ref_id,
+                            violated_requirement_id="method_fto:CUREVAC_INVALID_WILDTYPE_REFERENCE",
+                            violated_scope="cds",
+                            transcript_coordinates=coords,
+                            reason=f"Chain {ch_idx + 1} ({mol.molecule_id}) invalid CureVac wild-type CDS reference: {exc}",
+                        )
+                    )
+                    continue
+                max_cv_any_c = (
+                    cv_stats.fraction_any_higher_c
+                    if max_cv_any_c is None
+                    else max(max_cv_any_c, cv_stats.fraction_any_higher_c)
+                )
+                max_cv_nog_c = (
+                    cv_stats.fraction_higher_c_non_higher_g
+                    if max_cv_nog_c is None
+                    else max(max_cv_nog_c, cv_stats.fraction_higher_c_non_higher_g)
+                )
+                eff_cv = cv_stats.effective_max_fraction
+                if eff_cv >= 0.65 and compliance_track == "commercial_clean":
+                    violations.append(
+                        FailedCandidateDiagnostic(
+                            candidate_ref=ref_id,
+                            violated_requirement_id="method_fto:CUREVAC_US10898584B2_C_CEILING",
+                            violated_scope="cds",
+                            transcript_coordinates=coords,
+                            reason=(
+                                f"Chain {ch_idx + 1} ({mol.molecule_id}) wild-type C-optimizable codon conversion "
+                                f"{eff_cv:.3f} >= 0.65 counsel gate (CureVac US10898584B2 / US12533422B2 / divisional US20260284227A1)"
+                            ),
+                        )
+                    )
+                elif eff_cv >= 0.50:
+                    advisories.append(
+                        AdvisoryNote(
+                            advisory_id="adv_curevac_c_conversion_warn",
+                            category="model_domain_boundary",
+                            message=(
+                                f"Chain {ch_idx + 1} ({mol.molecule_id}) wild-type C-optimizable codon conversion ({eff_cv:.3f}) "
+                                "is in warning band [0.50, 0.65) relative to CureVac US10898584B2 / US12533422B2 / US20260284227A1 (<0.70 threshold)."
+                            ),
+                        )
+                    )
+
         return ConstraintEvaluationOutcome(
             passed_all_hard_gates=(len(violations) == 0),
             fto_blocked=fto_blocked,
             violations=violations,
             fto_alerts=fto_alerts,
             advisories=advisories,
+            max_curevac_any_c=max_cv_any_c,
+            max_curevac_no_higher_g=max_cv_nog_c,
         )

@@ -219,7 +219,7 @@ def propose_non_partitioned_bicodon_cds(
             scored.append((val, c))
         scored.sort(key=lambda item: -item[0])
         valid_scored = [(s, c) for s, c in scored if s > -500.0] or [scored[0]]
-        if temperature > 1e-5 and len(valid_scored) > 1:
+        if not must_fix and temperature > 1e-5 and len(valid_scored) > 1:
             top_k = valid_scored[: min(3, len(valid_scored))]
             max_s = top_k[0][0]
             weights = [math.exp(max(-20.0, (s - max_s) / temperature)) for s, _ in top_k]

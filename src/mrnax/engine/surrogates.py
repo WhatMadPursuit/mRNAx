@@ -17,11 +17,12 @@ import json
 import math
 import os
 import re
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any, Callable, Protocol
+from weakref import WeakSet
 
-import joblib
 import numpy as np
 
 from mrnax.engine.checkpoint_identity import verify_checkpoint, verify_release_directory_artifacts
@@ -245,7 +246,15 @@ def _load_verified_joblib(weights_dir: Path, filename: str) -> dict[str, Any]:
         raise ValueError(
             f"Integrity error on '{filename}': sha256 {actual_sha} != expected {expected['sha256']}"
         )
-    return joblib.load(io.BytesIO(raw_bytes))
+    if sys.platform == "darwin":
+        from mrnax.engine._darwin_joblib_worker import get_darwin_joblib_client
+
+        return get_darwin_joblib_client().load_verified_bytes(f"{weights_dir.resolve()}::{filename}::{actual_sha}", raw_bytes)
+
+    import joblib
+
+    loaded = joblib.load(io.BytesIO(raw_bytes))
+    return loaded
 
 
 class CommercialCleanSurrogateV1:
@@ -288,35 +297,59 @@ class CommercialCleanSurrogateV1:
     def from_seed_dir(cls, seed_dir: Path) -> CommercialCleanSurrogateV1:
         return cls(Path(seed_dir) / "surrogate_v1")
 
+    @staticmethod
+    def _predict_bundle(bundle: dict[str, Any], X: np.ndarray) -> np.ndarray:
+        return np.asarray(bundle["model"].predict(X), dtype=np.float64)
+
     def score_5utr_mrl(self, utr5_seqs: list[str]) -> np.ndarray:
+        if not utr5_seqs:
+            return np.empty(0, dtype=np.float64)
         cols = self._utr5_bundle["features"]
-        X = np.array([[extract_5utr_features(s)[c] for c in cols] for s in utr5_seqs], dtype=np.float32)
-        return np.asarray(self._utr5_bundle["model"].predict(X), dtype=np.float64)
+        X = np.array(
+            [[f[c] for c in cols] for f in (extract_5utr_features(s) for s in utr5_seqs)],
+            dtype=np.float32,
+        )
+        return self._predict_bundle(self._utr5_bundle, X)
 
     def score_cds_stability(self, cds_seqs: list[str]) -> np.ndarray:
+        if not cds_seqs:
+            return np.empty(0, dtype=np.float64)
         cols = self._cds_bundle["features"]
-        X = np.array([[extract_cds_features(s)[c] for c in cols] for s in cds_seqs], dtype=np.float32)
-        return np.asarray(self._cds_bundle["model"].predict(X), dtype=np.float64)
+        X = np.array(
+            [[f[c] for c in cols] for f in (extract_cds_features(s) for s in cds_seqs)],
+            dtype=np.float32,
+        )
+        return self._predict_bundle(self._cds_bundle, X)
 
     def score_consensus_halflife_batch(
         self, triplets: list[tuple[str, str, str]]
     ) -> np.ndarray:
+        if not triplets:
+            return np.empty(0, dtype=np.float64)
         cols = self._hl_bundle["features"]
         X = np.array(
-            [[extract_full_tx_halflife_features(u5, cds, u3)[c] for c in cols] for u5, cds, u3 in triplets],
+            [
+                [f[c] for c in cols]
+                for f in (extract_full_tx_halflife_features(u5, cds, u3) for u5, cds, u3 in triplets)
+            ],
             dtype=np.float32,
         )
-        return np.asarray(self._hl_bundle["model"].predict(X), dtype=np.float64)
+        return self._predict_bundle(self._hl_bundle, X)
 
     def score_consensus_halflife(self, utr5_seq: str, cds_seq: str, utr3_seq: str) -> float:
         return float(self.score_consensus_halflife_batch([(utr5_seq, cds_seq, utr3_seq)])[0])
 
     def score_3utr_stability(self, utr3_seqs: list[str]) -> np.ndarray:
+        if not utr3_seqs:
+            return np.empty(0, dtype=np.float64)
         if self._utr3_bundle is None:
             raise RuntimeError("3'UTR MPRA stability head (utr3_stability_pure_seq_lgbm.joblib) not loaded.")
         cols = self._utr3_bundle["features"]
-        X = np.array([[extract_3utr_features(s)[c] for c in cols] for s in utr3_seqs], dtype=np.float32)
-        return np.asarray(self._utr3_bundle["model"].predict(X), dtype=np.float64)
+        X = np.array(
+            [[f[c] for c in cols] for f in (extract_3utr_features(s) for s in utr3_seqs)],
+            dtype=np.float32,
+        )
+        return self._predict_bundle(self._utr3_bundle, X)
 
     def score_molecule_axes(self, mol: RNAMoleculeSpec) -> dict[str, float]:
         u5 = mol.get_segment_sequence("five_prime_utr")
@@ -435,6 +468,18 @@ class CommercialCleanSurrogateV1:
                     ),
                 )
             )
+        advisories.append(
+            AdvisoryNote(
+                advisory_id="adv_w11_dual_utr_sensitivity_and_crosscell_caution",
+                category="model_domain_boundary",
+                message=(
+                    "Descriptive sensitivity caution (RUL-013/014): across the 8 prose-grouped HeLa non-significant dual-UTR pairs "
+                    "in PMC12355064, pure-sequence surrogate spreads are 0.908 (utr5_mrl_pred), 0.166 (utr3_stability_pred), and "
+                    "1.296 (saluki_nluc) — descriptive sensitivity spreads only, NOT a formal equivalence margin; single-nt UTR "
+                    "variant deltas also exhibit low cross-cell transfer in Su 2025 (HEK293T vs SH-SY5Y rho=0.0786)."
+                ),
+            )
+        )
         return metrics, advisories
 
 
@@ -567,14 +612,22 @@ def stitch_sliding_window_embeddings(
     return accum / np.maximum(counts, 1.0)
 
 
-_CHEM_TO_PROBE_KEY: dict[str, str] = {
+_NATIVE_PROBE_KEYS = {
     "unmodified_u": "U",
-    "u": "U",
     "5mou": "moU",
-    "mou": "moU",
     "m1psi": "mpU",
-    "mpu": "mpU",
 }
+
+STRUCTRFM_NATIVE_CHEMISTRIES = frozenset(_NATIVE_PROBE_KEYS)
+_CHEM_TO_PROBE_KEY = {**_NATIVE_PROBE_KEYS, **{key.lower(): key for key in _NATIVE_PROBE_KEYS.values()}}
+
+
+_LOADER_AUTHENTICATED_STRUCTRFM: WeakSet[StructRFMNativeScorer] = WeakSet()
+
+
+def is_loader_authenticated_structrfm(obj: Any) -> bool:
+    """True ONLY if `obj` was loaded via `StructRFMNativeScorer.from_checkpoint_and_seed_dir(..., allow_sandbox_override=False)`."""
+    return isinstance(obj, StructRFMNativeScorer) and (obj in _LOADER_AUTHENTICATED_STRUCTRFM)
 
 
 class StructRFMNativeScorer:
@@ -628,12 +681,15 @@ class StructRFMNativeScorer:
             use_safetensors=(validated_ckpt / "model.safetensors").is_file(),
         )
         mdl.eval().to(resolved_dev)
-        return cls(
+        inst = cls(
             probes_dir=Path(seed_dir) / "surrogate_v1",
             tokenizer=tok,
             model=mdl,
             device=resolved_dev,
         )
+        if not allow_sandbox_override:
+            _LOADER_AUTHENTICATED_STRUCTRFM.add(inst)
+        return inst
 
     def predict_shapemap_from_hidden(
         self, hidden_states: np.ndarray, *, uridine_chemistry: str

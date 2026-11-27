@@ -20,6 +20,7 @@ from mrnax.harness.tools import AtomicToolbox
 from mrnax.io_insdc.genbank_io import export_construct_package
 from mrnax.schemas.construct_bundle import ConstructBundle
 from mrnax.schemas.design_intent import DesignIntent
+from mrnax.schemas.evaluation_report import serialize_report_artifact
 
 DEFAULT_SEED_DIR = resolve_default_seed_dir()
 
@@ -57,10 +58,7 @@ def _cmd_replay(args: argparse.Namespace) -> int:
     bundles, report, manifest = run_design_pipeline(
         intent, reference_bundle=ref_bundle, seed_dir=seed_dir
     )
-    (out_dir / "evaluation_report.json").write_text(
-        json.dumps(report.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    (out_dir / "evaluation_report.json").write_bytes(serialize_report_artifact(report.model_dump(mode="json")))
     (out_dir / "run_manifest.json").write_text(
         json.dumps(manifest.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
         encoding="utf-8",

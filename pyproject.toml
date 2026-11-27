@@ -11,6 +11,7 @@ requires-python = ">=3.12,<3.13"
 license = { text = "Proprietary - Private Repository" }
 dependencies = [
     "pydantic>=2.9.0",
+    "packaging>=24.2",
     "biopython>=1.84",
     "dnachisel>=3.2.15",
     "numpy>=1.26.0",

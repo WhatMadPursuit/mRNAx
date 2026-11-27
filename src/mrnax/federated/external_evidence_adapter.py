@@ -30,6 +30,7 @@ import ssl
 import time
 import urllib.parse
 import urllib.request
+from collections.abc import Iterable
 from typing import Any
 
 USER_AGENT = "mRNAx-v2-ExternalEvidenceAdapter/2.0 (commercial_clean; contact=research)"
@@ -170,6 +171,9 @@ class ExternalEvidenceAdapterV2:
             "allow_commercial",
             "is_commercial_allowed",
             "redistributable",
+            "external_redistribution_allowed",
+            "redistribution_allowed",
+            "variant_dataset_redistribution_allowed",
         }
     )
     _NEGATIVE_RESTRICTION_BOOL_KEYS: frozenset[str] = frozenset(
@@ -183,13 +187,97 @@ class ExternalEvidenceAdapterV2:
             "sharealike",
             "copyleft",
             "restricted",
+            "internal_evaluation_only",
+            "internal_only",
         }
     )
+    _RESTRICTED_GOVERNANCE_SCOPES: frozenset[str] = frozenset(
+        {
+            "internal_evaluation_only",
+            "internal_only",
+            "restricted",
+            "quarantine",
+            "research_only",
+            "commercial_clearance_pending",
+        }
+    )
+    _GOVERNED_DATA_KEY = re.compile(
+        r"(?:^|[^a-z0-9])(?:variants?|coords?|coordinates?|hg38|grch38|hg19|parquet|datasets?|"
+        r"benchmarks?|supp(?:lement(?:ary)?)?\d*|mpra|half_life_pairs?|utr_pairs?|row_count|"
+        r"drive_id|upstream_artifact)(?:$|[^a-z0-9])"
+    )
+    _HGVS_POSITION = r"(?:[-+*]?(?:\d+|\?)(?:[+-](?:\d+|\?))?|pter|qter|cen)"
+    _HGVS_BREAKPOINT = rf"(?:{_HGVS_POSITION}|\({_HGVS_POSITION}(?:_{_HGVS_POSITION})?\))"
+    _HGVS_LOCUS = rf"{_HGVS_BREAKPOINT}(?:_{_HGVS_BREAKPOINT})?"
+    _HGVS_BASE = r"[acgtunrywsmkbdhv]"
+    # The operation identifies governed data even when the allele is a length or an accession.
+    _HGVS_EDIT = rf"""(?x:
+        {_HGVS_BASE}+ > {_HGVS_BASE}+
+        | (?:delins|del|ins|dup|inv|con) (?:(?:{_HGVS_BASE}|[\d_])*\b | (?=[a-z][\w.]*:[cgmnro]\.))
+        | {_HGVS_BASE}* (?:= | \[(?=[\d?(]))
+        | :: | \|(?:gom|lom|met=)
+    )"""
+    _DATA_VALUE = re.compile(
+        r"(?<![a-z0-9])(?:chr(?:omosome)?(?:[0-9]+|[xym]|mt):[0-9]+|utr_variant|"
+        r"variant_pair|supp\d+\b|rs\d+\b|"
+        rf"[cgmnro]\.(?:\[[=?]\];\[|\[?\(?{_HGVS_LOCUS}{_HGVS_EDIT})|"
+        r"r\.(?:\(?(?:spl|0)\b|\([=?]\)))|\.parquet\b", re.I
+    )
+    _HGMD = re.compile(r"(?<![a-z0-9])hgmd\b", re.I)
+    _BIBLIOGRAPHIC_TEXT = {"title", "article_title", "abstract", "author", "author_name", "author_string", "journal"}
+
+    @staticmethod
+    def _load_restricted_inventory_index() -> tuple[frozenset[str], frozenset[str]]:
+        """Return `(hard_data_tokens, restricted_publication_aliases)` from `v9_wetlab_benchmarks_inventory.json`."""
+        from mrnax.engine.profiles import resolve_default_seed_dir
+
+        inv_path = resolve_default_seed_dir() / "v9_wetlab_benchmarks_inventory.json"
+        hard_tokens: set[str] = {
+            "su2025",
+            "su2025_elife97682",
+            "su2025_elife97682_utr_variants_v1.parquet",
+            "4c956ac99399c86e554e4f6e351d9f313b16b787397de7d00a1a04cd018dea95",
+            "1vopzcmc6itfy6wdczecmzlxmtxte3wye",
+            "elife-97682-supp1",
+            "pmc11835390_su2025_elife97682_utr_mpra",
+        }
+        pub_aliases: set[str] = {
+            "39964837",
+            "pmid:39964837",
+            "pmc11835390",
+            "pmcid:pmc11835390",
+            "10.7554/elife.97682",
+            "elife.97682",
+            "elife-97682",
+            "elife97682",
+            "articles/97682",
+        }
+        if inv_path.is_file():
+            doc = json.loads(inv_path.read_text(encoding="utf-8"))
+            for row in doc.get("benchmarks", []):
+                if row.get("external_redistribution_allowed") is False or (
+                    str(row.get("governance_scope") or "") in ExternalEvidenceAdapterV2._RESTRICTED_GOVERNANCE_SCOPES
+                ):
+                    for k in ("filename", "dataset_id", "sha256", "drive_id"):
+                        val = str(row.get(k) or "").strip().lower()
+                        if val:
+                            hard_tokens.add(val)
+                    for u in row.get("restricted_data_urls", []):
+                        if u:
+                            hard_tokens.add(str(u).strip().lower())
+                    for alias in row.get("publication_aliases", []):
+                        al = str(alias).strip().lower()
+                        if al:
+                            if "mpra" in al or "su2025" in al:
+                                hard_tokens.add(al)
+                            else:
+                                pub_aliases.add(al)
+        return frozenset(hard_tokens), frozenset(pub_aliases)
 
     @classmethod
     def _collect_leaf_strings(cls, val: Any) -> list[str]:
-        if isinstance(val, str):
-            return [val]
+        if isinstance(val, str) or type(val) is int:
+            return [str(val)]
         if isinstance(val, dict):
             out: list[str] = []
             for k, v in val.items():
@@ -202,6 +290,143 @@ class ExternalEvidenceAdapterV2:
                 out.extend(cls._collect_leaf_strings(item))
             return out
         return []
+
+    @staticmethod
+    def _coordinate_columns(names: Iterable[Any]) -> bool:
+        columns = {name.strip().casefold().lstrip("#") for name in names if isinstance(name, str)}
+        locus = columns & {"chr", "chrom", "chromosome"} and columns & {"pos", "position"}
+        ref = columns & {"ref", "reference", "reference_allele"}
+        alt = columns & {"alt", "alternate", "alternative", "alternate_allele", "alternative_allele"}
+        return bool(locus or (ref and alt))
+
+    @classmethod
+    def _has_governed_payload(cls, obj: Any, *, citation_envelope: bool = False) -> bool:
+        if isinstance(obj, dict):
+            fields = [(re.sub(r"([a-z])([A-Z])", r"\1_\2", str(k)).lower(), v) for k, v in obj.items()]
+            if cls._coordinate_columns(key for key, _ in fields):
+                return True
+            for key, value in fields:
+                if cls._GOVERNED_DATA_KEY.search(key):
+                    return True
+                if key in {"columns", "fields", "headers"} and isinstance(value, list):
+                    if cls._coordinate_columns(v.get("name") for v in value if isinstance(v, dict)):
+                        return True
+                if isinstance(value, str) and (key in cls._BIBLIOGRAPHIC_TEXT or
+                                               (citation_envelope and key == "text_excerpt")):
+                    if cls._DATA_VALUE.search(value):
+                        return True
+                    continue
+                sandboxed_citation = (
+                    key.removesuffix("_sandboxed") in cls._BIBLIOGRAPHIC_TEXT
+                    and isinstance(value, dict)
+                    and value.get("untrusted_external_data") is True
+                    and value.get("must_not_modify_locked_constraints") is True
+                )
+                if cls._has_governed_payload(value, citation_envelope=sandboxed_citation):
+                    return True
+            return False
+        if isinstance(obj, (list, tuple, set, frozenset)):
+            return cls._coordinate_columns(obj) or any(cls._has_governed_payload(v) for v in obj)
+        return isinstance(obj, str) and bool(cls._DATA_VALUE.search(obj) or cls._HGMD.search(obj))
+
+    _ARTICLE_ID = re.compile(
+        r"(?:(?:pmid:\s*)?(?P<pmid>[0-9]+)|(?:pmcid:\s*)?(?P<pmcid>PMC[0-9]+)|"
+        r"(?:doi:\s*)?(?P<doi>10\.[0-9]{4,9}/[^\s]+))", re.I | re.ASCII
+    )
+    _CITED_ID = re.compile(
+        r"\b(?:pmid(?:\s*:\s*|\s+)([0-9]+)\b|(PMC[0-9]+)\b|(10\.[0-9]{4,9}/[^\s,;]+))", re.I | re.ASCII
+    )
+    _ARTICLE_LINK = re.compile(
+        r"(?:(?:pubmed\.ncbi\.nlm\.nih\.gov|(?:www\.)?ncbi\.nlm\.nih\.gov/pubmed|"
+        r"(?:www\.)?europepmc\.org/article/MED)/(?P<pmid>[0-9]+)/?|"
+        r"(?:pmc\.ncbi\.nlm\.nih\.gov/articles|(?:www\.)?ncbi\.nlm\.nih\.gov/pmc/articles|"
+        r"(?:www\.)?europepmc\.org/article/PMC)/(?P<pmcid>PMC[0-9]+)/?|"
+        r"(?:dx\.)?doi\.org/(?P<doi>10\.[0-9]{4,9}/[^\s]+))", re.I | re.ASCII
+    )
+    _CITATION_URL = re.compile(r"""(https?://[^\s<>"']+?(?=$|[\s<>"']|[,;]https?://))""", re.I)
+
+    @staticmethod
+    def _without_citation_punctuation(token: str) -> str:
+        stem = token.rstrip(""".,;)]}>"'""")
+        end = len(stem)
+        # A DOI can end in a balanced delimiter, even inside a parenthesized citation.
+        suffix = token[end:]
+        if suffix.startswith((")", "]", "}")):
+            unmatched = {b: stem.count(a) - stem.count(b) for a, b in ("()", "[]", "{}")}
+            for char in suffix:
+                if unmatched.get(char, 0) <= 0:
+                    break
+                unmatched[char] -= 1
+                end += 1
+        return token[:end]
+
+    @classmethod
+    def _citation_ids(cls, text: str) -> set[str]:
+        ids: set[str] = set()
+        for part in cls._CITATION_URL.split(text):
+            if not part.casefold().startswith(("http://", "https://")):
+                if part == text:
+                    match = cls._ARTICLE_ID.fullmatch(cls._without_citation_punctuation(text))
+                    if match:
+                        return {match[match.lastgroup].casefold()}
+                for match in cls._CITED_ID.finditer(part):
+                    ids.add(cls._without_citation_punctuation(match[match.lastindex]).casefold())
+                continue
+            try:
+                url = urllib.parse.urlparse(cls._without_citation_punctuation(part))
+                host = url.hostname or ""
+                if url.username is not None or url.port == 0:
+                    continue
+            except ValueError:
+                continue
+            path = url.path + (";" + url.params if url.params else "")
+            article = cls._ARTICLE_LINK.fullmatch(host + urllib.parse.unquote(path))
+            if article:
+                ids.add(article[article.lastgroup].casefold())
+            elif part == text and path.rstrip("/").endswith("/search"):
+                # Historical citations also used a search URL with the identifier in its query.
+                queries = urllib.parse.parse_qs(url.query).get("query", [])
+                query_id = cls._ARTICLE_ID.fullmatch(queries[0].strip()) if len(queries) == 1 else None
+                if query_id:
+                    ids.add(query_id[query_id.lastgroup].casefold())
+        return ids
+
+    @classmethod
+    def _article_ids(cls, node: Any, *, citation: bool = False) -> set[str]:
+        """Read identifiers from article metadata, excluding the request's own query."""
+        ids: set[str] = set()
+        if isinstance(node, dict):
+            for key, value in node.items():
+                key = str(key).casefold()
+                if key in {"doi", "pmid", "pmcid"}:
+                    match = cls._ARTICLE_ID.fullmatch(str(value).strip())
+                    if match and match.lastgroup == key:
+                        ids.add(match[key].casefold())
+                elif key in {"citation", "article"} or (citation and key in {"id", "identifier", "identifiers"}):
+                    ids.update(cls._article_ids(value, citation=True))
+                elif key == "summary":
+                    ids.update(cls._article_ids(value))
+        elif isinstance(node, list):
+            for item in node:
+                ids.update(cls._article_ids(item, citation=citation))
+        elif citation and isinstance(node, (str, int)):
+            ids.update(cls._citation_ids(str(node).strip()))
+        return ids
+
+    @classmethod
+    def _verify_europepmc_query(cls, query_string: str, record: dict[str, Any]) -> None:
+        queries = urllib.parse.parse_qs(query_string, keep_blank_values=True).get("query", [])
+        if len(queries) != 1 or not queries[0].strip():
+            raise CleanRoomPolicyError("EuropePMC attribution requires one search query")
+        query = queries[0].strip().casefold()
+        ids = cls._article_ids(record)
+        match = cls._ARTICLE_ID.fullmatch(query)
+        if match:
+            if match[match.lastgroup] in ids:
+                return
+            raise CleanRoomPolicyError("EuropePMC request_url query does not match the returned article")
+        if ids or ":" in query or any(k in record["summary"] for k in ("doi", "pmid", "pmcid", "query")):
+            raise CleanRoomPolicyError("EuropePMC request_url query has no verifiable article identifier")
 
     @classmethod
     def _assert_no_forbidden_nested_provenance(cls, node: Any, *, src: str) -> None:
@@ -230,9 +455,14 @@ class ExternalEvidenceAdapterV2:
                         raise CleanRoomPolicyError(
                             f"Nested non-commercial {k}={v!r} inside '{src}' evidence is BLOCKED in commercial_clean"
                         )
+                elif key_low in {"governance_scope", "redistribution_scope", "usage_scope"}:
+                    if not isinstance(v, str) or v.strip().lower() in cls._RESTRICTED_GOVERNANCE_SCOPES:
+                        raise CleanRoomPolicyError(
+                            f"Nested restricted governance scope {k}={v!r} inside '{src}' evidence is BLOCKED in commercial_clean"
+                        )
                 elif any(p in key_low for p in ("license", "spdx", "rights", "access_tier")):
                     leaves = cls._collect_leaf_strings(v)
-                    if not leaves and v is not None and not isinstance(v, (bool, dict, list, tuple)):
+                    if type(v) is int or (not leaves and v is not None and not isinstance(v, (bool, dict, list, tuple))):
                         raise CleanRoomPolicyError(
                             f"Malformed non-string rights field {k}={v!r} inside '{src}' evidence is BLOCKED in commercial_clean"
                         )
@@ -277,6 +507,45 @@ class ExternalEvidenceAdapterV2:
             if tier in {"needs_vendor_license", "research_only"} and self.license_track == "commercial_clean":
                 raise CleanRoomPolicyError(f"Source '{src}' (tier={tier}) is BLOCKED for commercial lookup")
             return
+
+        hard_tokens, pub_aliases = self._load_restricted_inventory_index()
+        all_leaves_low = [urllib.parse.unquote(s).strip().lower() for s in self._collect_leaf_strings(frozen_record) if s]
+        for leaf in all_leaves_low:
+            if any(ht in leaf for ht in hard_tokens):
+                raise CleanRoomPolicyError(
+                    f"Source '{src}' references restricted internal-evaluation dataset/artifact ({leaf!r}) "
+                    "governed under A-W11 C3 (Su et al. 2025 eLife 97682); external commercial redistribution is BLOCKED."
+                )
+
+        cites_restricted_pub = any(
+            re.search(r"(?<![a-z0-9])" + re.escape(pa) + r"(?![a-z0-9])", leaf)
+            for pa in pub_aliases
+            for leaf in all_leaves_low
+        )
+        if cites_restricted_pub:
+            is_bibliographic_source = src in {"EuropePMC", "NCBI_Eutils"}
+            has_governed_data_payload = self._has_governed_payload(
+                {
+                    k: v
+                    for k, v in frozen_record.items()
+                    if k
+                    not in {
+                        "source_name",
+                        "license_spdx",
+                        "license_tier",
+                        "request_url",
+                        "payload_sha256",
+                        "fetched_at_utc",
+                        "latency_ms",
+                        "status",
+                    }
+                }
+            )
+            if not is_bibliographic_source or has_governed_data_payload:
+                raise CleanRoomPolicyError(
+                    f"Source '{src}' carries governed variant/dataset provenance tied to Su et al. 2025 eLife 97682 "
+                    "(PMID:39964837 / DOI:10.7554/eLife.97682 / PMCID:PMC11835390); restricted to internal evaluation only (A-W11 C3)."
+                )
         self._assert_no_forbidden_nested_provenance(frozen_record, src=src)
         approved = self._COMMERCIAL_ATTRIBUTION.get(src)
         path = urllib.parse.unquote(url.path)
@@ -294,11 +563,7 @@ class ExternalEvidenceAdapterV2:
                     f"EuropePMC article '{summ.get('pmcid') or summ.get('query')}' "
                     "is not commercial_clean_article_eligible"
                 )
-            pmcid = str(summ.get("pmcid") or "").strip()
-            if pmcid and f"PMCID:{pmcid}" not in urllib.parse.unquote(url.query):
-                raise CleanRoomPolicyError(
-                    f"EuropePMC request_url query does not match summary PMCID '{pmcid}'"
-                )
+            self._verify_europepmc_query(url.query, frozen_record)
 
     def filter_and_export_commercial_records(
         self, records: list[dict[str, Any]], *, purpose: str = "commercial_redistribution_export"

@@ -10,8 +10,64 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from mrnax.rules.models import ClaimCard, RuleAuditEvent, RuleRecord
-from mrnax.schemas.common import ComplianceProfile, RuleStatus, UridineChemistry
+from mrnax.rules.models import ClaimCard, ModelInterpretationNote, RuleAuditEvent, RuleRecord
+from mrnax.schemas.common import ComplianceProfile, LicenseTrack, RuleStatus, UridineChemistry
+
+_RC_PIN_TO_COMPONENT_ID: dict[str, str] = {
+    "rc-001": "viennarna_thermo",
+    "rc-002": "structrfm_rna_foundation",
+    "rc-003": "orthrus_mamba_rna_foundation",
+    "rc-004": "eternafold_structure_head",
+    "rc-005": "codontransformer_cds_baseline",
+}
+
+
+def _resolve_model_interpretation_catalog_track(
+    interp: ModelInterpretationNote,
+) -> tuple[str, LicenseTrack]:
+    """All recorded identities must agree, including pins embedded in older display names."""
+    from mrnax.engine.profiles import COMPONENT_CATALOG, resolve_default_cards_dir, resolve_tool_name_to_component_id
+
+    identities: set[str] = set()
+    if interp.source_component_id is not None:
+        cid = interp.source_component_id.strip()
+        if cid not in COMPONENT_CATALOG:
+            raise ValueError(f"Unregistered model interpretation component '{cid}'")
+        identities.add(cid)
+
+    for field, value in (
+        ("display", interp.source_model_name), ("model_id", interp.model_id),
+        ("card", interp.card_pin), ("card", interp.replacement_card),
+    ):
+        if value is None:
+            continue
+        field_ids: set[str] = set()
+        pins = re.findall(r"(?<![a-z0-9])rc-\d+(?![a-z0-9])", value.casefold())
+        if field == "card" and not pins:
+            raise ValueError(f"Unregistered replacement card '{value}'")
+        for pin in pins:
+            if pin not in _RC_PIN_TO_COMPONENT_ID:
+                raise ValueError(f"Unregistered replacement card '{pin}'")
+            field_ids.add(_RC_PIN_TO_COMPONENT_ID[pin])
+        for filename in re.findall(r"(?i)\brc-[\w.-]+\.yaml\b", value):
+            if not (resolve_default_cards_dir() / filename).is_file():
+                raise ValueError(f"Unregistered replacement card '{filename}'")
+        labels = {value, *re.findall(r"[\w.-]+", value), *re.findall(r"[a-zA-Z0-9]+", value)}
+        for label in labels:
+            # Legacy records append a version or assay tag with an underscore.
+            for name in (label, label.partition("_")[0]):
+                comp = resolve_tool_name_to_component_id(name)
+                if comp in COMPONENT_CATALOG:
+                    field_ids.add(comp)
+                elif name.casefold() in {"surrogatev2", "surrogatev1"}:
+                    field_ids.add("surrogate_v1_clean")
+        if not field_ids and field == "model_id":
+            raise ValueError(f"Unregistered model or card identity '{value}'")
+        identities.update(field_ids)
+    if len(identities) != 1:
+        raise ValueError(f"Unknown or conflicting model interpretation '{interp.source_model_name}': {sorted(identities)}")
+    cid, = identities
+    return cid, COMPONENT_CATALOG[cid].license_track
 
 _DATASET_PREFIX_RE = re.compile(r"^(GEO:|ENA:|SRA:|NCBI:)", re.IGNORECASE)
 
@@ -33,6 +89,13 @@ def normalize_dataset_id(raw_id: str) -> str:
         return "ELIFE_45396_WU2019"
     if "PMC8728028" in cleaned or "SIEGEL2022" in cleaned or "FASTUTR" in cleaned:
         return "PMC8728028_SIEGEL2022_FASTUTR"
+    if (
+        "PMID42805987" in cleaned
+        or "PMC13620113" in cleaned
+        or "POULIS" in cleaned
+        or "S41467-026-77796-3" in cleaned
+    ):
+        return "PMID42805987_POULIS_RODNINA_2026"
     return cleaned
 
 
@@ -42,6 +105,7 @@ _ZERO_NULL_EFFECT_METRICS: frozenset[str] = frozenset(
         "spearman_rho_and_causal_deletion_stabilization_68.1pct_74.8pct",
         "spearman_rho_gc_tail15_vs_rl_mean",
         "spearman_rho_gc_tail15_vs_te",
+        "spearman_rho_gc_tail15_vs_top2.5pct_gfp_mpra",
         "pearson_r",
         "log2_fold_change",
         "cohen_d",
@@ -120,7 +184,10 @@ class RuleRegistry:
         track: ComplianceProfile,
         observation_ledger: dict[str, dict] | None = None,
     ) -> None:
+        from mrnax.engine.profiles import audit_component_commercial_clean
+
         seen_ids: set[str] = set()
+        cleared_components: set[str] = set()
         seen_global_claims: set[str] = set()
         for r in rules:
             if r.rule_id in seen_ids:
@@ -147,7 +214,33 @@ class RuleRegistry:
                             f"Rule '{r.rule_id}' linked_observations must only contain raw_observation (move model outputs to model_interpretations)"
                         )
                 for interp in r.model_interpretations:
-                    if interp.source_model_license_track != "commercial_clean":
+                    resolved_comp_id, expected_track = _resolve_model_interpretation_catalog_track(interp)
+                    name_low = interp.source_model_name.lower()
+                    if interp.source_model_license_track != expected_track:
+                        raise ValueError(
+                            f"Rule '{r.rule_id}' model_interpretation '{interp.source_model_name}' "
+                            f"(component={resolved_comp_id}) declares track='{interp.source_model_license_track}' "
+                            f"but authoritative catalog track is '{expected_track}'"
+                        )
+                    if interp.source_model_license_track == "commercial_clean":
+                        if resolved_comp_id not in cleared_components:
+                            issue = audit_component_commercial_clean(resolved_comp_id)
+                            if issue is not None:
+                                raise ValueError(f"Rule '{r.rule_id}' model interpretation failed clearance: {issue}")
+                            cleared_components.add(resolved_comp_id)
+                        if "clearance_pending" in name_low or "research_only" in name_low:
+                            raise ValueError(
+                                f"Rule '{r.rule_id}' model_interpretation '{interp.source_model_name}' declares "
+                                "clearance_pending/research_only in source_model_name but stamps source_model_license_track='commercial_clean'"
+                            )
+                    elif (
+                        r.status == "conditional_rule"
+                        and interp.source_model_license_track == "commercial_clearance_pending"
+                        and expected_track == "commercial_clearance_pending"
+                    ):
+                        # Held candidate RC-* model notes on conditional_rules are quarantined at runtime by get_active_rules
+                        pass
+                    else:
                         raise ValueError(
                             f"Rule '{r.rule_id}' contains non-commercial_clean model_interpretation '{interp.source_model_name}'"
                         )
@@ -376,8 +469,17 @@ class RuleRegistry:
             r = RuleRecord.model_validate(raw_r)
             if r.status not in {"verified_rule", "conditional_rule"}:
                 continue
-            if self.track == "commercial_clean" and r.allowed_track != "commercial_clean":
-                continue
+            if self.track == "commercial_clean":
+                if r.allowed_track != "commercial_clean":
+                    continue
+                clean_interps = [
+                    mi for mi in r.model_interpretations if mi.source_model_license_track == "commercial_clean"
+                ]
+                if not r.linked_observations and not clean_interps:
+                    # Purely clearance_pending model-benchmark rule stays inactive until its RC-* card clears!
+                    continue
+                if len(clean_interps) != len(r.model_interpretations):
+                    r = r.model_copy_validated(model_interpretations=clean_interps)
             if chemistry not in r.applicable_chemistries:
                 continue
             if context not in r.applicable_contexts and "general_mammalian_ivt" not in r.applicable_contexts:

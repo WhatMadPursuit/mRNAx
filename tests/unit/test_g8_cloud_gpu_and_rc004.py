@@ -55,10 +55,16 @@ def test_g8_cloud_gpu_verification_report_and_rc004_card_match_pinned_digests() 
     assert all("RNA" not in lib for lib in ef["ldd_libs"])
     assert ef["rmdb_eterna_r69_cc0_1m7"]["eternafold_v131_spearman"] > ef["rmdb_eterna_r69_cc0_1m7"]["viennarna_v280_spearman"]
 
-    rc004 = load_replacement_card_yaml(ROOT / "docs" / "replacement_cards" / "RC-004-eternafold-v1.3.1.yaml")
-    verify_replacement_card_strict(rc004, expected_component_id="eternafold_bpp_engine", expected_version="1.3.1")
-    assert "6 mRNAx fixture constructs + 34 seeded random windows" in rc004.frozen_benchmark_dataset_and_protocol
-    assert "-15 through +17" in rc004.frozen_benchmark_dataset_and_protocol
+    rc004_path = ROOT / "docs" / "replacement_cards" / "RC-004-eternafold-v1.3.1.yaml"
+    rc004 = load_replacement_card_yaml(rc004_path)
+    assert rc004.current_license_track == "commercial_clearance_pending"
+    assert "S-Processed" in rc004.training_and_parameter_data_rights_basis
+    with pytest.raises(ValueError, match="commercial_clean"):
+        verify_replacement_card_strict(rc004, expected_component_id="eternafold_structure_head", expected_version="1.3.1")
+    assert (
+        hashlib.sha256(rc004_path.read_bytes()).hexdigest()
+        == "c08c54f7be099bef41c603612368c7242dac2b0c729b978ba079075b1e1ed333"
+    )
 
     seal_doc = json.loads(
         (ROOT / "artifacts" / "m2_cloud_gpu_verification" / "drive_seal_receipt.json").read_text(encoding="utf-8")
@@ -66,28 +72,31 @@ def test_g8_cloud_gpu_verification_report_and_rc004_card_match_pinned_digests() 
     local_map = {
         "paired_ablation_report.json": ROOT / "artifacts" / "m2_generator_upgrade" / "paired_ablation_report.json",
         "g8_cloud_gpu_and_eternafold_report.json": report_path,
-        "RC-004-eternafold-v1.3.1.yaml": ROOT / "docs" / "replacement_cards" / "RC-004-eternafold-v1.3.1.yaml",
     }
     for rec in seal_doc["artifact_receipts"]:
+        if rec["name"] == "RC-004-eternafold-v1.3.1.yaml":
+            # The sealed G8 receipt predates the current clearance-hold guidance.
+            assert rec["sha256"] != hashlib.sha256(rc004_path.read_bytes()).hexdigest()
+            continue
         raw = local_map[rec["name"]].read_bytes()
         assert rec["bytes"] == len(raw)
         assert rec["md5"] == hashlib.md5(raw).hexdigest()
         assert rec["sha256"] == hashlib.sha256(raw).hexdigest()
 
 
-def test_eternafold_runtime_dispatch_fails_closed_when_unmounted_and_executes_when_mounted(
+def test_eternafold_runtime_dispatch_blocked_in_commercial_clean_and_executes_in_research_max(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     ref = _build_preset_reference_r(SEED)
     sess = ProjectHarnessSession(project_id="g8_ef_rt", store_dir=tmp_path / "proj", seed_dir=SEED)
-    base = sess.create_initial_intent(
+    base_cc = sess.create_initial_intent(
         turn_id="t1",
         user_utterance="Evaluate cached reporter with EternaFold",
         protein_sequence=ref.molecules[0].effective_translation_target.protein_sequence,
         compliance_track="commercial_clean",
         uridine_chemistry="m1psi",
     )
-    ef_only = base.model_copy_validated(
+    ef_cc = base_cc.model_copy_validated(
         objectives=[
             ObjectiveSpec(
                 requirement_id="obj_ef_kozak",
@@ -104,7 +113,15 @@ def test_eternafold_runtime_dispatch_fails_closed_when_unmounted_and_executes_wh
             allow_cached_candidates=True,
         ),
     )
-    # 1. Unmounted -> fail-closed UNCOMPARABLE_MISSING_APPROVED_COMPONENT (never silently skipped!)
+    # 0. In commercial_clean, RC-004 is HELD at commercial_clearance_pending -> blocked BEFORE binary dispatch!
+    b_cc, rep_cc, man_cc = run_design_pipeline(ef_cc, cached_candidates=[ref], seed_dir=SEED)
+    assert b_cc == []
+    assert rep_cc.outcome_status == "UNCOMPARABLE_MISSING_APPROVED_COMPONENT"
+    assert "commercial_clearance_pending" in (rep_cc.uncomparable_reason or "")
+    assert man_cc.optimization_mode_audit.optimization_mode == "not_executed"
+
+    ef_only = ef_cc.model_copy_validated(compliance_track="research_max")
+    # 1. Unmounted in research_max -> fail-closed UNCOMPARABLE_MISSING_APPROVED_COMPONENT (never silently skipped!)
     monkeypatch.delenv("MRNAX_ETERNAFOLD_BIN", raising=False)
     monkeypatch.delenv("MRNAX_ETERNAFOLD_PARAMS", raising=False)
     b_unm, rep_unm, man_unm = run_design_pipeline(ef_only, cached_candidates=[ref], seed_dir=SEED)

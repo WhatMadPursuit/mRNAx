@@ -13,16 +13,21 @@ from mrnax.schemas.design_intent import DesignIntent, RuntimePolicySpec
 @pytest.mark.parametrize(("filename", "component", "version"), [
     ("RC-002-structrfm-v0.0.9.yaml", "structrfm_rna_foundation", "0.0.9"),
     ("RC-003-orthrus-v1.0.yaml", "orthrus_mamba_rna_foundation", "1.0.0"),
+    ("RC-005-codontransformer-v1.0.yaml", "codontransformer_cds_baseline", "1.0.0"),
 ])
 def test_replacement_card_exact_release_in_direct_and_profile_gate(tmp_path, filename, component, version):
     source = resolve_default_cards_dir() / filename
     card = load_replacement_card_yaml(source)
     verify_replacement_card_strict(card, expected_component_id=component, expected_version=version)
+    is_gen = component == "codontransformer_cds_baseline"
     intent = DesignIntent(
         intent_id="intent", project_id="project", intent_version=1, created_from_turn_ids=["turn"],
         entry_mode="protein_only", compliance_track="commercial_clean",
         protein_targets=[ProteinTargetSpec(protein_sequence="M", accession_or_source="fixture")],
-        runtime_policy=RuntimePolicySpec(enabled_generators=[], enabled_evaluators=[component]),
+        runtime_policy=RuntimePolicySpec(
+            enabled_generators=[component] if is_gen else [],
+            enabled_evaluators=["surrogate_v1_clean"] if is_gen else [component],
+        ),
     )
     assert check_profile_readiness(intent).is_runnable
     for changed in (

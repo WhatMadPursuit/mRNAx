@@ -41,17 +41,18 @@ SEED_DIR = REPO_ROOT / "registry_seed"
 
 
 def test_wave5_rules_v1_1_and_tribunal_dedup_and_provenance(tmp_path: Path) -> None:
-    # 1. Verify Wave 7 10 rules with 3 two-lab verified_rules & corrected Fluc / layered model_interpretations
+    # 1. Verify V9/Wave 11 19 rules with 2 rigorously substantiated verified_rules (004, 007) & 17 conditional_rules
     rules_path = SEED_DIR / "rules_commercial_v1.json"
     doc = json.loads(rules_path.read_text(encoding="utf-8"))
     rules = [RuleRecord.model_validate(r) for r in doc["rules"]]
-    assert len(rules) == 10
+    assert len(rules) == 19
     verified_ids = sorted(r.rule_id for r in rules if r.status == "verified_rule")
     assert verified_ids == [
         "RUL-CC-3UTR-ARE-DECAY-004",
         "RUL-CC-5UTR-GC-TIS-007",
-        "RUL-CC-M1PSI-FRAMESHIFT-009",
     ]
+    r009 = next(r for r in rules if r.rule_id == "RUL-CC-M1PSI-FRAMESHIFT-009")
+    assert r009.status == "conditional_rule"
 
     r006 = next(r for r in rules if r.rule_id == "RUL-CC-CHEM-M1PSI-STRUCT-SHIFT-006")
     assert "luciferase" in r006.statement.lower() or "fluc" in r006.statement.lower()
