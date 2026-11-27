@@ -5,6 +5,31 @@ const TRUSTED_PRODUCTION_ORIGINS = new Set([
 const FALLBACK_EGFP =
   "MVSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPTLVTTLTYGVQCFSRYPDHMKQHDFFKSAMPEGYVQERTIFFKDDGNYKTRAEVKFEGDTLVNRIELKGIDFKEDGNILGHKLEYNYNSHNVYIMADKQKNGIKVNFKIRHNIEDGSVQLADHYQQNTPIGDGPVLLPDNHYLSTQSALSKDPNEKRDHMVLLEFVTAAGITLGMDELYK";
 
+const DEFAULT_PROVIDER_MODELS = {
+  deepseek: "deepseek-flash",
+  openai: "gpt-4.1-mini",
+  kimi: "moonshot-v1-32k",
+  qwen: "qwen-plus",
+  gemini: "gemini-2.5-flash",
+};
+
+const SUPPORTED_PROVIDER_MODELS = {
+  deepseek: ["deepseek-flash", "deepseek-v4-pro"],
+  openai: ["gpt-4.1-mini"],
+  kimi: ["moonshot-v1-32k"],
+  qwen: ["qwen-plus"],
+  gemini: ["gemini-2.5-flash"],
+};
+
+const MODEL_LABELS = {
+  "deepseek-flash": "deepseek-flash (极速)",
+  "deepseek-v4-pro": "deepseek-v4-pro (深度推理)",
+  "gpt-4.1-mini": "gpt-4.1-mini",
+  "moonshot-v1-32k": "moonshot-v1-32k",
+  "qwen-plus": "qwen-plus",
+  "gemini-2.5-flash": "gemini-2.5-flash",
+};
+
 const RESTRICTION_SITES_RNA = {
   BsaI: ["GGUCUC", "GAGACC"],
   BspQI: ["GCUCUUC", "GAAGAGC"],
@@ -58,6 +83,12 @@ function mintProjectKey() {
   return "pk_" + Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+function mintClientRequestId() {
+  const bytes = new Uint8Array(12);
+  window.crypto.getRandomValues(bytes);
+  return "req_" + Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 function isLocalHostPage() {
   const h = window.location.hostname;
   return h === "localhost" || h === "127.0.0.1" || h === "";
@@ -89,13 +120,32 @@ function isTrustedApiOrigin(candidateUrl) {
 
 const state = {
   theme: "light",
+  configGeneration: 0,
+  statusRequestSeq: 0,
   sessionEpoch: 1,
   turnSequence: 0,
   appliedTurnSequence: 0,
   apiBase: DEFAULT_API_BASE,
   accessToken: "",
+  accessTokensByOrigin: {},
   llmProvider: "deepseek",
+  llmModel: "deepseek-flash",
+  defaultModels: { ...DEFAULT_PROVIDER_MODELS },
+  supportedModels: { ...SUPPORTED_PROVIDER_MODELS },
+  byoKeys: { deepseek: "", openai: "", gemini: "", kimi: "", qwen: "" },
+  byoKeysByOrigin: {},
   byoKey: "",
+  modalDraftProvider: "deepseek",
+  modalDraftByoKeys: null,
+  modalInitialOrigin: null,
+  modalDraftOrigin: null,
+  modalInitialAccessToken: null,
+  modalInitialByoKeys: null,
+  callerTokenAuthenticated: false,
+  userChoseExecMode: false,
+  activeRequestCount: 0,
+  inFlight: false,
+  lastFailedTurn: null,
   projectId: `proj_${Math.random().toString(36).slice(2, 8)}`,
   projectKey: mintProjectKey(),
   entryMode: "protein_only",
@@ -103,6 +153,10 @@ const state = {
   intentHistory: [],
   completedRevisions: [],
   activeVersion: 0,
+  activeIntentStatus: "",
+  activeEnzymes: null,
+  startupApiRejected: "",
+  userEditedProtein: false,
   latestReport: null,
   candidates: [],
   selectedBundleId: null,
@@ -127,10 +181,76 @@ function esc(str) {
   return String(str == null ? "" : str).replace(/[&<>"']/g, (ch) => ESC_MAP[ch]);
 }
 
+function formatSafeMarkdown(rawText) {
+  const escaped = esc(rawText == null ? "" : String(rawText));
+  const lines = escaped.split(/\r?\n/);
+  const out = [];
+  let inList = false;
+
+  const formatInline = (line) =>
+    line
+      .replace(/`([^`\n]+)`/g, "<code>$1</code>")
+      .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+
+  for (const line of lines) {
+    const bulletMatch = line.match(/^\s*[-*•]\s+(.*)$/);
+    if (bulletMatch) {
+      if (!inList) {
+        out.push("<ul>");
+        inList = true;
+      }
+      out.push(`<li>${formatInline(bulletMatch[1])}</li>`);
+      continue;
+    }
+    if (inList) {
+      out.push("</ul>");
+      inList = false;
+    }
+    if (!line.trim()) {
+      out.push("<br/>");
+    } else {
+      out.push(`<div>${formatInline(line)}</div>`);
+    }
+  }
+  if (inList) {
+    out.push("</ul>");
+  }
+  return out.join("");
+}
+
+function safeStorageGet(storeName, key) {
+  try {
+    const store = storeName === "session" ? globalThis.sessionStorage : globalThis.localStorage;
+    return store ? store.getItem(key) : null;
+  } catch {
+    return null;
+  }
+}
+
+function safeStorageSet(storeName, key, val) {
+  try {
+    const store = storeName === "session" ? globalThis.sessionStorage : globalThis.localStorage;
+    if (store) store.setItem(key, val);
+  } catch {
+    // ignore storage errors in restricted contexts
+  }
+}
+
+function safeStorageRemove(storeName, key) {
+  try {
+    const store = storeName === "session" ? globalThis.sessionStorage : globalThis.localStorage;
+    if (store) store.removeItem(key);
+  } catch {
+    // ignore
+  }
+}
+
 function applyTheme(themeName) {
   state.theme = themeName === "graphite" ? "graphite" : "light";
-  document.documentElement.dataset.theme = state.theme;
-  localStorage.setItem("mrnax_theme", state.theme);
+  if (document.documentElement && document.documentElement.dataset) {
+    document.documentElement.dataset.theme = state.theme;
+  }
+  safeStorageSet("local", "mrnax_theme", state.theme);
   const lbl = document.getElementById("txt-theme-label");
   if (lbl) {
     lbl.textContent = state.theme === "graphite" ? "☀ 清爽蓝白" : "◐ 石墨深色";
@@ -138,38 +258,285 @@ function applyTheme(themeName) {
   renderParetoScatter();
 }
 
+function setEntryMode(mode) {
+  const normalized = mode === "with_r" ? "with_r" : "protein_only";
+  state.entryMode = normalized;
+  if (typeof document.querySelectorAll === "function") {
+    document.querySelectorAll(".seg-tabs[aria-label='设计入口'] .tab").forEach((t) => {
+      if (t && t.classList) {
+        t.classList.toggle("active", t.dataset && t.dataset.entry === normalized);
+      }
+    });
+  }
+  const boxRefR = document.getElementById("box-ref-r");
+  if (boxRefR) boxRefR.hidden = normalized !== "with_r";
+}
+
+function getSelectedExecMode() {
+  const sel = document.getElementById("sel-exec-mode");
+  return (sel && sel.value) || "deterministic";
+}
+
+function setExecMode(mode, { userInitiated = false } = {}) {
+  const normalized = mode === "llm_agent" ? "llm_agent" : "deterministic";
+  if (userInitiated) state.userChoseExecMode = true;
+  const sel = document.getElementById("sel-exec-mode");
+  if (sel) sel.value = normalized;
+  if (typeof document.querySelectorAll === "function") {
+    document.querySelectorAll(".engine-opt").forEach((btn) => {
+      if (btn && btn.classList) {
+        btn.classList.toggle("active", btn.dataset && btn.dataset.mode === normalized);
+      }
+    });
+  }
+  if (!state.inFlight) {
+    const btnSend = document.getElementById("btn-send-turn");
+    if (btnSend) {
+      btnSend.textContent = normalized === "llm_agent" ? "发送给 Agent ↵" : "编译生成 ↵";
+    }
+  }
+}
+
+function syncModelOptions(provider, { skipOpenModal = false } = {}) {
+  const models =
+    (state.supportedModels && state.supportedModels[provider]) ||
+    SUPPORTED_PROVIDER_MODELS[provider] ||
+    [state.defaultModels[provider] || DEFAULT_PROVIDER_MODELS[provider] || "deepseek-flash"];
+  const fallback =
+    (state.defaultModels && state.defaultModels[provider]) ||
+    DEFAULT_PROVIDER_MODELS[provider] ||
+    models[0];
+  if (!models.includes(state.llmModel)) {
+    state.llmModel = fallback;
+  }
+  const dlgSettings = document.getElementById("modal-settings");
+  const modalOpen = Boolean(dlgSettings && dlgSettings.open);
+  for (const id of ["sel-llm-model", "cfg-llm-model"]) {
+    if (skipOpenModal && id === "cfg-llm-model" && modalOpen) continue;
+    const sel = document.getElementById(id);
+    if (!sel) continue;
+    if (typeof document.createElement === "function" && typeof sel.replaceChildren === "function") {
+      sel.replaceChildren();
+      for (const m of models) {
+        const opt = document.createElement("option");
+        opt.value = m;
+        opt.textContent = id === "sel-llm-model" ? (MODEL_LABELS[m] || m) : m;
+        sel.appendChild(opt);
+      }
+    }
+    sel.value = state.llmModel;
+  }
+  const pill = document.getElementById("rail-model-pill");
+  if (pill) {
+    pill.textContent = state.llmProvider === "deepseek" ? state.llmModel : `${state.llmProvider}:${state.llmModel}`;
+  }
+}
+
+function setModelPreference(modelName) {
+  const prov = state.llmProvider || "deepseek";
+  const allowed =
+    (state.supportedModels && state.supportedModels[prov]) ||
+    SUPPORTED_PROVIDER_MODELS[prov] ||
+    [DEFAULT_PROVIDER_MODELS[prov]];
+  const cleaned = (modelName || "").trim();
+  state.llmModel = allowed.includes(cleaned)
+    ? cleaned
+    : (state.defaultModels[prov] || DEFAULT_PROVIDER_MODELS[prov] || allowed[0]);
+  safeStorageSet("local", "mrnax_llm_model", state.llmModel);
+  syncModelOptions(prov);
+  updateAgentAuthPill(null);
+}
+
+function setProviderPreference(value) {
+  const select = document.getElementById("cfg-llm-provider");
+  const provider = (value || "").trim().toLowerCase();
+  const supported =
+    select && select.options
+      ? Array.from(select.options, (option) => option.value)
+      : Object.keys(DEFAULT_PROVIDER_MODELS);
+  state.llmProvider = supported.includes(provider) ? provider : "deepseek";
+  state.byoKey = (state.byoKeys && state.byoKeys[state.llmProvider]) || "";
+  if (select) select.value = state.llmProvider;
+  safeStorageSet("local", "mrnax_llm_provider", state.llmProvider);
+  syncModelOptions(state.llmProvider);
+  updateAgentAuthPill(null);
+}
+
+function updateAgentAuthPill(statusPayload) {
+  if (statusPayload && typeof statusPayload.caller_token_authenticated === "boolean") {
+    state.callerTokenAuthenticated = statusPayload.caller_token_authenticated;
+  }
+  const pill = document.getElementById("pill-agent-auth");
+  if (!pill) return;
+  const activeModelName = state.llmModel || DEFAULT_PROVIDER_MODELS[state.llmProvider] || "deepseek-flash";
+  if (state.callerTokenAuthenticated) {
+    pill.className = "auth-pill mono ok";
+    pill.textContent = `Agent: ${activeModelName} ✓`;
+  } else if (state.byoKey) {
+    pill.className = "auth-pill mono ok";
+    pill.textContent = `Agent: BYO ${activeModelName} ✓`;
+  } else {
+    pill.className = "auth-pill mono warn";
+    pill.textContent = "Agent: 未解锁 · 点击配置";
+  }
+}
+
+function extractHashToken() {
+  const rawHash = (window.location && window.location.hash) || "";
+  if (!rawHash.startsWith("#token=")) return null;
+  if (typeof history !== "undefined" && typeof history.replaceState === "function") {
+    history.replaceState(null, "", window.location.pathname + window.location.search);
+  }
+  try {
+    return decodeURIComponent(rawHash.slice(7)).trim();
+  } catch {
+    return "";
+  }
+}
+
+function setSettingsModalError(msg) {
+  const errEl = document.getElementById("cfg-settings-error");
+  if (!errEl) return;
+  if (msg) {
+    errEl.hidden = false;
+    errEl.textContent = msg;
+  } else {
+    errEl.hidden = true;
+    errEl.textContent = "";
+  }
+}
+
+function openSettingsModal(focusToken = false) {
+  const currentOrigin = normalizeOrigin(state.apiBase);
+  state.modalInitialOrigin = currentOrigin;
+  state.modalDraftOrigin = currentOrigin;
+  state.modalInitialAccessToken = state.accessToken || "";
+  state.modalInitialByoKeys = { ...(state.byoKeys || {}) };
+  state.modalDraftByoKeys = { ...(state.byoKeys || {}) };
+  state.modalDraftProvider = state.llmProvider || "deepseek";
+  setSettingsModalError("");
+  const cfgApi = document.getElementById("cfg-api-base");
+  const cfgToken = document.getElementById("cfg-access-token");
+  const cfgProv = document.getElementById("cfg-llm-provider");
+  const cfgByo = document.getElementById("cfg-byo-key");
+  if (cfgApi) cfgApi.value = state.apiBase;
+  if (cfgToken) cfgToken.value = state.accessToken;
+  if (cfgProv) cfgProv.value = state.llmProvider;
+  syncModelOptions(state.llmProvider);
+  if (cfgByo) cfgByo.value = (state.byoKeys && state.byoKeys[state.llmProvider]) || state.byoKey || "";
+  const dlgSettings = document.getElementById("modal-settings");
+  if (dlgSettings && typeof dlgSettings.showModal === "function") {
+    dlgSettings.showModal();
+  }
+  if (focusToken && cfgToken && typeof cfgToken.focus === "function") {
+    cfgToken.focus();
+  }
+}
+
+function normalizeOrigin(urlStr) {
+  const raw = String(urlStr || "").trim().replace(/\/+$/, "");
+  if (!raw) return "";
+  try {
+    return new URL(raw).origin;
+  } catch {
+    return raw;
+  }
+}
+
+function syncCurrentOriginCredentialsToMap(originOverride = null) {
+  const origin = normalizeOrigin(originOverride || state.apiBase);
+  if (!origin) return;
+  state.accessTokensByOrigin = state.accessTokensByOrigin || {};
+  state.byoKeysByOrigin = state.byoKeysByOrigin || {};
+  state.accessTokensByOrigin[origin] = state.accessToken || "";
+  state.byoKeysByOrigin[origin] = { ...(state.byoKeys || {}) };
+}
+
+function getCredentialsForOrigin(targetOrigin) {
+  if (state.startupApiRejected) {
+    return { accessToken: "", byoKeys: {} };
+  }
+  const normTarget = normalizeOrigin(targetOrigin);
+  if (!normTarget || !isTrustedApiOrigin(normTarget)) {
+    return { accessToken: "", byoKeys: {} };
+  }
+  const normCurrent = normalizeOrigin(state.apiBase);
+  const storedTok = (state.accessTokensByOrigin && state.accessTokensByOrigin[normTarget]) || "";
+  const storedByo = (state.byoKeysByOrigin && state.byoKeysByOrigin[normTarget]) || {};
+  if (normTarget === normCurrent) {
+    return {
+      accessToken: state.accessToken || storedTok || "",
+      byoKeys: { ...storedByo, ...(state.byoKeys || {}) },
+    };
+  }
+  return {
+    accessToken: storedTok,
+    byoKeys: { ...storedByo },
+  };
+}
+
 function initConfig() {
-  const savedTheme = localStorage.getItem("mrnax_theme");
+  const savedTheme = safeStorageGet("local", "mrnax_theme");
   applyTheme(savedTheme === "graphite" ? "graphite" : "light");
 
   const url = new URL(window.location.href);
-  const rawQueryApi = url.searchParams.get("api");
-  const rawStoredApi = localStorage.getItem("mrnax_api_base");
+  const hasQueryApiParam = url.searchParams.has("api");
+  const rawQueryApi = (url.searchParams.get("api") || "").trim();
+  const rawStoredApi = safeStorageGet("local", "mrnax_api_base");
+  state.startupApiRejected = "";
+  if (hasQueryApiParam && (!rawQueryApi || !isTrustedApiOrigin(rawQueryApi))) {
+    state.startupApiRejected = rawQueryApi || "(empty)";
+  }
+
   if (rawQueryApi && isTrustedApiOrigin(rawQueryApi)) {
     state.apiBase = new URL(rawQueryApi).origin;
   } else if (rawStoredApi && isTrustedApiOrigin(rawStoredApi)) {
     state.apiBase = new URL(rawStoredApi).origin;
   } else {
     state.apiBase = DEFAULT_API_BASE;
-    localStorage.removeItem("mrnax_api_base");
+    safeStorageRemove("local", "mrnax_api_base");
   }
 
   // Purge any legacy persisted tokens from earlier browser sessions
-  localStorage.removeItem("mrnax_access_token");
-  sessionStorage.removeItem("mrnax_byo_key");
+  safeStorageRemove("local", "mrnax_access_token");
+  safeStorageRemove("session", "mrnax_byo_key");
 
-  if (window.location.hash.startsWith("#token=")) {
-    state.accessToken = decodeURIComponent(window.location.hash.slice(7)).trim();
-    history.replaceState(null, "", window.location.pathname + window.location.search);
+  const parsedHashTok = extractHashToken();
+  if (parsedHashTok && !state.startupApiRejected) {
+    state.accessToken = parsedHashTok;
+  } else if (state.startupApiRejected) {
+    state.accessToken = "";
+  }
+  syncCurrentOriginCredentialsToMap(state.apiBase);
+
+  setProviderPreference(safeStorageGet("local", "mrnax_llm_provider"));
+  setModelPreference(safeStorageGet("local", "mrnax_llm_model") || DEFAULT_PROVIDER_MODELS[state.llmProvider]);
+
+  if (state.accessToken && !state.startupApiRejected) {
+    setExecMode("llm_agent");
+  } else {
+    setExecMode("deterministic");
   }
 
-  setProviderPreference(localStorage.getItem("mrnax_llm_provider"));
+  if (state.startupApiRejected) {
+    const banner = document.getElementById("banner-notes");
+    if (banner) {
+      banner.hidden = false;
+      banner.className = "notice-banner err";
+      banner.innerHTML = `<strong>启动网关参数被安全拦截 (UNTRUSTED_ORIGIN)：</strong>已拒绝不可信或空值的 <code>?api=</code> 参数，未导入也未发送任何 <code>#token</code> 凭据。请通过右上角“网关与密钥”确认或修改受信任网关地址。`;
+    }
+  }
 
-  document.getElementById("cfg-api-base").value = state.apiBase;
-  document.getElementById("cfg-access-token").value = state.accessToken;
-  document.getElementById("cfg-byo-key").value = state.byoKey;
-  document.getElementById("txt-project-id").textContent = state.projectId;
+  const cfgApi = document.getElementById("cfg-api-base");
+  const cfgToken = document.getElementById("cfg-access-token");
+  const cfgByo = document.getElementById("cfg-byo-key");
+  const txtProj = document.getElementById("txt-project-id");
+  if (cfgApi) cfgApi.value = state.apiBase;
+  if (cfgToken) cfgToken.value = state.accessToken;
+  if (cfgByo) cfgByo.value = state.byoKey;
+  if (txtProj) txtProj.textContent = state.projectId;
   updateActiveRevBadge();
+  updateAgentAuthPill(null);
 }
 
 function updateActiveRevBadge() {
@@ -179,69 +546,160 @@ function updateActiveRevBadge() {
   }
 }
 
-function setProviderPreference(value) {
-  const select = document.getElementById("cfg-llm-provider");
-  const provider = (value || "").trim().toLowerCase();
-  const supported = Array.from(select.options, (option) => option.value);
-  state.llmProvider = supported.includes(provider) ? provider : "deepseek";
-  select.value = state.llmProvider;
-  localStorage.setItem("mrnax_llm_provider", state.llmProvider);
-}
-
-function buildHeaders(path, method, explicitProjectKey, includeAuth) {
+function buildHeaders(
+  path,
+  method,
+  explicitProjectKey,
+  includeAuth,
+  explicitProvider = null,
+  explicitApiBase = null
+) {
   const h = { "Content-Type": "application/json" };
-  if (includeAuth && isTrustedApiOrigin(state.apiBase)) {
+  if (state.startupApiRejected) {
+    return h;
+  }
+  const targetOrigin = normalizeOrigin(explicitApiBase || state.apiBase);
+  if (includeAuth && isTrustedApiOrigin(targetOrigin)) {
+    const creds = getCredentialsForOrigin(targetOrigin);
     h["X-MRNAX-Project-Key"] = explicitProjectKey || state.projectKey;
-    if (state.accessToken) h["X-MRNAX-Access-Token"] = state.accessToken;
-    if (state.byoKey && method === "POST" && /^\/v1\/projects\/[^/]+\/agent-chat$/.test(path)) {
-      h["X-MRNAX-LLM-Key"] = state.byoKey;
-      h["X-MRNAX-LLM-Provider"] = state.llmProvider;
+    if (creds.accessToken) h["X-MRNAX-Access-Token"] = creds.accessToken;
+    const prov = explicitProvider || state.llmProvider;
+    const keyForProv =
+      (creds.byoKeys && creds.byoKeys[prov]) ||
+      (targetOrigin === normalizeOrigin(state.apiBase) && prov === state.llmProvider ? state.byoKey : "");
+    if (keyForProv && method === "POST" && /^\/v1\/projects\/[^/]+\/agent-chat$/.test(path)) {
+      h["X-MRNAX-LLM-Key"] = keyForProv;
+      h["X-MRNAX-LLM-Provider"] = prov;
     }
   }
   return h;
 }
 
+function formatHttpErrorDetail(data, statusCode) {
+  if (!data || data.detail == null) return `HTTP ${statusCode}`;
+  if (typeof data.detail === "string") return data.detail;
+  if (Array.isArray(data.detail)) {
+    return data.detail
+      .map((item) => {
+        if (!item || typeof item !== "object") return String(item);
+        const loc = Array.isArray(item.loc) ? item.loc.join(".") : "field";
+        return `${loc}: ${item.msg || JSON.stringify(item)}`;
+      })
+      .join("; ");
+  }
+  return JSON.stringify(data.detail);
+}
+
 async function apiFetch(path, options = {}) {
-  const { explicitProjectKey, includeAuth = true, ...fetchOpts } = options;
-  const resp = await fetch(`${state.apiBase}${path}`, {
+  const {
+    explicitProjectKey,
+    explicitProvider = null,
+    explicitApiBase = null,
+    includeAuth = true,
+    ...fetchOpts
+  } = options;
+  if (state.startupApiRejected) {
+    const err = new Error(`Untrusted startup API origin blocked (UNTRUSTED_ORIGIN): ${state.startupApiRejected}`);
+    err.status = 0;
+    throw err;
+  }
+  const targetBase = normalizeOrigin(explicitApiBase || state.apiBase);
+  if (!isTrustedApiOrigin(targetBase)) {
+    const err = new Error(`Untrusted API origin blocked: ${targetBase}`);
+    err.status = 0;
+    throw err;
+  }
+  const resp = await fetch(`${targetBase}${path}`, {
+    redirect: "error",
     ...fetchOpts,
     headers: {
-      ...buildHeaders(path, fetchOpts.method, explicitProjectKey, includeAuth),
+      ...buildHeaders(path, fetchOpts.method, explicitProjectKey, includeAuth, explicitProvider, targetBase),
       ...(options.headers || {}),
     },
   });
   const text = await resp.text();
   let data = null;
+  let jsonParseFailed = false;
   try {
     data = text ? JSON.parse(text) : null;
   } catch {
+    jsonParseFailed = true;
     data = { detail: text };
   }
   if (!resp.ok) {
-    throw new Error((data && data.detail) || `HTTP ${resp.status}`);
+    const err = new Error(formatHttpErrorDetail(data, resp.status));
+    err.status = resp.status;
+    err.detail = data && data.detail;
+    throw err;
+  }
+  if (jsonParseFailed) {
+    const err = new Error(`Gateway returned non-JSON HTTP ${resp.status} response.`);
+    err.status = resp.status;
+    throw err;
   }
   return data;
 }
 
 function getSelectedEnzymes() {
+  if (typeof document.querySelectorAll !== "function") {
+    return Array.isArray(state.activeEnzymes) ? [...state.activeEnzymes] : [];
+  }
   return Array.from(document.querySelectorAll("#enzyme-chips .chip.selected")).map(
     (el) => el.dataset.enz
   );
 }
 
 function setSelectedEnzymes(list) {
-  document.querySelectorAll("#enzyme-chips .chip").forEach((el) => {
-    el.classList.toggle("selected", list.includes(el.dataset.enz));
-  });
+  const normalized = Array.from(
+    new Set((Array.isArray(list) ? list : []).filter(Boolean).map((x) => String(x).trim()).filter(Boolean))
+  );
+  state.activeEnzymes = [...normalized];
+  const container = document.getElementById("enzyme-chips");
+  if (
+    container &&
+    typeof container.appendChild === "function" &&
+    typeof document.querySelectorAll === "function" &&
+    typeof document.createElement === "function"
+  ) {
+    const existing = new Set(
+      Array.from(document.querySelectorAll("#enzyme-chips .chip")).map((el) => el.dataset?.enz)
+    );
+    for (const enz of normalized) {
+      if (!existing.has(enz)) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "chip mono selected";
+        btn.dataset = btn.dataset || {};
+        btn.dataset.enz = enz;
+        btn.dataset.dynamicEnz = "1";
+        btn.textContent = enz;
+        if (typeof btn.addEventListener === "function") {
+          btn.addEventListener("click", () => {
+            btn.classList.toggle("selected");
+            updateSetupSummary();
+          });
+        }
+        container.appendChild(btn);
+        existing.add(enz);
+      }
+    }
+  }
+  if (typeof document.querySelectorAll === "function") {
+    document.querySelectorAll("#enzyme-chips .chip").forEach((el) => {
+      el.classList.toggle("selected", normalized.includes(el.dataset.enz));
+    });
+  }
   updateSetupSummary();
 }
 
 function updateSetupSummary() {
-  const raw = document.getElementById("input-protein").value.trim().toUpperCase();
-  const chem = document.getElementById("sel-chemistry").value;
-  const prof = document.getElementById("sel-profile").value;
+  const inputProt = document.getElementById("input-protein");
+  const raw = ((inputProt && inputProt.value) || "").trim().toUpperCase();
+  const chem = (document.getElementById("sel-chemistry") && document.getElementById("sel-chemistry").value) || "m1psi";
+  const prof = (document.getElementById("sel-profile") && document.getElementById("sel-profile").value) || "research_max";
   const enz = getSelectedEnzymes();
-  const detarget = document.getElementById("chk-detarget-liver").checked;
+  const detEl = document.getElementById("chk-detarget-liver");
+  const detarget = Boolean(detEl && detEl.checked);
   const summaryEl = document.getElementById("setup-collapsed-summary");
   if (summaryEl) {
     const enzLabel = enz.length ? `0-cut:${enz.join("+")}` : "无酶切禁区";
@@ -250,16 +708,43 @@ function updateSetupSummary() {
 }
 
 function updateProteinBadge() {
-  const raw = document.getElementById("input-protein").value.trim().toUpperCase();
+  const inputProt = document.getElementById("input-protein");
+  const raw = ((inputProt && inputProt.value) || "").trim().toUpperCase();
   const badge = document.getElementById("badge-aa-len");
   const startsM = raw.startsWith("M");
-  badge.textContent = `${raw.length} aa · ${startsM ? "M✓" : "缺起始M⚠"}`;
-  badge.className = startsM ? "badge mono ok" : "badge mono warn";
+  if (badge) {
+    badge.textContent = `${raw.length} aa · ${startsM ? "M✓" : "缺起始M⚠"}`;
+    badge.className = startsM ? "badge mono ok" : "badge mono warn";
+  }
   updateSetupSummary();
+}
+
+function removeWelcomeCardIfPresent() {
+  const box = document.getElementById("chat-stream");
+  if (!box || typeof box.querySelector !== "function") return;
+  const welcome = box.querySelector(".welcome-card");
+  if (welcome) welcome.remove();
+}
+
+function renderWelcomeCard() {
+  const box = document.getElementById("chat-stream");
+  if (!box) return;
+  box.innerHTML = `
+    <div class="turn-card welcome-card">
+      <div class="turn-meta"><span>COPILOT READY</span><span>3-STEP WORKFLOW</span></div>
+      <div class="agent-prose">
+        <div><strong>1. 自然语言立项</strong>：直接输入目标蛋白、修饰与禁切酶，或点击上方模板一键启动。</div>
+        <div><strong>2. 确定性工具执行</strong>：所有序列计算、FTO 专利守卫与帕累托排序均由确定性引擎执行，绝不虚构。</div>
+        <div><strong>3. 单点锁定迭代</strong>：随时追问权衡对比，或仅修改单一约束（蛋白与未改动项 100% 继承）。</div>
+      </div>
+    </div>
+  `;
 }
 
 function appendStreamCard(kind, metaLeft, metaRight, bodyHtml) {
   const box = document.getElementById("chat-stream");
+  if (!box || typeof document.createElement !== "function") return null;
+  removeWelcomeCardIfPresent();
   const card = document.createElement("div");
   card.className = `turn-card ${kind}`;
   card.innerHTML = `
@@ -271,10 +756,12 @@ function appendStreamCard(kind, metaLeft, metaRight, bodyHtml) {
   state.logCount += 1;
   const cntEl = document.getElementById("txt-log-count");
   if (cntEl) cntEl.textContent = String(state.logCount);
+  return card;
 }
 
 function renderIntentLineage() {
   const bar = document.getElementById("intent-lineage-bar");
+  if (!bar) return;
   if (!state.intentHistory.length) {
     bar.textContent = "等待 v01 建立锁定基线";
     return;
@@ -332,7 +819,7 @@ function renderParetoScatter() {
   if (!wrap) return;
 
   if (!state.candidates.length) {
-    wrap.innerHTML = `<div class="empty-hint mono">点击上方「生成候选构建」绘制多目标帕累托前沿</div>`;
+    wrap.innerHTML = `<div class="empty-hint mono">输入需求或点击模板运行后绘制多目标帕累托前沿</div>`;
     if (titleEl) titleEl.textContent = "多目标权衡前沿";
     return;
   }
@@ -365,8 +852,8 @@ function renderParetoScatter() {
 
   const W = 400;
   const spacing = 14;
-  const H = Math.max(216, 80 + Math.ceil(4 * pts.length / 22) * spacing);
-  const padL = 56;
+  const H = Math.max(216, 80 + Math.ceil((4 * pts.length) / 22) * spacing);
+  const padL = 68;
   const padR = 18;
   const padT = 16;
   const padB = 38;
@@ -420,7 +907,6 @@ function renderParetoScatter() {
     frontierLine = `<polyline points="${poly}" fill="none" stroke="var(--accent)" stroke-width="1.6" stroke-dasharray="4 3" />`;
   }
 
-  // Keep true coordinates for the axes and frontier. Displace colliding markers only.
   const placed = [];
   function placeMarker(x, y) {
     const free = (cx, cy) => placed.every((p) => Math.hypot(p.x - cx, p.y - cy) >= spacing);
@@ -476,23 +962,25 @@ function renderParetoScatter() {
       <line x1="${padL}" y1="${padT + plotH}" x2="${W - padR}" y2="${padT + plotH}" stroke="var(--border-strong)" stroke-width="1" />
       ${frontierLine}
       ${circles}
-      <text x="${padL + plotW / 2}" y="${H - 4}" text-anchor="middle" fill="var(--ink-secondary)" font-family="var(--font-mono)" font-size="10.5">${esc(axX.label)}</text>
-      <text x="13" y="${padT + plotH / 2}" text-anchor="middle" transform="rotate(-90 13 ${padT + plotH / 2})" fill="var(--ink-secondary)" font-family="var(--font-mono)" font-size="10.5">${esc(axY.label)}</text>
+      <text x="${padL + plotW / 2}" y="${H - 4}" text-anchor="middle" fill="var(--ink-secondary)" font-family="var(--font-mono)" font-size="10">${esc(axX.label)}</text>
+      <text x="12" y="${padT + plotH / 2}" text-anchor="middle" transform="rotate(-90 12 ${padT + plotH / 2})" fill="var(--ink-secondary)" font-family="var(--font-mono)" font-size="9.5">${esc(axY.shortLabel + (axY.higherBetter ? " ↑" : " ↓"))}</text>
     </svg>
   `;
 
-  wrap.querySelectorAll(".pareto-node").forEach((node) => {
-    const i = Number(node.getAttribute("data-idx"));
-    const bid = pts[i] && pts[i].cand.bundle_id;
-    if (!bid) return;
-    node.addEventListener("click", () => selectCandidate(bid));
-    node.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        selectCandidate(bid);
-      }
+  if (typeof wrap.querySelectorAll === "function") {
+    wrap.querySelectorAll(".pareto-node").forEach((node) => {
+      const i = Number(node.getAttribute("data-idx"));
+      const bid = pts[i] && pts[i].cand.bundle_id;
+      if (!bid) return;
+      node.addEventListener("click", () => selectCandidate(bid));
+      node.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          selectCandidate(bid);
+        }
+      });
     });
-  });
+  }
 }
 
 function buildSparkCell(val, axis, minV, maxV) {
@@ -537,16 +1025,22 @@ function getSortedCandidates(axes) {
 
 function clearSelectedConstructUI() {
   state.selectedBundleId = null;
-  document.getElementById("txt-selected-bundle").textContent = "未选择候选";
-  document.getElementById("chain-picker").hidden = true;
-  document.getElementById("inspect-chain").replaceChildren();
-  document.getElementById("enzyme-clearance-rail").innerHTML = "";
-  document.getElementById("ruler-row").innerHTML = "";
-  document.getElementById("prop-track-wrap").innerHTML =
-    `<div class="empty-hint mono">生成后展示五段真实比例分子图谱</div>`;
-  document.getElementById("seg-bar").innerHTML = "";
-  document.getElementById("seg-inspector").textContent =
-    "选择候选构建后自动对齐显示区段核苷酸与三联体密码子翻译轨";
+  const txtSel = document.getElementById("txt-selected-bundle");
+  if (txtSel) txtSel.textContent = "未选择候选";
+  const chainPicker = document.getElementById("chain-picker");
+  if (chainPicker) chainPicker.hidden = true;
+  const inspectChain = document.getElementById("inspect-chain");
+  if (inspectChain && typeof inspectChain.replaceChildren === "function") inspectChain.replaceChildren();
+  const rail = document.getElementById("enzyme-clearance-rail");
+  if (rail) rail.innerHTML = "";
+  const ruler = document.getElementById("ruler-row");
+  if (ruler) ruler.innerHTML = "";
+  const propWrap = document.getElementById("prop-track-wrap");
+  if (propWrap) propWrap.innerHTML = `<div class="empty-hint mono">生成后展示五段真实比例分子图谱</div>`;
+  const segBar = document.getElementById("seg-bar");
+  if (segBar) segBar.innerHTML = "";
+  const segInsp = document.getElementById("seg-inspector");
+  if (segInsp) segInsp.textContent = "选择候选构建后自动对齐显示区段核苷酸与三联体密码子翻译轨";
 }
 
 function updateExportButtonLabels() {
@@ -556,17 +1050,22 @@ function updateExportButtonLabels() {
     const el = document.getElementById(id);
     if (el) el.disabled = !hasCand;
   });
-  document.getElementById("btn-copy-cli").disabled = !state.lastCliCommand;
+  const cliBtn = document.getElementById("btn-copy-cli");
+  if (cliBtn) cliBtn.disabled = !state.lastCliCommand;
   if (gbBtn) {
     if (hasCand) {
       const revTag = `v${String(state.activeVersion).padStart(2, "0")}`;
       gbBtn.textContent = `GenBank (${revTag}) ↓`;
       gbBtn.title = `${state.selectedBundleId}.gb`;
-      gbBtn.setAttribute("aria-label", `GenBank ${revTag} · ${state.selectedBundleId}.gb`);
+      if (typeof gbBtn.setAttribute === "function") {
+        gbBtn.setAttribute("aria-label", `GenBank ${revTag} · ${state.selectedBundleId}.gb`);
+      }
     } else {
       gbBtn.textContent = "GenBank (.gb) ↓";
-      gbBtn.removeAttribute("title");
-      gbBtn.removeAttribute("aria-label");
+      if (typeof gbBtn.removeAttribute === "function") {
+        gbBtn.removeAttribute("title");
+        gbBtn.removeAttribute("aria-label");
+      }
     }
   }
 }
@@ -574,30 +1073,35 @@ function updateExportButtonLabels() {
 function renderCandidates() {
   const tbody = document.getElementById("cand-tbody");
   const countEl = document.getElementById("txt-cand-count");
-  countEl.textContent = `${state.candidates.length} 条合格候选`;
+  if (countEl) countEl.textContent = `${state.candidates.length} 条合格候选`;
 
   const axes = resolveMetricAxes(state.candidates);
   const header = document.getElementById("cand-thead-row");
-  header.querySelectorAll("[data-metric]").forEach((el) => el.remove());
-  const gcHeader = header.querySelector('[data-sort="gc"]');
-  for (const axis of axes) {
-    const th = document.createElement("th");
-    th.textContent = axis.label;
-    th.dataset.sort = `metric:${axis.key}`;
-    th.dataset.metric = axis.key;
-    th.tabIndex = 0;
-    th.className = "num-col";
-    header.insertBefore(th, gcHeader);
-  }
-  if (!axes.length && state.candidates.length) {
-    const th = document.createElement("th");
-    th.dataset.metric = "";
-    th.textContent = "指标";
-    header.insertBefore(th, gcHeader);
+  if (header && typeof header.querySelectorAll === "function") {
+    header.querySelectorAll("[data-metric]").forEach((el) => el.remove());
+    const gcHeader = header.querySelector('[data-sort="gc"]');
+    for (const axis of axes) {
+      const th = document.createElement("th");
+      th.textContent = axis.label;
+      th.dataset.sort = `metric:${axis.key}`;
+      th.dataset.metric = axis.key;
+      th.tabIndex = 0;
+      th.className = "num-col";
+      header.insertBefore(th, gcHeader);
+    }
+    if (!axes.length && state.candidates.length) {
+      const th = document.createElement("th");
+      th.dataset.metric = "";
+      th.textContent = "指标";
+      header.insertBefore(th, gcHeader);
+    }
   }
 
   if (!state.candidates.length) {
-    tbody.innerHTML = `<tr><td colspan="${header.children.length}" class="empty-cell mono">当前无合格推荐候选（详见上方状态横幅）</td></tr>`;
+    if (tbody) {
+      const colSpan = (header && header.children && header.children.length) || 4;
+      tbody.innerHTML = `<tr><td colspan="${colSpan}" class="empty-cell mono">当前无合格推荐候选（详见上方状态横幅）</td></tr>`;
+    }
     clearSelectedConstructUI();
     updateExportButtonLabels();
     renderParetoScatter();
@@ -615,33 +1119,38 @@ function renderCandidates() {
   const recSet = new Set((state.latestReport && state.latestReport.recommended_bundle_ids) || []);
   const sorted = getSortedCandidates(axes);
 
-  tbody.innerHTML = "";
-  sorted.forEach((c) => {
-    const tr = document.createElement("tr");
-    tr.tabIndex = 0;
-    if (c.bundle_id === state.selectedBundleId) tr.classList.add("selected-row");
-    const rankNum = c.pareto_rank;
-    const isRec = rankNum === 1 && recSet.has(c.bundle_id);
-    const metricCells = axes.map((axis, i) =>
-      `<td class="num-col">${buildSparkCell(readAxisValue(c, axis), axis, ranges[i].min, ranges[i].max)}</td>`
-    ).join("");
+  if (tbody) {
+    tbody.innerHTML = "";
+    sorted.forEach((c) => {
+      const tr = document.createElement("tr");
+      tr.tabIndex = 0;
+      if (c.bundle_id === state.selectedBundleId) tr.classList.add("selected-row");
+      const rankNum = c.pareto_rank;
+      const isRec = rankNum === 1 && recSet.has(c.bundle_id);
+      const metricCells = axes
+        .map(
+          (axis, i) =>
+            `<td class="num-col">${buildSparkCell(readAxisValue(c, axis), axis, ranges[i].min, ranges[i].max)}</td>`
+        )
+        .join("");
 
-    tr.innerHTML = `
-      <td class="mono"><span class="badge ${rankNum === 1 ? "ok" : ""}">${rankNum ? "P" + esc(rankNum) : "未排名"}</span></td>
-      <td class="mono">${isRec ? "★ " : ""}${esc(c.bundle_id)}</td>
-      <td class="mono" style="color:var(--ink-secondary);">${esc(c.derivation_action)}</td>
-      ${metricCells || '<td class="num-col">N/A · 未测</td>'}
-      <td class="num-col mono">${esc(c.full_gc_pct)}% · ${esc(c.length_nt)}nt</td>
-    `;
-    tr.addEventListener("click", () => selectCandidate(c.bundle_id));
-    tr.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        selectCandidate(c.bundle_id);
-      }
+      tr.innerHTML = `
+        <td class="mono"><span class="badge ${rankNum === 1 ? "ok" : ""}">${rankNum ? "P" + esc(rankNum) : "未排名"}</span></td>
+        <td class="mono">${isRec ? "★ " : ""}${esc(c.bundle_id)}</td>
+        <td class="mono" style="color:var(--ink-secondary);">${esc(c.derivation_action)}</td>
+        ${metricCells || '<td class="num-col">N/A · 未测</td>'}
+        <td class="num-col mono">${esc(c.full_gc_pct)}% · ${esc(c.length_nt)}nt</td>
+      `;
+      tr.addEventListener("click", () => selectCandidate(c.bundle_id));
+      tr.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          selectCandidate(c.bundle_id);
+        }
+      });
+      tbody.appendChild(tr);
     });
-    tbody.appendChild(tr);
-  });
+  }
 
   updateExportButtonLabels();
   renderParetoScatter();
@@ -666,15 +1175,18 @@ function renderEnzymeClearance(fullSeq) {
     rail.innerHTML = "";
     return;
   }
-  const activeEnzymes = new Set(getSelectedEnzymes());
-  rail.innerHTML = Object.entries(RESTRICTION_SITES_RNA)
-    .map(([enz, motifs]) => {
-      const cuts = countMotifOccurrences(fullSeq, motifs);
-      const cls = cuts === 0 ? "clear" : "cut";
-      const reqMark = activeEnzymes.has(enz) ? " [禁]" : "";
-      return `<span class="enz-tag ${cls}">${esc(enz)}${esc(reqMark)}: ${cuts} cuts ${cuts === 0 ? "✓" : "⚠"}</span>`;
-    })
-    .join("");
+  const activeList = Array.isArray(state.activeEnzymes) ? state.activeEnzymes : getSelectedEnzymes();
+  const activeEnzymes = new Set(activeList);
+  const presetTags = Object.entries(RESTRICTION_SITES_RNA).map(([enz, motifs]) => {
+    const cuts = countMotifOccurrences(fullSeq, motifs);
+    const cls = cuts === 0 ? "clear" : "cut";
+    const reqMark = activeEnzymes.has(enz) ? " [禁]" : "";
+    return `<span class="enz-tag ${cls}">${esc(enz)}${esc(reqMark)}: ${cuts} cuts ${cuts === 0 ? "✓" : "⚠"}</span>`;
+  });
+  const extraTags = activeList
+    .filter((enz) => !Object.prototype.hasOwnProperty.call(RESTRICTION_SITES_RNA, enz))
+    .map((enz) => `<span class="enz-tag clear">${esc(enz)} [禁]: server-gated ✓</span>`);
+  rail.innerHTML = [...presetTags, ...extraTags].join("");
 }
 
 function renderTrueScaleMap(cand) {
@@ -683,9 +1195,11 @@ function renderTrueScaleMap(cand) {
   const cardsBar = document.getElementById("seg-bar");
   const total = Math.max(1, cand.length_nt);
 
-  ruler.innerHTML = [0, 0.25, 0.5, 0.75, 1]
-    .map((f) => `<span>${Math.round(total * f)} nt</span>`)
-    .join("");
+  if (ruler) {
+    ruler.innerHTML = [0, 0.25, 0.5, 0.75, 1]
+      .map((f) => `<span>${Math.round(total * f)} nt</span>`)
+      .join("");
+  }
 
   let cursorPct = 0;
   let stopPinHtml = "";
@@ -709,23 +1223,27 @@ function renderTrueScaleMap(cand) {
     propBar.appendChild(segDiv);
   });
 
-  propWrap.innerHTML = stopPinHtml;
-  propWrap.appendChild(propBar);
+  if (propWrap) {
+    propWrap.innerHTML = stopPinHtml;
+    propWrap.appendChild(propBar);
+  }
 
-  cardsBar.innerHTML = "";
-  cand.segments.forEach((seg) => {
-    const meta = SEG_META[seg.segment_type] || { short: seg.segment_type, colorVar: "var(--accent)" };
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = `seg-card-btn ${seg.segment_type === state.selectedSegType ? "active" : ""}`;
-    btn.style.borderBlockStartColor = meta.colorVar;
-    btn.innerHTML = `
-      <div class="seg-card-name">${esc(meta.short)} · ${esc(seg.length_nt)} nt</div>
-      <div class="seg-card-meta">[${esc(seg.start)}..${esc(seg.end)}) · GC ${esc(seg.gc_pct)}%</div>
-    `;
-    btn.addEventListener("click", () => inspectSegment(cand, seg));
-    cardsBar.appendChild(btn);
-  });
+  if (cardsBar) {
+    cardsBar.innerHTML = "";
+    cand.segments.forEach((seg) => {
+      const meta = SEG_META[seg.segment_type] || { short: seg.segment_type, colorVar: "var(--accent)" };
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = `seg-card-btn ${seg.segment_type === state.selectedSegType ? "active" : ""}`;
+      btn.style.borderBlockStartColor = meta.colorVar;
+      btn.innerHTML = `
+        <div class="seg-card-name">${esc(meta.short)} · ${esc(seg.length_nt)} nt</div>
+        <div class="seg-card-meta">[${esc(seg.start)}..${esc(seg.end)}) · GC ${esc(seg.gc_pct)}%</div>
+      `;
+      btn.addEventListener("click", () => inspectSegment(cand, seg));
+      cardsBar.appendChild(btn);
+    });
+  }
 }
 
 function formatCdsCodonAlignment(rnaSeq, globalStart) {
@@ -784,7 +1302,8 @@ function inspectSegment(cand, seg) {
       ? formatCdsCodonAlignment(fullSub, seg.start)
       : formatPlainNucleotideBlocks(fullSub, seg.start);
 
-  document.getElementById("seg-inspector").textContent = `${header}\n${"─".repeat(78)}\n${body}`;
+  const segInsp = document.getElementById("seg-inspector");
+  if (segInsp) segInsp.textContent = `${header}\n${"─".repeat(78)}\n${body}`;
 }
 
 function selectCandidate(bundleId) {
@@ -795,26 +1314,35 @@ function selectCandidate(bundleId) {
 
   const chains = cand.molecules?.length ? cand.molecules : [cand];
   const select = document.getElementById("inspect-chain");
-  select.replaceChildren();
-  chains.forEach((chain, i) => {
-    const option = document.createElement("option");
-    option.value = String(i);
-    option.textContent = chain.molecule_id || `分子 ${i + 1}`;
-    select.appendChild(option);
-  });
-  document.getElementById("chain-picker").hidden = chains.length < 2;
+  if (select && typeof select.replaceChildren === "function") {
+    select.replaceChildren();
+    chains.forEach((chain, i) => {
+      const option = document.createElement("option");
+      option.value = String(i);
+      option.textContent = chain.molecule_id || `分子 ${i + 1}`;
+      select.appendChild(option);
+    });
+  }
+  const chainPicker = document.getElementById("chain-picker");
+  if (chainPicker) chainPicker.hidden = chains.length < 2;
+
   function inspectChain(index) {
     const chain = chains[index];
     const label = chains.length > 1 ? ` · ${chain.molecule_id}` : "";
-    document.getElementById("txt-selected-bundle").textContent =
-      `${cand.bundle_id}${label} · ${chain.length_nt} nt · GC ${chain.full_gc_pct}% · sha256:${cand.version_digest.slice(0, 10)}`;
+    const txtSel = document.getElementById("txt-selected-bundle");
+    if (txtSel) {
+      txtSel.textContent =
+        `${cand.bundle_id}${label} · ${chain.length_nt} nt · GC ${chain.full_gc_pct}% · sha256:${cand.version_digest.slice(0, 10)}`;
+    }
     renderEnzymeClearance(chain.full_sequence);
-    const segment = chain.segments.find((s) => s.segment_type === state.selectedSegType)
-      || chain.segments.find((s) => s.segment_type === "cds") || chain.segments[0];
+    const segment =
+      chain.segments.find((s) => s.segment_type === state.selectedSegType) ||
+      chain.segments.find((s) => s.segment_type === "cds") ||
+      chain.segments[0];
     if (segment) inspectSegment(chain, segment);
     else renderTrueScaleMap(chain);
   }
-  select.onchange = () => inspectChain(Number(select.value));
+  if (select) select.onchange = () => inspectChain(Number(select.value));
   inspectChain(0);
 }
 
@@ -836,7 +1364,8 @@ function renderRevisionLedger(intentDiff) {
 
   const vPrev = `v${String(prev.version).padStart(2, "0")}`;
   const vCurr = `v${String(curr.version).padStart(2, "0")}`;
-  document.getElementById("ledger-ver-span").textContent = `${vPrev} → ${vCurr}`;
+  const verSpan = document.getElementById("ledger-ver-span");
+  if (verSpan) verSpan.textContent = `${vPrev} → ${vCurr}`;
 
   const deltaEl = document.getElementById("ledger-delta-summary");
   const deltaParts = [];
@@ -859,7 +1388,7 @@ function renderRevisionLedger(intentDiff) {
   if (!deltaParts.length) {
     deltaParts.push(`增量重排完成 · 候选 <strong>${esc(prev.topCandidate.bundle_id)}</strong> → <strong>${esc(curr.topCandidate.bundle_id)}</strong>`);
   }
-  deltaEl.innerHTML = deltaParts.join(" · ");
+  if (deltaEl) deltaEl.innerHTML = deltaParts.join(" · ");
 
   const locksBar = document.getElementById("ledger-locks-bar");
   const prevSeqs = (prev.intent.protein_targets || []).map((t) => t.protein_sequence);
@@ -872,7 +1401,7 @@ function renderRevisionLedger(intentDiff) {
   }
   lockTokens.push(`Chem:${curr.intent.uridine_chemistry}${chemSame ? "✓" : "Δ"}`);
   currLocks.forEach((k) => lockTokens.push(`Lock:${k}`));
-  locksBar.innerHTML = lockTokens.map((t) => `<span class="lock-token">${esc(t)}</span>`).join("");
+  if (locksBar) locksBar.innerHTML = lockTokens.map((t) => `<span class="lock-token">${esc(t)}</span>`).join("");
 
   const dualWrap = document.getElementById("dual-scale-tracks");
   const prevChains = prev.topCandidate.molecules || [prev.topCandidate];
@@ -880,9 +1409,9 @@ function renderRevisionLedger(intentDiff) {
   const maxNt = Math.max(...prevChains.concat(currChains).map((chain) => chain.length_nt), 1);
 
   const buildScaledRow = (verTag, cand, other, isCurrent) => {
-    const otherSeqMap = new Map(other?.segments.map((s) =>
-      [s.segment_type, other.full_sequence.slice(s.start, s.end)]
-    ));
+    const otherSeqMap = new Map(
+      other?.segments.map((s) => [s.segment_type, other.full_sequence.slice(s.start, s.end)])
+    );
     const segHtml = cand.segments
       .map((s) => {
         const meta = SEG_META[s.segment_type] || { short: s.segment_type, colorVar: "var(--accent)" };
@@ -909,69 +1438,225 @@ function renderRevisionLedger(intentDiff) {
     if (prevChains[i]) rows.push(buildScaledRow(vPrev + label, prevChains[i], currChains[i], false));
     if (currChains[i]) rows.push(buildScaledRow(vCurr + label, currChains[i], prevChains[i], true));
   }
-  dualWrap.innerHTML = rows.join("");
+  if (dualWrap) dualWrap.innerHTML = rows.join("");
+}
+
+function buildToolTraceHtml(toolCalls) {
+  if (!Array.isArray(toolCalls) || !toolCalls.length) return "";
+  const names = toolCalls.map((tc) => tc.name).join(" → ");
+  const items = toolCalls
+    .map((tc) => {
+      const argStr = JSON.stringify(tc.arguments || {});
+      return `<li><code>${esc(tc.name)}</code>(${esc(argStr.length > 140 ? argStr.slice(0, 140) + "…" : argStr)})</li>`;
+    })
+    .join("");
+  return `
+    <details class="tool-trace-strip mono">
+      <summary>调用 ${toolCalls.length} 个确定性工具：${esc(names)}</summary>
+      <ul class="tool-trace-list">${items}</ul>
+    </details>
+  `;
+}
+
+function clearErrorBanner() {
+  const banner = document.getElementById("banner-notes");
+  if (!banner) return;
+  if (banner.className && banner.className.includes("err")) {
+    banner.hidden = true;
+    banner.className = "notice-banner";
+    banner.innerHTML = "";
+  }
+}
+
+function syncActionControlsDisabled() {
+  const busy = state.inFlight;
+  ["btn-send-turn", "btn-agent-rail-send", "btn-submit-initial"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = busy;
+  });
+  ["starter-egfp", "starter-ref-r", "starter-commercial", "starter-tradeoffs"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = busy;
+  });
+  const noIntent = state.intentHistory.length === 0;
+  [
+    "quick-refine-bspqi",
+    "quick-refine-lock-cds",
+    "quick-refine-m15-surrogate",
+    "quick-refine-commercial",
+    "quick-ask-tradeoffs",
+  ].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = busy || noIntent;
+  });
+  if (noIntent === false && !busy && !state.selectedBundleId) {
+    const lockBtn = document.getElementById("quick-refine-lock-cds");
+    if (lockBtn) lockBtn.disabled = true;
+  }
+}
+
+function renderLocalTradeoffsSummary() {
+  if (!state.candidates.length) {
+    appendStreamCard("warn", "本地权衡汇总", "NO DATA", "当前版本暂无合格候选可供比较。");
+    return;
+  }
+  const axes = resolveMetricAxes(state.candidates);
+  const p1 = state.candidates.filter((c) => c.pareto_rank === 1);
+  const lines = [
+    `**只读本地权衡汇总（Intent v${String(state.activeVersion).padStart(2, "0")}，未变更序列或约束）：**`,
+    `- 合格候选共 ${state.candidates.length} 条，其中 Pareto P1 前沿 ${p1.length} 条。`,
+  ];
+  for (const cand of p1.slice(0, 3)) {
+    const metricsSummary = axes
+      .map((ax) => {
+        const val = readAxisValue(cand, ax);
+        return val == null ? null : `${ax.shortLabel}=${ax.fmt(val)}`;
+      })
+      .filter(Boolean)
+      .join("，");
+    lines.push(`- \`${cand.bundle_id}\` (${cand.derivation_action})：${metricsSummary || "仅序列硬门通过"}`);
+  }
+  appendStreamCard("agent", "本地只读权衡分析", `v${String(state.activeVersion).padStart(2, "0")}`, `<div class="agent-prose">${formatSafeMarkdown(lines.join("\n"))}</div>`);
+}
+
+function syncControlsFromIntent(intent) {
+  if (!intent || typeof intent !== "object") return;
+  const profEl = document.getElementById("sel-profile");
+  const chemEl = document.getElementById("sel-chemistry");
+  if (profEl && intent.compliance_track) profEl.value = intent.compliance_track;
+  if (chemEl && intent.uridine_chemistry) chemEl.value = intent.uridine_chemistry;
+  if (intent.entry_mode === "protein_with_reference_r" || intent.entry_mode === "protein_only") {
+    setEntryMode(intent.entry_mode === "protein_with_reference_r" ? "with_r" : "protein_only");
+  }
+  if (Array.isArray(intent.constraints)) {
+    const enzConstraint = intent.constraints.find(
+      (c) => c && c.constraint_kind === "type_iis_restriction_free"
+    );
+    if (enzConstraint && enzConstraint.params && Array.isArray(enzConstraint.params.enzymes)) {
+      const syncedEnz = [...enzConstraint.params.enzymes];
+      state.activeEnzymes = syncedEnz;
+      setSelectedEnzymes(syncedEnz);
+    }
+    const hasMirnaConstraint = intent.constraints.some(
+      (c) => c && c.constraint_kind === "mirna_detarget"
+    );
+    const detEl = document.getElementById("chk-detarget-liver");
+    if (detEl && (intent.cell_expression_control || hasMirnaConstraint)) {
+      detEl.checked = Boolean(
+        hasMirnaConstraint ||
+          (intent.cell_expression_control &&
+            Array.isArray(intent.cell_expression_control.detarget_tissues) &&
+            intent.cell_expression_control.detarget_tissues.length)
+      );
+    } else if (detEl && intent.cell_expression_control === null && "cell_expression_control" in intent) {
+      detEl.checked = false;
+    }
+  }
+  if (Array.isArray(intent.objectives)) {
+    const lateEl = document.getElementById("chk-late-signal");
+    if (lateEl) {
+      lateEl.checked = intent.objectives.some(
+        (o) => o && o.requirement_id === "obj_late_protein_persistence"
+      );
+    }
+  }
+  updateSetupSummary();
 }
 
 function applyTurnResult(res, userText, sequence) {
   if (!res || !res.intent) {
-    if (state.activeVersion > 0 || sequence < state.appliedTurnSequence) {
+    const hasReply = Boolean(res && typeof res.assistant_reply === "string" && res.assistant_reply.trim());
+    const hasTools = Boolean(res && Array.isArray(res.tool_calls) && res.tool_calls.length > 0);
+    if (!hasReply && !hasTools) {
       return false;
     }
-    state.appliedTurnSequence = sequence;
-    if (res && res.assistant_reply) {
-      appendStreamCard("ok", "Agent 回复 · 待立项", "INFO", esc(res.assistant_reply));
+    if (sequence < state.appliedTurnSequence) {
+      return false;
     }
+    state.appliedTurnSequence = Math.max(state.appliedTurnSequence, sequence);
+    clearErrorBanner();
+    const modelTag = res && res.model ? `${res.provider || state.llmProvider}:${res.model}` : "INFO";
+    const toolTraceHtml = buildToolTraceHtml(res && res.tool_calls);
+    const replyBody = hasReply
+      ? `<div class="agent-prose">${formatSafeMarkdown(res.assistant_reply)}</div>`
+      : "";
+    appendStreamCard("agent", "Agent 回复", modelTag, `${toolTraceHtml}${replyBody}`);
     return true;
   }
+
   const version = res.intent.intent_version;
   if (version < state.activeVersion || (version === state.activeVersion && sequence < state.appliedTurnSequence)) {
     return false;
   }
-  state.appliedTurnSequence = sequence;
+  state.appliedTurnSequence = Math.max(state.appliedTurnSequence, sequence);
   state.activeVersion = version;
+  state.activeIntentStatus = res.intent.status || "";
   updateActiveRevBadge();
+  clearErrorBanner();
+
   let intentAdvanced = false;
   if (res.intent && !state.intentHistory.some((it) => it.intent_id === res.intent.intent_id)) {
     state.intentHistory.push(res.intent);
     intentAdvanced = true;
     renderIntentLineage();
-    document.getElementById("sel-profile").value = res.intent.compliance_track;
-    document.getElementById("sel-chemistry").value = res.intent.uridine_chemistry;
-    updateSetupSummary();
   }
+  syncControlsFromIntent(res.intent);
 
   const banner = document.getElementById("banner-notes");
 
-  if (res.status === "NEEDS_CLARIFICATION") {
+  if (res.status === "NEEDS_CLARIFICATION" || res.intent.status !== "ready") {
     state.latestReport = null;
     state.candidates = [];
     state.lastCliCommand = "";
     state.cachedExports = {};
     renderCandidates();
-    document.getElementById("quick-refine-lock-cds").disabled = true;
-    document.getElementById("revision-ledger").hidden = true;
-    document.getElementById("badge-outcome").textContent = res.intent.status;
-    document.getElementById("badge-outcome").className = "badge mono warn";
-    const qs = (res.blocking_questions || []).map((q) => `<li>${esc(q)}</li>`).join("");
-    banner.hidden = false;
-    banner.innerHTML = `<strong>编译前护栏拦截 (${esc(res.intent.status)})：</strong><ul style="margin:4px 0 0 18px;">${qs}</ul>`;
+    const lockBtn = document.getElementById("quick-refine-lock-cds");
+    if (lockBtn) lockBtn.disabled = true;
+    const ledger = document.getElementById("revision-ledger");
+    if (ledger) ledger.hidden = true;
+    const badgeOut = document.getElementById("badge-outcome");
+    if (badgeOut) {
+      badgeOut.textContent = res.intent.status;
+      badgeOut.className = "badge mono warn";
+    }
+    const questions =
+      Array.isArray(res.blocking_questions) && res.blocking_questions.length
+        ? res.blocking_questions
+        : res.intent.blocking_questions || [];
+    const qs = questions.map((q) => `<li>${esc(q)}</li>`).join("");
+    if (banner) {
+      banner.hidden = false;
+      banner.className = "notice-banner";
+      banner.innerHTML = `<strong>编译前护栏拦截 (${esc(res.intent.status)})：</strong><ul style="margin:4px 0 0 18px;">${qs}</ul>`;
+    }
+    const toolCallsBlock = buildToolTraceHtml(res.tool_calls);
+    const replyExtra = res.assistant_reply
+      ? `<div class="agent-prose">${formatSafeMarkdown(res.assistant_reply)}</div>`
+      : "";
     appendStreamCard(
       "warn",
       `安全护栏拦截 · Intent v${res.intent.intent_version}`,
       res.intent.status,
-      `<strong>拦截待确认项：</strong><ul style="margin:4px 0 0 18px;">${qs}</ul>`
+      `<strong>拦截待确认项：</strong><ul style="margin:4px 0 0 18px;">${qs}</ul>${toolCallsBlock}${replyExtra}`
     );
     return true;
   }
 
   state.latestReport = res.report;
   state.candidates = res.candidates || [];
-  state.lastCliCommand = res.cli_replay_command || "";
+  if (res.cli_replay_command) {
+    state.lastCliCommand = res.cli_replay_command;
+  } else if (!res.assistant_reply) {
+    state.lastCliCommand = "";
+  }
 
   const outcome = (res.report && res.report.outcome_status) || "COMPLETED";
   const badgeOut = document.getElementById("badge-outcome");
-  badgeOut.textContent = outcome;
-  badgeOut.className = outcome.includes("UNCOMPARABLE") || !state.candidates.length ? "badge mono warn" : "badge mono ok";
+  if (badgeOut) {
+    badgeOut.textContent = outcome;
+    badgeOut.className =
+      outcome.includes("UNCOMPARABLE") || !state.candidates.length ? "badge mono warn" : "badge mono ok";
+  }
 
   const notes = [];
   if (res.report && res.report.uncomparable_reason) {
@@ -990,12 +1675,16 @@ function applyTurnResult(res, userText, sequence) {
       notes.push(`<strong>[${esc(adv.category)}]</strong> ${esc(adv.message)}`);
     }
   });
-  if (notes.length) {
-    banner.hidden = false;
-    banner.innerHTML = notes.join("<br/>");
-  } else {
-    banner.hidden = true;
-    banner.innerHTML = "";
+  if (banner) {
+    if (notes.length) {
+      banner.hidden = false;
+      banner.className = "notice-banner";
+      banner.innerHTML = notes.join("<br/>");
+    } else {
+      banner.hidden = true;
+      banner.className = "notice-banner";
+      banner.innerHTML = "";
+    }
   }
 
   let diffHtml = "";
@@ -1012,25 +1701,28 @@ function applyTurnResult(res, userText, sequence) {
     .map((t) => `<li><code>${esc(t.requirement_id)}</code> [${esc(t.stage_applied)}]: ${esc(t.proof_diff_summary)}</li>`)
     .join("");
   const traceBlock = traceHtml ? `<ul style="margin:4px 0 0 18px; font-size:11.5px;">${traceHtml}</ul>` : "";
+  const toolCallsBlock = buildToolTraceHtml(res.tool_calls);
   const llmReplyHtml = res.assistant_reply
-    ? `<div style="margin-top:5px; white-space:pre-wrap;">${esc(res.assistant_reply)}</div>`
+    ? `<div class="agent-prose">${formatSafeMarkdown(res.assistant_reply)}</div>`
     : "";
+
+  const actorLabel = res.model
+    ? `${res.provider || state.llmProvider}:${res.model} · v${res.intent.intent_version}`
+    : `Harness 完成 · Intent v${res.intent ? res.intent.intent_version : "?"}`;
 
   appendStreamCard(
     "agent",
-    `Harness 完成 · Intent v${res.intent ? res.intent.intent_version : "?"}`,
+    actorLabel,
     `${state.candidates.length} 条合格`,
-    `<div>指令：<em>${esc(userText)}</em> → <code>${esc(outcome)}</code></div>${diffHtml}${traceBlock}${llmReplyHtml}`
-  );
-
-  ["quick-refine-bspqi", "quick-refine-lock-cds", "quick-refine-m15-surrogate", "quick-refine-commercial"].forEach(
-    (id) => {
-      document.getElementById(id).disabled = state.intentHistory.length === 0;
-    }
+    `<div>指令：<em>${esc(userText)}</em> → <code>${esc(outcome)}</code></div>${diffHtml}${toolCallsBlock}${llmReplyHtml}${traceBlock}`
   );
 
   const recFirst = res.report?.recommended_bundle_ids?.[0] || state.candidates[0]?.bundle_id || null;
-  state.selectedBundleId = recFirst;
+  const keepCurrentSelection =
+    !intentAdvanced &&
+    state.selectedBundleId &&
+    state.candidates.some((c) => c.bundle_id === state.selectedBundleId);
+  state.selectedBundleId = keepCurrentSelection ? state.selectedBundleId : recFirst;
 
   if (state.candidates.length > 0 && res.intent) {
     const topCand = state.candidates.find((c) => c.bundle_id === recFirst) || state.candidates[0];
@@ -1049,152 +1741,741 @@ function applyTurnResult(res, userText, sequence) {
       state.completedRevisions.sort((a, b) => a.version - b.version);
     }
     renderRevisionLedger(res.intent_diff || null);
-
-    const setupFold = document.getElementById("setup-fold");
-    if (setupFold && state.completedRevisions.length === 1) {
-      setupFold.open = false;
-    }
   }
 
   renderCandidates();
-  if (recFirst && state.candidates.length > 0) {
-    selectCandidate(recFirst);
+  if (state.selectedBundleId && state.candidates.length > 0) {
+    selectCandidate(state.selectedBundleId);
   }
+  syncActionControlsDisabled();
   return true;
 }
 
 async function refreshSystemStatus() {
   const dot = document.getElementById("dot-gateway");
   const txt = document.getElementById("txt-gateway");
-  const t0 = performance.now();
+  if (state.startupApiRejected) {
+    if (dot) dot.className = "dot err";
+    if (txt) txt.textContent = "不可信网关参数已拦截";
+    return;
+  }
+  const reqGen = state.configGeneration;
+  const reqSeq = ++state.statusRequestSeq;
+  const reqOrigin = normalizeOrigin(state.apiBase);
+  const t0 = typeof performance !== "undefined" ? performance.now() : Date.now();
   try {
-    const st = await apiFetch("/v1/system/status", { includeAuth: false });
-    const ms = Math.round(performance.now() - t0);
-    dot.className = "dot ok";
-    txt.textContent = `${st.hostname} · ${ms}ms`;
-    document.getElementById("pill-engine").textContent =
-      `Engine: ${st.default_profile} · ViennaRNA ${st.viennarna_version || "lazy"}`;
-
-    const presets = await apiFetch("/v1/presets", { includeAuth: false });
-    state.presets = presets;
-    if (!document.getElementById("input-protein").value.trim()) {
-      document.getElementById("input-protein").value = presets.egfp_reporter.protein_sequence;
-      updateProteinBadge();
+    const creds = getCredentialsForOrigin(reqOrigin);
+    const statusHeaders =
+      creds.accessToken && isTrustedApiOrigin(reqOrigin)
+        ? { "X-MRNAX-Access-Token": creds.accessToken }
+        : {};
+    const st = await apiFetch("/v1/system/status", {
+      includeAuth: false,
+      explicitApiBase: reqOrigin,
+      headers: statusHeaders,
+    });
+    if (
+      reqGen !== state.configGeneration ||
+      reqSeq !== state.statusRequestSeq ||
+      reqOrigin !== normalizeOrigin(state.apiBase) ||
+      state.startupApiRejected
+    ) {
+      return;
     }
-    document.getElementById("txt-ref-r-preview").textContent =
-      `${presets.preset_reference_r.bundle_id} (${presets.preset_reference_r.length_nt} nt) · ${presets.preset_reference_r.sequence_preview}`;
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    const ms = Math.round(now - t0);
+    if (dot) dot.className = "dot ok";
+    if (txt) txt.textContent = `${st.hostname} · ${ms}ms`;
+    const pillEng = document.getElementById("pill-engine");
+    if (pillEng) {
+      pillEng.textContent = `Engine: ${st.default_profile} · ViennaRNA ${st.viennarna_version || "lazy"}`;
+    }
+    if (st.default_llm_models && typeof st.default_llm_models === "object") {
+      state.defaultModels = { ...DEFAULT_PROVIDER_MODELS, ...st.default_llm_models };
+    }
+    if (st.supported_llm_models && typeof st.supported_llm_models === "object") {
+      state.supportedModels = { ...SUPPORTED_PROVIDER_MODELS, ...st.supported_llm_models };
+    }
+    syncModelOptions(state.llmProvider, { skipOpenModal: true });
+    updateAgentAuthPill(st);
+    if (st.caller_token_authenticated && !state.userChoseExecMode && state.activeVersion === 0) {
+      setExecMode("llm_agent");
+    }
+
+    const presets = await apiFetch("/v1/presets", { includeAuth: false, explicitApiBase: reqOrigin });
+    if (
+      reqGen !== state.configGeneration ||
+      reqSeq !== state.statusRequestSeq ||
+      reqOrigin !== normalizeOrigin(state.apiBase) ||
+      state.startupApiRejected
+    ) {
+      return;
+    }
+    if (presets && presets.egfp_reporter && presets.egfp_reporter.protein_sequence) {
+      state.presets = presets;
+      const inputProt = document.getElementById("input-protein");
+      if (inputProt && !inputProt.value.trim()) {
+        inputProt.value = presets.egfp_reporter.protein_sequence;
+        state.userEditedProtein = false;
+        updateProteinBadge();
+      }
+    }
+    const refPreview = document.getElementById("txt-ref-r-preview");
+    if (refPreview && presets && presets.preset_reference_r) {
+      refPreview.textContent = `${presets.preset_reference_r.bundle_id} (${presets.preset_reference_r.length_nt} nt) · ${presets.preset_reference_r.sequence_preview}`;
+    }
   } catch (err) {
-    dot.className = "dot err";
-    txt.textContent = `离线 (${err.message})`;
+    if (
+      reqGen !== state.configGeneration ||
+      reqSeq !== state.statusRequestSeq ||
+      reqOrigin !== normalizeOrigin(state.apiBase) ||
+      state.startupApiRejected
+    ) {
+      return;
+    }
+    if (dot) dot.className = "dot err";
+    if (txt) txt.textContent = `离线 (${err.message})`;
   }
 }
 
-async function runInitialTurn() {
+function beginBusyIndicator(modeLabel, reqEpoch) {
+  state.activeRequestCount += 1;
+  state.inFlight = true;
+  syncActionControlsDisabled();
+
+  const startedAt = Date.now();
+  const btnSend = document.getElementById("btn-send-turn");
+  const btnForm = document.getElementById("btn-submit-initial");
+
+  const box = document.getElementById("chat-stream");
+  let pendingCard = null;
+  if (box && typeof document.createElement === "function") {
+    removeWelcomeCardIfPresent();
+    pendingCard = document.createElement("div");
+    pendingCard.className = "turn-card pending";
+    pendingCard.innerHTML = `<div class="turn-meta"><span>RUNNING</span><span>0.0s</span></div><div><span class="spin"></span> ${esc(modeLabel)}</div>`;
+    box.appendChild(pendingCard);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  let timerId = null;
+  const updateElapsed = () => {
+    if (reqEpoch !== state.sessionEpoch) {
+      if (timerId !== null && typeof clearInterval === "function") clearInterval(timerId);
+      timerId = null;
+      return;
+    }
+    const sec = ((Date.now() - startedAt) / 1000).toFixed(1);
+    if (btnSend) btnSend.innerHTML = `<span class="spin"></span> 计算中… ${sec}s`;
+    if (btnForm) btnForm.textContent = `计算中… ${sec}s`;
+    if (pendingCard && pendingCard.querySelector) {
+      const spanRight = pendingCard.querySelector(".turn-meta span:last-child");
+      if (spanRight) spanRight.textContent = `${sec}s`;
+    }
+  };
+  if (typeof setInterval === "function") {
+    timerId = setInterval(updateElapsed, 100);
+  }
+  updateElapsed();
+
+  let stopped = false;
+  return () => {
+    if (stopped) return;
+    stopped = true;
+    if (timerId !== null && typeof clearInterval === "function") clearInterval(timerId);
+    if (pendingCard && typeof pendingCard.remove === "function") pendingCard.remove();
+    if (reqEpoch === state.sessionEpoch) {
+      state.activeRequestCount = Math.max(0, state.activeRequestCount - 1);
+      state.inFlight = state.activeRequestCount > 0;
+    }
+    if (!state.inFlight) {
+      if (btnSend) {
+        btnSend.textContent = getSelectedExecMode() === "llm_agent" ? "发送给 Agent ↵" : "编译生成 ↵";
+      }
+      if (btnForm) {
+        btnForm.textContent = "按表单直接编译";
+      }
+      syncActionControlsDisabled();
+    }
+  };
+}
+
+function surfaceTurnError(err, retryContext) {
+  state.lastFailedTurn = retryContext || null;
+  // Classify local auth errors strictly by outer HTTP 401 status (never regex on upstream 502 error strings)
+  const isAuthErr = Boolean(err && err.status === 401);
+  const badgeOut = document.getElementById("badge-outcome");
+  if (badgeOut) {
+    badgeOut.textContent = isAuthErr ? "AUTH REQUIRED" : "ERROR";
+    badgeOut.className = "badge mono warn";
+  }
+
+  const banner = document.getElementById("banner-notes");
+  if (banner) {
+    banner.hidden = false;
+    banner.className = "notice-banner err";
+    if (isAuthErr) {
+      banner.innerHTML = `
+        <strong>AI Agent 需要授权令牌（Access Token）或您的 BYO-LLM Key：</strong>
+        公开网页默认拦截未授权云端 DeepSeek 调用，以保护服务器额度。
+        <div class="banner-actions">
+          <button type="button" class="btn-primary btn-compact" data-action="open-auth">
+            配置 Access Token / BYO Key
+          </button>
+          <button type="button" class="btn-ghost" data-action="fallback-deterministic">
+            免密钥切到确定性引擎立即运行
+          </button>
+        </div>
+      `;
+    } else {
+      banner.innerHTML = `
+        <strong>请求失败：</strong><code>${esc((err && err.message) || "Unknown error")}</code>
+        <div class="banner-actions">
+          ${retryContext ? '<button type="button" class="btn-primary btn-compact" data-action="retry-last">重试</button>' : ""}
+          <button type="button" class="btn-ghost" data-action="open-auth">检查网关与密钥</button>
+        </div>
+      `;
+    }
+  }
+
+  appendStreamCard(
+    "err",
+    isAuthErr ? "Agent 鉴权拦截 (401)" : "请求异常",
+    isAuthErr ? "HTTP 401" : `HTTP ${(err && err.status) || "ERR"}`,
+    isAuthErr
+      ? "未提供有效 Access Token 或 BYO API Key。请点击上方横幅配置密钥，或一键切回确定性状态机立即运行。"
+      : esc((err && err.message) || "请求异常")
+  );
+}
+
+function clearSubmittedFieldIfUnchanged(sourceEl, submittedText, reqEpoch) {
+  if (!sourceEl || reqEpoch !== state.sessionEpoch) return;
+  if (typeof submittedText === "string" && sourceEl.value && sourceEl.value.trim() === submittedText) {
+    sourceEl.value = "";
+  }
+}
+
+function hasExplicitMutationIntent(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return false;
+  if (
+    /^\s*(?:how\s+(?:can|do|should|would|could|to|does)|can\s+(?:i|we|you|mrnax)|should\s+(?:i|we)|could\s+(?:i|we)|what\s+(?:is|are|does|if|happens)|why\s+|which\s+|is\s+it\s+|does\s+|do\s+i\s+|explain|compare|difference|trade-?offs?|summari[sz]e|analyze|analyse|interpret|inspect|audit|describe|list)\b/i.test(
+      raw
+    ) ||
+    /^\s*(?:请)?(?:解释|为什么|为何|如何|怎样|怎么(?:办|选|做|切换|改|用|换|开启|关闭|配置)|能否|可不可以|是否(?:可以|需要)|对比|比较|总结|分析|查看|检查|审计|说明|介绍)/.test(
+      raw
+    )
+  ) {
+    return (
+      /(?:[,;，；。]\s*(?:然后|并|再|顺便)?\s*(?:改成|换成|切换为|切换到|切回|重配|改为|设为|设置为|锁定|解锁))/.test(
+        raw
+      ) ||
+      /(?:[,;]\s*(?:then|and\s+then|now|please)?\s*(?:change\s+to|switch\s+to|replace\s+with|modify\s+to|lock\s+(?:the\s+)?cds|unlock)\b)/i.test(
+        raw
+      )
+    );
+  }
+  return (
+    /(?:改成|换成|切换|锁定|解锁|避开|禁切|重配|优化|调整|去掉|新增|添加|增加|开启|关闭|用回|设为|设置为|基于.+设计|从零设计|重新设计|生成)/.test(
+      raw
+    ) ||
+    /\b(?:change|switch|replace|modify|update|set|lock|unlock|generate|refine|optimize|avoid|exclude|remove|add|enable|disable|design\s+(?:a|an|new|egfp|mcherry|cas9|luciferase|fluc|spike|insulin|epo|mrna|construct|sequence|variant))\b|\bdesign\s+[a-z0-9_-]{2,30}\s+mrna\b/i.test(
+      raw
+    )
+  );
+}
+
+function isLikelyReadOnlyQuestion(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return false;
+  if (hasExplicitMutationIntent(raw)) return false;
+  return (
+    /\b(?:how\s+(?:can|do|should|would|could|to|does)|can\s+(?:i|we|you)|should\s+(?:i|we)|could\s+(?:i|we)|explain|why|compare|difference|trade-?offs?|summari[sz]e|what\s+(?:is|are|does|if)|which\s+(?:one|is)|analyze|analyse|interpret|inspect|audit|status|describe|list)\b/i.test(
+      raw
+    ) ||
+    /(?:解释|为什么|为何|如何|怎样|怎么|能否|可不可以|是否|原因|权衡|对比|比较|差异|区别|总结|分析|查看|检查|审计|状态|说明|什么意思|哪条|哪个好|[？?]$)/.test(
+      raw
+    )
+  );
+}
+
+function parseDeterministicRefineFallback(utterance) {
+  const raw = String(utterance || "").trim();
+  if (!raw) return null;
+  const low = raw.toLowerCase();
+  const payload = { mode: "refine", user_utterance: raw };
+  let changed = false;
+
+  if (/\bcommercial_clean\b|商用洁净|纯商用/.test(low)) {
+    payload.compliance_track = "commercial_clean";
+    payload.use_commercial_surrogate = true;
+    changed = true;
+  } else if (/\bresearch_max\b|科研最高精度/.test(low)) {
+    payload.compliance_track = "research_max";
+    payload.use_commercial_surrogate = false;
+    changed = true;
+  }
+
+  if (/\bunmodified(?:_u)?\b|canonical\s+u|天然尿苷|未修饰|不修饰/.test(low)) {
+    payload.uridine_chemistry = "unmodified_u";
+    changed = true;
+  } else if (/\b5\s*mou\b|5-?甲氧基/.test(low)) {
+    payload.uridine_chemistry = "5mou";
+    changed = true;
+  } else if (/\bm1\s*psi\b|m1ψ|m¹ψ|n1-?methyl|n?1-?甲基假尿苷|甲基假尿苷/.test(low)) {
+    payload.uridine_chemistry = "m1psi";
+    changed = true;
+  } else if (/\bpseudouridine\b|(?<!甲基)假尿苷|(?<![a-z0-9])ψ(?![a-z0-9])/.test(low)) {
+    payload.uridine_chemistry = "pseudouridine";
+    changed = true;
+  }
+
+  if (/关闭肝脏去靶向|取消肝脏去靶向|去掉.*miR-?122|disable\s+liver\s+detarget|no\s+liver\s+detarget/i.test(raw)) {
+    payload.detarget_liver = false;
+    changed = true;
+  } else if (/肝脏去靶向|开启.*去靶向|miR-?122|detarget\s+liver/i.test(raw)) {
+    payload.detarget_liver = true;
+    changed = true;
+  }
+
+  const knownEnzymes = ["BsaI", "BspQI", "BsmBI", "SapI", "EcoRI", "XbaI", "BbsI"];
+  const matchedEnz = knownEnzymes.filter((e) => new RegExp(`\\b${e}\\b`, "i").test(raw));
+  if (matchedEnz.length && /(?:酶|restriction|enzyme|避开|禁切|改为|换成|切换|replace|avoid|switch|use)/i.test(raw)) {
+    payload.restriction_enzymes = matchedEnz;
+    changed = true;
+  }
+
+  return changed ? payload : null;
+}
+
+function classifyDeterministicComposerIntent(
+  utterance,
+  { hasActiveRevision = false, fromForm = false, readOnlyExplanation = false } = {}
+) {
+  const raw = String(utterance || "").trim();
+  if (readOnlyExplanation) {
+    return { action: "local_readonly" };
+  }
+  if (!fromForm && raw) {
+    const parsedRefine = parseDeterministicRefineFallback(raw);
+    const hasMutation = hasExplicitMutationIntent(raw);
+    if (isLikelyReadOnlyQuestion(raw)) {
+      return { action: "local_readonly" };
+    }
+    if (!hasActiveRevision && !hasMutation && !parsedRefine) {
+      return { action: "local_readonly" };
+    }
+    if (hasActiveRevision && !hasMutation && !parsedRefine) {
+      return { action: "local_readonly" };
+    }
+    if (hasActiveRevision && parsedRefine) {
+      return {
+        action: "refine",
+        payload: {
+          ...parsedRefine,
+          restriction_enzymes: parsedRefine.restriction_enzymes || getSelectedEnzymes(),
+        },
+      };
+    }
+  }
+  if (hasActiveRevision) {
+    return {
+      action: "refine",
+      payload: {
+        mode: "refine",
+        user_utterance: raw || `微调当前设计：内切酶避开 ${getSelectedEnzymes().join("/") || "无"}，其余锁定继承`,
+        restriction_enzymes: getSelectedEnzymes(),
+      },
+    };
+  }
+  return { action: "initial" };
+}
+
+function handleLocalReadOnlyDeterministicResponse(utterance) {
+  if (state.activeVersion > 0 && typeof renderLocalTradeoffsSummary === "function") {
+    renderLocalTradeoffsSummary();
+    return true;
+  }
+  appendStreamCard(
+    "agent",
+    "本地仅作说明（未新建设计）",
+    "READ_ONLY",
+    `当前处于确定性引擎模式且尚未生成设计版本；问题 <code>${esc(
+      utterance
+    )}</code> 属于说明/查询类文本，未触发任何序列设计请求。如需交互问答请切换至「AI Agent」，或输入“设计 eGFP mRNA”等明确指令。`
+  );
+  return true;
+}
+
+async function replayExactRequest(retryCtx) {
+  const reqSpec = retryCtx && retryCtx.replayRequest;
+  if (!reqSpec) {
+    if (retryCtx && retryCtx.kind === "refine") {
+      return runRefineTurn(retryCtx.overridePayload || null, retryCtx.utterance || null, {
+        clientRequestId: retryCtx.clientRequestId,
+        fallbackPayload: retryCtx.fallbackPayload,
+        readOnlyExplanation: retryCtx.readOnlyExplanation,
+        sourceEl: retryCtx.sourceEl || null,
+        submittedText: retryCtx.submittedText || "",
+      });
+    }
+    return runInitialTurn(retryCtx ? retryCtx.utterance || null : null, {
+      clientRequestId: retryCtx && retryCtx.clientRequestId,
+      fallbackPayload: retryCtx && retryCtx.fallbackPayload,
+      readOnlyExplanation: retryCtx && retryCtx.readOnlyExplanation,
+      sourceEl: retryCtx && retryCtx.sourceEl,
+      submittedText: (retryCtx && retryCtx.submittedText) || "",
+    });
+  }
+  state.lastFailedTurn = null;
+  const sequence = ++state.turnSequence;
+  const reqEpoch = state.sessionEpoch;
+  const reqProjectId = reqSpec.projectId || state.projectId;
+  clearErrorBanner();
+  appendStreamCard(
+    "user",
+    reqSpec.isAgentChat ? "重试原始请求" : "重试确定性编译",
+    reqSpec.isAgentChat
+      ? reqSpec.model || reqSpec.provider || state.llmModel
+      : reqSpec.entryMode || state.entryMode,
+    esc(reqSpec.utterance)
+  );
+  const stopBusy = beginBusyIndicator(
+    reqSpec.isAgentChat
+      ? `${reqSpec.model || state.llmModel} 正在重试原始请求…`
+      : "确定性引擎正在重试原始请求…",
+    reqEpoch
+  );
+  try {
+    const res = await apiFetch(reqSpec.path, {
+      method: reqSpec.method || "POST",
+      explicitProjectKey: reqSpec.projectKey || state.projectKey,
+      explicitProvider: reqSpec.provider || null,
+      explicitApiBase: reqSpec.apiBase || null,
+      headers: reqSpec.headers || {},
+      body: JSON.stringify(reqSpec.bodyObj),
+    });
+    if (reqEpoch !== state.sessionEpoch || reqProjectId !== state.projectId) return false;
+    if (applyTurnResult(res, reqSpec.utterance, sequence)) {
+      if (reqSpec.sourceEl && reqSpec.submittedText) {
+        clearSubmittedFieldIfUnchanged(reqSpec.sourceEl, reqSpec.submittedText, reqEpoch);
+      }
+      return true;
+    }
+    return false;
+  } catch (err) {
+    if (reqEpoch === state.sessionEpoch && sequence >= state.appliedTurnSequence) {
+      surfaceTurnError(err, retryCtx);
+    }
+    return false;
+  } finally {
+    stopBusy();
+  }
+}
+
+async function runInitialTurn(customUtterance = null, meta = {}) {
+  state.lastFailedTurn = null;
+  const execMode = getSelectedExecMode();
+  const utteranceInput = document.getElementById("input-utterance");
+  const submittedText = typeof customUtterance === "string" ? customUtterance.trim() : "";
+  const allowMainDraftFallback = !meta.ignoreTextDraft && (!meta.sourceEl || meta.sourceEl === utteranceInput);
+  const mainDraftText =
+    allowMainDraftFallback && !submittedText && utteranceInput ? utteranceInput.value.trim() : "";
+  const draftEl = meta.ignoreTextDraft ? null : meta.sourceEl || (mainDraftText ? utteranceInput : null);
+  const draftText = meta.ignoreTextDraft ? "" : submittedText || mainDraftText;
+
+  if (execMode !== "llm_agent" && !meta.fromForm && !meta.bypassReadOnlyClassifier) {
+    const detDecision = classifyDeterministicComposerIntent(draftText, {
+      hasActiveRevision: state.activeVersion > 0,
+      fromForm: false,
+      readOnlyExplanation: Boolean(meta.readOnlyExplanation),
+    });
+    if (detDecision.action === "local_readonly") {
+      return handleLocalReadOnlyDeterministicResponse(draftText);
+    }
+  }
+
+  syncCurrentOriginCredentialsToMap();
   const sequence = ++state.turnSequence;
   const reqEpoch = state.sessionEpoch;
   const reqProjectId = state.projectId;
-  const prot = document.getElementById("input-protein").value.trim();
-  const chem = document.getElementById("sel-chemistry").value;
-  const prof = document.getElementById("sel-profile").value;
+  const reqProjectKey = state.projectKey;
+  const apiBaseSnapshot = normalizeOrigin(state.apiBase);
+  const protEl = document.getElementById("input-protein");
+  const prot = ((protEl && protEl.value) || "").trim();
+  const chem = (document.getElementById("sel-chemistry") && document.getElementById("sel-chemistry").value) || "m1psi";
+  const prof = (document.getElementById("sel-profile") && document.getElementById("sel-profile").value) || "research_max";
   const enz = getSelectedEnzymes();
-  const detarget = document.getElementById("chk-detarget-liver").checked;
-  const late = document.getElementById("chk-late-signal").checked;
+  const detarget = Boolean(document.getElementById("chk-detarget-liver")?.checked);
+  const late = Boolean(document.getElementById("chk-late-signal")?.checked);
   const useR = state.entryMode === "with_r";
   const conflict = state.forceConflictOnce;
   state.forceConflictOnce = false;
 
   const utterance =
-    document.getElementById("input-utterance").value.trim() ||
+    draftText ||
     (useR
-      ? `基于参考构建 R 设计 eGFP mRNA (${chem})，避开 ${enz.join("/")}，生成保守最小改动 A 与探索方案 B`
-      : `从零设计 eGFP 报告蛋白 mRNA (${chem})，蛋白 100% 锁定，${detarget ? "开启肝脏去靶向，" : ""}避开 ${enz.join("/")}`);
+      ? `基于参考构建 R 设计 eGFP mRNA (${chem}, ${prof}${late ? ", 后期表达" : ""}${detarget ? ", 肝脏去靶向" : ""})，避开 ${enz.join("/") || "无"}，生成保守最小改动 A 与探索方案 B`
+      : `从零设计 eGFP 报告蛋白 mRNA (${chem}, ${prof}${late ? ", 后期表达" : ""})，蛋白 100% 锁定，${detarget ? "开启肝脏去靶向，" : ""}避开 ${enz.join("/") || "无"}`);
 
-  appendStreamCard("user", "首轮编译 (Initial)", state.entryMode, esc(utterance));
-  const btn = document.getElementById("btn-submit-initial");
-  btn.disabled = true;
+  const clientRequestId = meta.clientRequestId || mintClientRequestId();
+  const isAgent = execMode === "llm_agent";
+  const parsedInit = !isAgent && !meta.fromForm && draftText ? parseDeterministicRefineFallback(draftText) : null;
+  const effChem = (parsedInit && parsedInit.uridine_chemistry) || chem;
+  const effProf = (parsedInit && parsedInit.compliance_track) || prof;
+  const effSurrogate =
+    parsedInit && typeof parsedInit.use_commercial_surrogate === "boolean"
+      ? parsedInit.use_commercial_surrogate
+      : effProf === "commercial_clean";
+  const effEnz = (parsedInit && parsedInit.restriction_enzymes) || enz;
+  const effDetarget =
+    parsedInit && typeof parsedInit.detarget_liver === "boolean" ? parsedInit.detarget_liver : detarget;
+  const defaultProt = (state.presets?.egfp_reporter?.protein_sequence) || FALLBACK_EGFP;
+  const namesEgfp = /\b(?:egfp|gfp|p42212|u55762)\b/i.test(draftText);
+  const namesOtherTarget = /\b(?:mcherry|cas9|luciferase|fluc|spike|insulin|epo)\b/i.test(draftText);
+  const usePrefilledDefaultForDet = Boolean(
+    meta.fromForm ||
+      meta.bypassReadOnlyClassifier ||
+      !draftText ||
+      state.userEditedProtein ||
+      prot !== defaultProt ||
+      (namesEgfp && !namesOtherTarget)
+  );
+  const shouldAttachSeq = Boolean(prot && (meta.fromForm || prot !== defaultProt || state.userEditedProtein));
+  const formBlock = meta.fromForm
+    ? `\n[表单参数：compliance_track=${prof}${prof === "commercial_clean" ? " (use_commercial_surrogate=true)" : ""}, uridine_chemistry=${chem}, entry_mode=${useR ? "protein_with_reference_r" : "protein_only"}, restriction_enzymes=${JSON.stringify(enz)}, detarget_liver=${detarget}, prioritize_late_signal=${late}]`
+    : "";
+  const seqBlock = shouldAttachSeq ? `\n（目标蛋白序列：${prot}）` : "";
+  const fullPrompt = `${utterance}${formBlock}${seqBlock}`;
+
+  const reqPath = isAgent ? `/v1/projects/${reqProjectId}/agent-chat` : `/v1/projects/${reqProjectId}/turn`;
+  const reqProvider = isAgent ? state.llmProvider : null;
+  const reqModel = isAgent ? state.llmModel : null;
+  const reqHeaders = isAgent ? {} : { "X-MRNAX-Idempotency-Key": clientRequestId };
+  const bodyObj = isAgent
+    ? {
+        message: fullPrompt,
+        provider: reqProvider,
+        model: reqModel,
+        client_request_id: clientRequestId,
+      }
+    : {
+        mode: "initial",
+        user_utterance: utterance,
+        protein_sequence: usePrefilledDefaultForDet ? prot || null : null,
+        uridine_chemistry: effChem,
+        compliance_track: effProf,
+        use_commercial_surrogate: effSurrogate,
+        restriction_enzymes: effEnz,
+        detarget_liver: effDetarget,
+        prioritize_late_signal: late,
+        conflicting_single_pick: conflict,
+        use_preset_reference_r: Boolean(useR && usePrefilledDefaultForDet && !namesOtherTarget),
+      };
+  const replayRequest = {
+    path: reqPath,
+    method: "POST",
+    apiBase: apiBaseSnapshot,
+    projectKey: reqProjectKey,
+    headers: reqHeaders,
+    bodyObj,
+    isAgentChat: isAgent,
+    provider: reqProvider,
+    model: reqModel,
+    projectId: reqProjectId,
+    utterance,
+    sourceEl: draftEl,
+    submittedText: draftText,
+    entryMode: state.entryMode,
+  };
+
+  clearErrorBanner();
+  appendStreamCard(
+    "user",
+    isAgent ? "发送给 Agent" : "首轮编译 (Initial)",
+    isAgent ? state.llmModel : state.entryMode,
+    esc(utterance)
+  );
+
+  const stopBusy = beginBusyIndicator(
+    isAgent
+      ? `${state.llmModel} 正在分析指令并调用工具…`
+      : "确定性引擎正在生成与筛选序列…",
+    reqEpoch
+  );
+
   try {
-    const execMode = document.getElementById("sel-exec-mode").value;
-    let res;
-    if (execMode === "llm_agent") {
-      res = await apiFetch(`/v1/projects/${reqProjectId}/agent-chat`, {
-        method: "POST",
-        body: JSON.stringify({
-          message: `${utterance}（目标蛋白序列：${prot}）`,
-          provider: state.llmProvider,
-        }),
-      });
-    } else {
-      res = await apiFetch(`/v1/projects/${reqProjectId}/turn`, {
-        method: "POST",
-        body: JSON.stringify({
-          mode: "initial",
-          user_utterance: utterance,
-          protein_sequence: prot,
-          uridine_chemistry: chem,
-          compliance_track: prof,
-          use_commercial_surrogate: prof === "commercial_clean",
-          restriction_enzymes: enz,
-          detarget_liver: detarget,
-          prioritize_late_signal: late,
-          conflicting_single_pick: conflict,
-          use_preset_reference_r: useR,
-        }),
-      });
+    const res = await apiFetch(reqPath, {
+      method: "POST",
+      explicitProjectKey: reqProjectKey,
+      explicitProvider: reqProvider,
+      explicitApiBase: apiBaseSnapshot,
+      headers: reqHeaders,
+      body: JSON.stringify(bodyObj),
+    });
+    if (reqEpoch !== state.sessionEpoch || reqProjectId !== state.projectId) return false;
+    if (applyTurnResult(res, utterance, sequence)) {
+      if (draftEl && draftText) {
+        clearSubmittedFieldIfUnchanged(draftEl, draftText, reqEpoch);
+      }
+      return true;
     }
-    if (reqEpoch !== state.sessionEpoch || reqProjectId !== state.projectId) return;
-    applyTurnResult(res, utterance, sequence);
+    return false;
   } catch (err) {
     if (reqEpoch === state.sessionEpoch && sequence >= state.appliedTurnSequence) {
-      appendStreamCard("warn", "请求异常", "ERROR", esc(err.message));
+      surfaceTurnError(err, {
+        kind: "initial",
+        utterance,
+        clientRequestId,
+        fallbackPayload: meta.fallbackPayload || null,
+        readOnlyExplanation: Boolean(meta.readOnlyExplanation),
+        sourceEl: draftEl,
+        submittedText: draftText,
+        replayRequest,
+      });
     }
+    return false;
   } finally {
-    btn.disabled = false;
+    stopBusy();
   }
 }
 
-async function runRefineTurn(overridePayload = null) {
-  if (!state.intentHistory.length) {
-    return runInitialTurn();
+async function runRefineTurn(overridePayload = null, customUtterance = null, meta = {}) {
+  const execMode = getSelectedExecMode();
+  if (!state.intentHistory.length && !overridePayload) {
+    return runInitialTurn(customUtterance, meta);
   }
+  state.lastFailedTurn = null;
+  const utteranceInput = document.getElementById("input-utterance");
+  const submittedText = typeof customUtterance === "string" ? customUtterance.trim() : "";
+  const allowMainDraftFallback = !meta.ignoreTextDraft && (!meta.sourceEl || meta.sourceEl === utteranceInput);
+  const mainDraftText =
+    allowMainDraftFallback && !submittedText && utteranceInput ? utteranceInput.value.trim() : "";
+  const draftEl = meta.ignoreTextDraft ? null : meta.sourceEl || (mainDraftText ? utteranceInput : null);
+  const draftText = meta.ignoreTextDraft ? "" : submittedText || mainDraftText;
+
+  let effectiveOverride = overridePayload;
+  if (!effectiveOverride && execMode !== "llm_agent") {
+    const detDecision = classifyDeterministicComposerIntent(draftText, {
+      hasActiveRevision: state.activeVersion > 0,
+      fromForm: Boolean(meta.fromForm),
+      readOnlyExplanation: Boolean(meta.readOnlyExplanation),
+    });
+    if (detDecision.action === "local_readonly") {
+      return handleLocalReadOnlyDeterministicResponse(draftText);
+    }
+    if (detDecision.action === "refine" && detDecision.payload) {
+      effectiveOverride = detDecision.payload;
+    }
+  }
+
+  syncCurrentOriginCredentialsToMap();
   const sequence = ++state.turnSequence;
   const reqEpoch = state.sessionEpoch;
   const reqProjectId = state.projectId;
+  const reqProjectKey = state.projectKey;
+  const apiBaseSnapshot = normalizeOrigin(state.apiBase);
   const utterance =
-    (overridePayload && overridePayload.user_utterance) ||
-    document.getElementById("input-utterance").value.trim() ||
-    `微调当前设计：内切酶避开 ${getSelectedEnzymes().join("/")}，其余锁定继承`;
+    (effectiveOverride && effectiveOverride.user_utterance) ||
+    draftText ||
+    `微调当前设计：内切酶避开 ${getSelectedEnzymes().join("/") || "无"}，其余锁定继承`;
 
-  appendStreamCard("user", "单点增量微调 (Refine)", `基于 v${String(state.intentHistory.length).padStart(2, "0")}`, esc(utterance));
-  const btn = document.getElementById("btn-send-turn");
-  btn.disabled = true;
-  try {
-    const execMode = document.getElementById("sel-exec-mode").value;
-    let res;
-    if (execMode === "llm_agent" && !overridePayload) {
-      res = await apiFetch(`/v1/projects/${reqProjectId}/agent-chat`, {
-        method: "POST",
-        body: JSON.stringify({ message: utterance, provider: state.llmProvider }),
-      });
-    } else {
-      const payload = overridePayload || {
+  const isAgent = execMode === "llm_agent" && !effectiveOverride;
+  const clientRequestId = meta.clientRequestId || mintClientRequestId();
+  const reqPath = isAgent ? `/v1/projects/${reqProjectId}/agent-chat` : `/v1/projects/${reqProjectId}/turn`;
+  const reqProvider = isAgent ? state.llmProvider : null;
+  const reqModel = isAgent ? state.llmModel : null;
+  const reqHeaders = isAgent ? {} : { "X-MRNAX-Idempotency-Key": clientRequestId };
+  const bodyObj = isAgent
+    ? {
+        message: utterance,
+        provider: reqProvider,
+        model: reqModel,
+        client_request_id: clientRequestId,
+      }
+    : effectiveOverride || {
         mode: "refine",
         user_utterance: utterance,
         restriction_enzymes: getSelectedEnzymes(),
       };
-      res = await apiFetch(`/v1/projects/${reqProjectId}/turn`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
+  const replayRequest = {
+    path: reqPath,
+    method: "POST",
+    apiBase: apiBaseSnapshot,
+    projectKey: reqProjectKey,
+    headers: reqHeaders,
+    bodyObj,
+    isAgentChat: isAgent,
+    provider: reqProvider,
+    model: reqModel,
+    projectId: reqProjectId,
+    utterance,
+    sourceEl: effectiveOverride ? null : draftEl,
+    submittedText: effectiveOverride ? "" : draftText,
+    entryMode: state.entryMode,
+  };
+
+  clearErrorBanner();
+  appendStreamCard(
+    "user",
+    isAgent ? "继续对话 / 微调" : "单点增量微调 (Refine)",
+    state.intentHistory.length ? `基于 v${String(state.intentHistory.length).padStart(2, "0")}` : state.llmModel,
+    esc(utterance)
+  );
+
+  const stopBusy = beginBusyIndicator(
+    isAgent
+      ? `${state.llmModel} 正在处理多轮追问/微调…`
+      : "确定性引擎正在应用增量微调…",
+    reqEpoch
+  );
+
+  try {
+    const res = await apiFetch(reqPath, {
+      method: "POST",
+      explicitProjectKey: reqProjectKey,
+      explicitProvider: reqProvider,
+      explicitApiBase: apiBaseSnapshot,
+      headers: reqHeaders,
+      body: JSON.stringify(bodyObj),
+    });
+    if (reqEpoch !== state.sessionEpoch || reqProjectId !== state.projectId) return false;
+    if (applyTurnResult(res, utterance, sequence)) {
+      if (!effectiveOverride && draftEl && draftText) {
+        clearSubmittedFieldIfUnchanged(draftEl, draftText, reqEpoch);
+      }
+      return true;
     }
-    if (reqEpoch !== state.sessionEpoch || reqProjectId !== state.projectId) return;
-    if (applyTurnResult(res, utterance, sequence)) document.getElementById("input-utterance").value = "";
+    return false;
   } catch (err) {
     if (reqEpoch === state.sessionEpoch && sequence >= state.appliedTurnSequence) {
-      appendStreamCard("warn", "微调异常", "ERROR", esc(err.message));
+      surfaceTurnError(err, {
+        kind: "refine",
+        overridePayload: effectiveOverride,
+        utterance,
+        clientRequestId,
+        fallbackPayload: meta.fallbackPayload || effectiveOverride || null,
+        readOnlyExplanation: Boolean(meta.readOnlyExplanation),
+        sourceEl: effectiveOverride ? null : draftEl,
+        submittedText: effectiveOverride ? "" : draftText,
+        replayRequest,
+      });
     }
+    return false;
   } finally {
-    btn.disabled = false;
+    stopBusy();
   }
+}
+
+async function submitComposerText(sourceEl) {
+  if (state.inFlight) return;
+  const raw = ((sourceEl && sourceEl.value) || "").trim();
+  const mainEl = document.getElementById("input-utterance");
+  if (sourceEl && !raw && (sourceEl.id === "agent-rail-input" || sourceEl !== mainEl)) {
+    if (typeof sourceEl.focus === "function") sourceEl.focus();
+    return;
+  }
+  await runRefineTurn(null, raw || undefined, { sourceEl });
 }
 
 async function downloadExportFile(filename) {
@@ -1202,14 +2483,22 @@ async function downloadExportFile(filename) {
   const projId = state.projectId;
   const revNum = state.activeVersion;
   const pKey = state.projectKey;
+  const apiBaseSnapshot = normalizeOrigin(state.apiBase);
   if (!bid) return;
-  const cacheKey = `${projId}:${revNum}:${bid}`;
+  const cacheKey = `${apiBaseSnapshot}:${projId}:${revNum}:${bid}`;
   if (!state.cachedExports[cacheKey]) {
     const result = await apiFetch(
       `/v1/projects/${projId}/bundles/${encodeURIComponent(bid)}/export`,
-      { explicitProjectKey: pKey }
+      { explicitProjectKey: pKey, explicitApiBase: apiBaseSnapshot }
     );
-    if (projId !== state.projectId || revNum !== state.activeVersion || bid !== state.selectedBundleId) return;
+    if (
+      apiBaseSnapshot !== normalizeOrigin(state.apiBase) ||
+      projId !== state.projectId ||
+      revNum !== state.activeVersion ||
+      bid !== state.selectedBundleId
+    ) {
+      return;
+    }
     state.cachedExports[cacheKey] = result;
   }
   const content = state.cachedExports[cacheKey].files[filename];
@@ -1231,7 +2520,7 @@ async function runAutomatedBrowserSelfTest() {
 
   const testProj = `selftest_${Math.random().toString(36).slice(2, 7)}`;
   const testKey = mintProjectKey();
-  const egfp = (state.presets && state.presets.egfp_reporter.protein_sequence) || FALLBACK_EGFP;
+  const egfp = (state.presets?.egfp_reporter?.protein_sequence) || FALLBACK_EGFP;
 
   const steps = [
     {
@@ -1362,7 +2651,7 @@ async function runAutomatedBrowserSelfTest() {
 
 function wireDialogFallback(dialog) {
   if (!dialog) return;
-  if (!("closedBy" in HTMLDialogElement.prototype)) {
+  if (typeof HTMLDialogElement !== "undefined" && !("closedBy" in HTMLDialogElement.prototype)) {
     const outside = (e) => {
       const r = dialog.getBoundingClientRect();
       return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
@@ -1384,27 +2673,349 @@ function closeOpenDropdowns(exceptEl = null) {
   });
 }
 
+function resetProjectWorkspaceState({ silent = false } = {}) {
+  state.sessionEpoch += 1;
+  state.activeRequestCount = 0;
+  state.inFlight = false;
+  state.projectId = `proj_${Math.random().toString(36).slice(2, 8)}`;
+  state.projectKey = mintProjectKey();
+  state.intentHistory = [];
+  state.completedRevisions = [];
+  state.activeVersion = 0;
+  state.activeIntentStatus = "";
+  state.activeEnzymes = null;
+  state.userEditedProtein = false;
+  state.appliedTurnSequence = 0;
+  if (typeof document.querySelectorAll === "function") {
+    document.querySelectorAll('#enzyme-chips .chip[data-dynamic-enz="1"]').forEach((el) => el.remove());
+  }
+  setSelectedEnzymes(["BsaI"]);
+  setEntryMode("protein_only");
+  state.latestReport = null;
+  state.candidates = [];
+  state.selectedBundleId = null;
+  state.lastCliCommand = "";
+  state.cachedExports = {};
+  state.lastFailedTurn = null;
+  state.logCount = 0;
+
+  const inputProt = document.getElementById("input-protein");
+  if (inputProt) {
+    inputProt.value = (state.presets && state.presets.egfp_reporter && state.presets.egfp_reporter.protein_sequence) || FALLBACK_EGFP;
+  }
+  if (typeof updateProteinBadge === "function") updateProteinBadge();
+
+  const txtProj = document.getElementById("txt-project-id");
+  if (txtProj) txtProj.textContent = state.projectId;
+  const badgeOut = document.getElementById("badge-outcome");
+  if (badgeOut) {
+    badgeOut.textContent = "IDLE";
+    badgeOut.className = "badge mono";
+  }
+  const banner = document.getElementById("banner-notes");
+  if (banner) {
+    banner.hidden = true;
+    banner.className = "notice-banner";
+    banner.innerHTML = "";
+  }
+  const ledger = document.getElementById("revision-ledger");
+  if (ledger) ledger.hidden = true;
+  const setupFold = document.getElementById("setup-fold");
+  if (setupFold) setupFold.open = false;
+  const logCnt = document.getElementById("txt-log-count");
+  if (logCnt) logCnt.textContent = "0";
+  if (typeof renderWelcomeCard === "function") renderWelcomeCard();
+  if (typeof clearSelectedConstructUI === "function") clearSelectedConstructUI();
+  if (typeof syncActionControlsDisabled === "function") syncActionControlsDisabled();
+  const btnSend = document.getElementById("btn-send-turn");
+  if (btnSend) {
+    btnSend.textContent = getSelectedExecMode() === "llm_agent" ? "发送给 Agent ↵" : "编译生成 ↵";
+  }
+  const btnForm = document.getElementById("btn-submit-initial");
+  if (btnForm) btnForm.textContent = "按表单直接编译";
+  updateActiveRevBadge();
+  if (typeof renderIntentLineage === "function") renderIntentLineage();
+  if (typeof renderCandidates === "function") renderCandidates();
+  if (!silent) {
+    appendStreamCard("agent", "新会话已创建", state.projectId, "已切换至全新隔离项目空间。");
+  }
+}
+
+function saveSettingsFromModal() {
+  const cfgApiEl = document.getElementById("cfg-api-base");
+  const candidateApi =
+    ((cfgApiEl && cfgApiEl.value) || "").trim().replace(/\/+$/, "") || DEFAULT_API_BASE;
+  if (!isTrustedApiOrigin(candidateApi)) {
+    const errText = `已拒绝不受信任的 API 源 ${candidateApi}；当前网关与凭据未保存，也未向其他网关发送。`;
+    setSettingsModalError(errText);
+    appendStreamCard(
+      "warn",
+      "安全策略阻断",
+      "UNTRUSTED_ORIGIN",
+      `已拒绝不受信任的 API 源 <code>${esc(candidateApi)}</code>；网关配置与凭据未保存，也未向其他网关发送。`
+    );
+    const banner = document.getElementById("banner-notes");
+    if (banner) {
+      banner.hidden = false;
+      banner.className = "notice-banner err";
+      banner.innerHTML = `<strong>设置未保存：</strong>已拒绝不受信任的网关源 <code>${esc(candidateApi)}</code>，密钥未改动也未发送。`;
+    }
+    if (cfgApiEl && typeof cfgApiEl.focus === "function") {
+      cfgApiEl.focus();
+    }
+    return false;
+  }
+  setSettingsModalError("");
+  const oldOrigin = normalizeOrigin(state.apiBase);
+  syncCurrentOriginCredentialsToMap(oldOrigin);
+
+  state.startupApiRejected = "";
+  state.configGeneration += 1;
+  const newOrigin = new URL(candidateApi).origin;
+  const originChanged = Boolean(oldOrigin && newOrigin !== oldOrigin);
+  const targetStored = originChanged ? getCredentialsForOrigin(newOrigin) : null;
+  state.apiBase = newOrigin;
+  safeStorageSet("local", "mrnax_api_base", state.apiBase);
+
+  // Read provider, model, and BYO key BEFORE rebuilding dropdown options!
+  const chosenProvider = (document.getElementById("cfg-llm-provider")?.value || "deepseek").trim().toLowerCase();
+  const chosenModel = (document.getElementById("cfg-llm-model")?.value || "").trim();
+  const chosenByoKey = (document.getElementById("cfg-byo-key")?.value || "").trim();
+  const cfgTokenVal = (document.getElementById("cfg-access-token")?.value || "").trim();
+  const EMPTY_BYO = { deepseek: "", openai: "", gemini: "", kimi: "", qwen: "" };
+  if (originChanged) {
+    const storedForTarget = targetStored || { accessToken: "", byoKeys: {} };
+    if (state.modalDraftOrigin === newOrigin) {
+      state.accessToken = cfgTokenVal;
+      state.byoKeys = {
+        ...EMPTY_BYO,
+        ...(storedForTarget.byoKeys || {}),
+        ...(state.modalDraftByoKeys || {}),
+        [chosenProvider]: chosenByoKey,
+      };
+    } else {
+      const prevTok = state.modalInitialAccessToken != null ? state.modalInitialAccessToken : state.accessToken;
+      state.accessToken = cfgTokenVal && cfgTokenVal !== prevTok ? cfgTokenVal : storedForTarget.accessToken || "";
+      const prevProvKey =
+        state.modalInitialByoKeys && chosenProvider in state.modalInitialByoKeys
+          ? state.modalInitialByoKeys[chosenProvider] || ""
+          : (state.byoKeys && state.byoKeys[chosenProvider]) || "";
+      const cleanByo = { ...EMPTY_BYO, ...(storedForTarget.byoKeys || {}) };
+      if (chosenByoKey !== prevProvKey) {
+        cleanByo[chosenProvider] = chosenByoKey;
+      }
+      state.byoKeys = cleanByo;
+    }
+  } else {
+    state.accessToken = cfgTokenVal;
+    state.byoKeys = {
+      ...(state.byoKeys || EMPTY_BYO),
+      ...(state.modalDraftByoKeys || {}),
+      [chosenProvider]: chosenByoKey,
+    };
+  }
+  state.modalDraftByoKeys = null;
+  state.modalInitialOrigin = null;
+  state.modalDraftOrigin = null;
+  state.modalInitialAccessToken = null;
+  state.modalInitialByoKeys = null;
+
+  setProviderPreference(chosenProvider);
+  setModelPreference(chosenModel);
+  state.byoKey = state.byoKeys[state.llmProvider] || "";
+  syncCurrentOriginCredentialsToMap(newOrigin);
+
+  if (originChanged) {
+    resetProjectWorkspaceState({ silent: true });
+    clearErrorBanner();
+  }
+
+  if (state.accessToken || state.byoKey) {
+    setExecMode("llm_agent");
+    if (
+      !originChanged &&
+      state.lastFailedTurn &&
+      state.lastFailedTurn.replayRequest &&
+      normalizeOrigin(state.lastFailedTurn.replayRequest.apiBase) === newOrigin
+    ) {
+      const banner = document.getElementById("banner-notes");
+      if (banner) {
+        banner.hidden = false;
+        banner.className = "notice-banner";
+        banner.innerHTML = `
+          <strong>凭据已更新至当前网关：</strong>可直接重发上次失败请求（复用原请求 ID，避免重复突变）。
+          <div class="banner-actions">
+            <button type="button" class="btn-primary btn-compact" data-action="retry-last">重试原请求</button>
+          </div>
+        `;
+      }
+    } else {
+      clearErrorBanner();
+    }
+  } else {
+    state.callerTokenAuthenticated = false;
+  }
+  updateAgentAuthPill(null);
+  const dlgSettings = document.getElementById("modal-settings");
+  if (dlgSettings && typeof dlgSettings.close === "function") dlgSettings.close();
+  refreshSystemStatus();
+  return true;
+}
+
+function executeFallbackOrRetry(action) {
+  const ctx = state.lastFailedTurn;
+  state.lastFailedTurn = null;
+  clearErrorBanner();
+  if (action === "fallback-deterministic") {
+    setExecMode("deterministic", { userInitiated: true });
+    if (ctx && ctx.readOnlyExplanation) {
+      renderLocalTradeoffsSummary();
+      return;
+    }
+    if (ctx && ctx.fallbackPayload) {
+      runRefineTurn(ctx.fallbackPayload, ctx.utterance || null);
+      return;
+    }
+    if (ctx && !ctx.overridePayload) {
+      const detDecision = classifyDeterministicComposerIntent(ctx.utterance || "", {
+        hasActiveRevision: state.activeVersion > 0,
+        fromForm: false,
+        readOnlyExplanation: Boolean(ctx.readOnlyExplanation),
+      });
+      if (detDecision.action === "local_readonly") {
+        handleLocalReadOnlyDeterministicResponse(ctx.utterance || "");
+        return;
+      }
+      if (detDecision.action === "refine" && detDecision.payload) {
+        runRefineTurn(detDecision.payload, ctx.utterance || null);
+        return;
+      }
+    }
+    if (ctx && ctx.kind === "refine") {
+      runRefineTurn(ctx.overridePayload || null, ctx.utterance || null);
+    } else {
+      runInitialTurn((ctx && ctx.utterance) || null);
+    }
+    return;
+  }
+  if (action === "retry-last" && ctx) {
+    replayExactRequest(ctx);
+  }
+}
+
 function wireEvents() {
   document.getElementById("btn-theme-toggle").addEventListener("click", () => {
     applyTheme(state.theme === "graphite" ? "light" : "graphite");
   });
+
+  if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+    window.addEventListener("hashchange", () => {
+      const tok = extractHashToken();
+      if (state.startupApiRejected) {
+        return;
+      }
+      if (tok) {
+        state.accessToken = tok;
+        syncCurrentOriginCredentialsToMap(state.apiBase);
+        const cfgToken = document.getElementById("cfg-access-token");
+        if (cfgToken) cfgToken.value = tok;
+        setExecMode("llm_agent");
+        clearErrorBanner();
+        updateAgentAuthPill(null);
+        refreshSystemStatus();
+      }
+    });
+  }
 
   document.addEventListener("click", (e) => {
     const insideDropdown = e.target.closest("details.dropdown-menu");
     closeOpenDropdowns(insideDropdown);
   });
 
-  document.getElementById("input-protein").addEventListener("input", updateProteinBadge);
+  document.getElementById("btn-toggle-copilot")?.addEventListener("click", () => {
+    const grid = document.getElementById("studio-grid");
+    const btn = document.getElementById("btn-toggle-copilot");
+    if (!grid || !btn) return;
+    const collapsed = grid.classList.toggle("copilot-collapsed");
+    btn.setAttribute("aria-pressed", String(!collapsed));
+  });
+
+  document.querySelectorAll(".engine-opt").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      setExecMode(btn.dataset.mode, { userInitiated: true });
+    });
+  });
+  document.getElementById("sel-exec-mode")?.addEventListener("change", (e) => {
+    setExecMode(e.target.value, { userInitiated: true });
+  });
+
+  document.getElementById("sel-llm-model")?.addEventListener("change", (e) => {
+    setModelPreference(e.target.value);
+  });
+  document.getElementById("cfg-llm-provider")?.addEventListener("change", (e) => {
+    const cfgByo = document.getElementById("cfg-byo-key");
+    if (!state.modalDraftByoKeys) {
+      state.modalDraftByoKeys = { ...(state.byoKeys || {}) };
+    }
+    const prevProv = state.modalDraftProvider || state.llmProvider || "deepseek";
+    if (cfgByo) {
+      state.modalDraftByoKeys[prevProv] = (cfgByo.value || "").trim();
+    }
+    const prov = (e.target.value || "deepseek").trim().toLowerCase();
+    state.modalDraftProvider = prov;
+    const models = state.supportedModels[prov] || SUPPORTED_PROVIDER_MODELS[prov] || [DEFAULT_PROVIDER_MODELS[prov]];
+    const cfgModel = document.getElementById("cfg-llm-model");
+    if (cfgModel) {
+      cfgModel.replaceChildren();
+      for (const m of models) {
+        const opt = document.createElement("option");
+        opt.value = m;
+        opt.textContent = m;
+        cfgModel.appendChild(opt);
+      }
+      cfgModel.value =
+        prov === state.llmProvider && models.includes(state.llmModel)
+          ? state.llmModel
+          : (state.defaultModels[prov] || models[0]);
+    }
+    if (cfgByo) {
+      cfgByo.value = (state.modalDraftByoKeys && state.modalDraftByoKeys[prov]) || "";
+    }
+  });
+
+  const onModalApiBaseInput = (e) => {
+    const cand = normalizeOrigin(e.target.value);
+    if (!cand || cand === state.modalDraftOrigin) return;
+    const stored = isTrustedApiOrigin(cand) ? getCredentialsForOrigin(cand) : { accessToken: "", byoKeys: {} };
+    const cfgToken = document.getElementById("cfg-access-token");
+    const cfgByo = document.getElementById("cfg-byo-key");
+    if (cfgToken) cfgToken.value = stored.accessToken || "";
+    state.modalDraftByoKeys = {
+      deepseek: "",
+      openai: "",
+      gemini: "",
+      kimi: "",
+      qwen: "",
+      ...(stored.byoKeys || {}),
+    };
+    const activeProv = state.modalDraftProvider || state.llmProvider || "deepseek";
+    if (cfgByo) cfgByo.value = state.modalDraftByoKeys[activeProv] || "";
+    state.modalDraftOrigin = cand;
+  };
+  document.getElementById("cfg-api-base")?.addEventListener("input", onModalApiBaseInput);
+  document.getElementById("cfg-api-base")?.addEventListener("change", onModalApiBaseInput);
+
+  document.getElementById("input-protein").addEventListener("input", () => {
+    state.userEditedProtein = true;
+    updateProteinBadge();
+  });
   document.getElementById("sel-chemistry").addEventListener("change", updateSetupSummary);
   document.getElementById("sel-profile").addEventListener("change", updateSetupSummary);
   document.getElementById("chk-detarget-liver").addEventListener("change", updateSetupSummary);
 
-  document.querySelectorAll(".seg-tabs .tab").forEach((tab) => {
+  document.querySelectorAll(".seg-tabs[aria-label='设计入口'] .tab").forEach((tab) => {
     tab.addEventListener("click", () => {
-      document.querySelectorAll(".seg-tabs .tab").forEach((t) => t.classList.remove("active"));
-      tab.classList.add("active");
-      state.entryMode = tab.dataset.entry;
-      document.getElementById("box-ref-r").hidden = state.entryMode !== "with_r";
+      setEntryMode(tab.dataset.entry);
     });
   });
 
@@ -1434,7 +3045,7 @@ function wireEvents() {
   document.getElementById("preset-egfp").addEventListener("click", () => {
     closeOpenDropdowns();
     document.getElementById("setup-fold").open = true;
-    const seq = (state.presets && state.presets.egfp_reporter.protein_sequence) || FALLBACK_EGFP;
+    const seq = (state.presets?.egfp_reporter?.protein_sequence) || FALLBACK_EGFP;
     document.getElementById("input-protein").value = seq;
     setSelectedEnzymes(["BsaI"]);
     updateProteinBadge();
@@ -1442,31 +3053,175 @@ function wireEvents() {
 
   document.getElementById("preset-no-m").addEventListener("click", () => {
     closeOpenDropdowns();
-    const seq = (state.presets && state.presets.egfp_reporter.protein_sequence) || FALLBACK_EGFP;
+    if (state.inFlight) return;
+    const seq = (state.presets?.egfp_reporter?.protein_sequence) || FALLBACK_EGFP;
     document.getElementById("input-protein").value = seq.slice(1);
     updateProteinBadge();
-    runInitialTurn();
+    setExecMode("deterministic");
+    runInitialTurn("测试缺起始 M 蛋白护栏拦截", { bypassReadOnlyClassifier: true });
   });
 
   document.getElementById("preset-conflict").addEventListener("click", () => {
     closeOpenDropdowns();
-    const seq = (state.presets && state.presets.egfp_reporter.protein_sequence) || FALLBACK_EGFP;
+    if (state.inFlight) return;
+    const seq = (state.presets?.egfp_reporter?.protein_sequence) || FALLBACK_EGFP;
     document.getElementById("input-protein").value = seq;
     updateProteinBadge();
+    setExecMode("deterministic");
     state.forceConflictOnce = true;
-    runInitialTurn();
+    runInitialTurn("测试单候选目标冲突追问", { bypassReadOnlyClassifier: true });
   });
 
-  document.getElementById("btn-submit-initial").addEventListener("click", runInitialTurn);
-  document.getElementById("btn-send-turn").addEventListener("click", () => runRefineTurn());
+  // Starter Chips
+  document.getElementById("starter-egfp")?.addEventListener("click", () => {
+    if (state.inFlight) return;
+    const seq = (state.presets?.egfp_reporter?.protein_sequence) || FALLBACK_EGFP;
+    setEntryMode("protein_only");
+    document.getElementById("input-protein").value = seq;
+    state.userEditedProtein = false;
+    document.getElementById("sel-profile").value = "research_max";
+    document.getElementById("sel-chemistry").value = "m1psi";
+    document.getElementById("chk-detarget-liver").checked = true;
+    document.getElementById("chk-late-signal").checked = false;
+    setSelectedEnzymes(["BsaI"]);
+    updateProteinBadge();
+    const prompt = "从零设计 eGFP 报告蛋白 mRNA（research_max，m1Psi 修饰，开启肝脏去靶向，避开 BsaI 内切酶）。";
+    const mainInput = document.getElementById("input-utterance");
+    mainInput.value = prompt;
+    runInitialTurn(prompt, { sourceEl: mainInput, fromForm: true });
+  });
+
+  document.getElementById("starter-ref-r")?.addEventListener("click", () => {
+    if (state.inFlight) return;
+    const seq = (state.presets?.egfp_reporter?.protein_sequence) || FALLBACK_EGFP;
+    setEntryMode("with_r");
+    document.getElementById("input-protein").value = seq;
+    state.userEditedProtein = false;
+    document.getElementById("sel-profile").value = "research_max";
+    document.getElementById("sel-chemistry").value = "m1psi";
+    document.getElementById("chk-detarget-liver").checked = false;
+    document.getElementById("chk-late-signal").checked = true;
+    setSelectedEnzymes(["BsaI"]);
+    updateProteinBadge();
+    const prompt = "基于参考构建 R 设计 eGFP mRNA（research_max，m1Psi 修饰，后期蛋白持续表达优先，避开 BsaI），生成保守最小改动方案 A 与探索方案 B。";
+    const mainInput = document.getElementById("input-utterance");
+    mainInput.value = prompt;
+    runInitialTurn(prompt, { sourceEl: mainInput, fromForm: true });
+  });
+
+  document.getElementById("starter-commercial")?.addEventListener("click", () => {
+    if (state.inFlight) return;
+    const hasIntent = state.intentHistory.length > 0;
+    document.getElementById("sel-profile").value = "commercial_clean";
+    if (!hasIntent) {
+      const seq = (state.presets?.egfp_reporter?.protein_sequence) || FALLBACK_EGFP;
+      setEntryMode("protein_only");
+      document.getElementById("input-protein").value = seq;
+      state.userEditedProtein = false;
+      document.getElementById("sel-chemistry").value = "m1psi";
+      document.getElementById("chk-detarget-liver").checked = false;
+      document.getElementById("chk-late-signal").checked = false;
+      setSelectedEnzymes(["BsaI"]);
+      updateProteinBadge();
+    } else {
+      updateSetupSummary();
+    }
+    const prompt = hasIntent
+      ? "切换至 commercial_clean 纯商用四头代理栈（5′UTR MRL + CDS + Saluki + fastUTR，零 ViennaRNA），继承锁定项重新评估候选。"
+      : "从零设计 eGFP mRNA（commercial_clean 纯商用四头代理栈，m1Psi 修饰，避开 BsaI，零 ViennaRNA）。";
+    const mainInput = document.getElementById("input-utterance");
+    mainInput.value = prompt;
+    const structuredRefine = {
+      mode: "refine",
+      user_utterance: prompt,
+      compliance_track: "commercial_clean",
+      use_commercial_surrogate: true,
+    };
+    if (hasIntent) {
+      runRefineTurn(
+        getSelectedExecMode() === "llm_agent" ? null : structuredRefine,
+        prompt,
+        { sourceEl: mainInput, fallbackPayload: structuredRefine }
+      );
+    } else {
+      runInitialTurn(prompt, { sourceEl: mainInput, fromForm: true });
+    }
+  });
+
+  document.getElementById("starter-tradeoffs")?.addEventListener("click", () => {
+    if (state.inFlight) return;
+    const hasIntent = state.activeVersion > 0;
+    if (hasIntent) {
+      setExecMode("llm_agent", { userInitiated: true });
+    } else {
+      const seq = (state.presets?.egfp_reporter?.protein_sequence) || FALLBACK_EGFP;
+      setEntryMode("protein_only");
+      document.getElementById("input-protein").value = seq;
+      state.userEditedProtein = false;
+      document.getElementById("sel-profile").value = "research_max";
+      document.getElementById("sel-chemistry").value = "m1psi";
+      document.getElementById("chk-detarget-liver").checked = false;
+      document.getElementById("chk-late-signal").checked = false;
+      setSelectedEnzymes(["BsaI"]);
+      updateProteinBadge();
+    }
+    const prompt = hasIntent
+      ? "请调用 explain_tradeoffs 并通俗解释当前 P1 前沿候选之间的关键指标权衡与合规边界。"
+      : "从零设计 eGFP mRNA（research_max，m1Psi 修饰，避开 BsaI），完成后解释 P1 前沿候选的核心权衡。";
+    const mainInput = document.getElementById("input-utterance");
+    mainInput.value = prompt;
+    runRefineTurn(null, prompt, {
+      sourceEl: mainInput,
+      readOnlyExplanation: hasIntent,
+    });
+  });
+
+  const dlgSettings = document.getElementById("modal-settings");
+  const dlgSelftest = document.getElementById("modal-selftest");
+  wireDialogFallback(dlgSettings);
+  wireDialogFallback(dlgSelftest);
+
+  document.getElementById("banner-notes")?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-action]");
+    if (!btn) return;
+    const action = btn.dataset.action;
+    if (action === "open-auth") {
+      openSettingsModal(true);
+      return;
+    }
+    executeFallbackOrRetry(action);
+  });
+
+  document.getElementById("pill-agent-auth")?.addEventListener("click", () => {
+    openSettingsModal(true);
+  });
+
+  document.getElementById("btn-submit-initial").addEventListener("click", () => {
+    if (state.inFlight) return;
+    runInitialTurn(null, { fromForm: true, ignoreTextDraft: true });
+  });
+  document.getElementById("btn-send-turn").addEventListener("click", () => {
+    submitComposerText(document.getElementById("input-utterance"));
+  });
   document.getElementById("input-utterance").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      runRefineTurn();
+      submitComposerText(document.getElementById("input-utterance"));
+    }
+  });
+
+  document.getElementById("btn-agent-rail-send")?.addEventListener("click", () => {
+    submitComposerText(document.getElementById("agent-rail-input"));
+  });
+  document.getElementById("agent-rail-input")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      submitComposerText(document.getElementById("agent-rail-input"));
     }
   });
 
   document.getElementById("quick-refine-bspqi").addEventListener("click", () => {
+    if (state.inFlight) return;
     setSelectedEnzymes(["BspQI"]);
     runRefineTurn({
       mode: "refine",
@@ -1476,7 +3231,7 @@ function wireEvents() {
   });
 
   document.getElementById("quick-refine-lock-cds").addEventListener("click", () => {
-    if (!state.selectedBundleId) return;
+    if (state.inFlight || !state.selectedBundleId) return;
     runRefineTurn({
       mode: "refine",
       user_utterance: `锁定当前候选 ${state.selectedBundleId} 的 CDS 核苷酸序列，仅允许重配 UTR`,
@@ -1485,6 +3240,7 @@ function wireEvents() {
   });
 
   document.getElementById("quick-refine-m15-surrogate").addEventListener("click", () => {
+    if (state.inFlight) return;
     document.getElementById("sel-profile").value = "commercial_clean";
     updateSetupSummary();
     runRefineTurn({
@@ -1496,6 +3252,7 @@ function wireEvents() {
   });
 
   document.getElementById("quick-refine-commercial").addEventListener("click", () => {
+    if (state.inFlight) return;
     document.getElementById("sel-profile").value = "commercial_clean";
     updateSetupSummary();
     runRefineTurn({
@@ -1505,40 +3262,18 @@ function wireEvents() {
     });
   });
 
-  document.getElementById("btn-new-session").addEventListener("click", () => {
-    state.sessionEpoch += 1;
-    state.projectId = `proj_${Math.random().toString(36).slice(2, 8)}`;
-    state.projectKey = mintProjectKey();
-    state.intentHistory = [];
-    state.completedRevisions = [];
-    state.activeVersion = 0;
-    state.appliedTurnSequence = 0;
-    state.latestReport = null;
-    state.candidates = [];
-    state.selectedBundleId = null;
-    state.lastCliCommand = "";
-    state.cachedExports = {};
-    state.logCount = 0;
-
-    document.getElementById("txt-project-id").textContent = state.projectId;
-    document.getElementById("badge-outcome").textContent = "IDLE";
-    document.getElementById("badge-outcome").className = "badge mono";
-    document.getElementById("banner-notes").hidden = true;
-    document.getElementById("banner-notes").innerHTML = "";
-    document.getElementById("revision-ledger").hidden = true;
-    document.getElementById("setup-fold").open = true;
-    document.getElementById("chat-stream").innerHTML = "";
-    document.getElementById("txt-log-count").textContent = "0";
-    clearSelectedConstructUI();
-    ["quick-refine-bspqi", "quick-refine-lock-cds", "quick-refine-m15-surrogate", "quick-refine-commercial"].forEach(
-      (id) => {
-        document.getElementById(id).disabled = true;
-      }
+  document.getElementById("quick-ask-tradeoffs")?.addEventListener("click", () => {
+    if (state.inFlight || !state.intentHistory.length) return;
+    setExecMode("llm_agent", { userInitiated: true });
+    runRefineTurn(
+      null,
+      "请调用 explain_tradeoffs 简要总结当前 P1 前沿候选的指标权衡与最佳选择理由。",
+      { readOnlyExplanation: true }
     );
-    updateActiveRevBadge();
-    renderIntentLineage();
-    renderCandidates();
-    appendStreamCard("agent", "新会话已创建", state.projectId, "已切换至全新隔离项目空间。");
+  });
+
+  document.getElementById("btn-new-session").addEventListener("click", () => {
+    resetProjectWorkspaceState({ silent: false });
   });
 
   document.getElementById("btn-dl-gb").addEventListener("click", () => downloadExportFile("construct.gb"));
@@ -1565,41 +3300,13 @@ function wireEvents() {
     }, 1500);
   });
 
-  const dlgSettings = document.getElementById("modal-settings");
-  const dlgSelftest = document.getElementById("modal-selftest");
-  wireDialogFallback(dlgSettings);
-  wireDialogFallback(dlgSelftest);
-
   document.getElementById("btn-open-settings").addEventListener("click", () => {
-    dlgSettings.showModal();
+    openSettingsModal(false);
   });
   document.getElementById("btn-close-settings").addEventListener("click", () => {
     dlgSettings.close();
   });
-  document.getElementById("btn-save-settings").addEventListener("click", () => {
-    const candidateApi =
-      document.getElementById("cfg-api-base").value.trim().replace(/\/+$/, "") || DEFAULT_API_BASE;
-    if (!isTrustedApiOrigin(candidateApi)) {
-      appendStreamCard(
-        "warn",
-        "安全策略阻断",
-        "UNTRUSTED_ORIGIN",
-        `已拒绝不受信任的 API 源 <code>${esc(candidateApi)}</code>，回退至默认受信任网关。`
-      );
-      state.apiBase = DEFAULT_API_BASE;
-      document.getElementById("cfg-api-base").value = DEFAULT_API_BASE;
-      localStorage.removeItem("mrnax_api_base");
-    } else {
-      state.apiBase = new URL(candidateApi).origin;
-      localStorage.setItem("mrnax_api_base", state.apiBase);
-    }
-    // Keep accessToken and byoKey strictly in tab memory (zero localStorage / sessionStorage)
-    state.accessToken = document.getElementById("cfg-access-token").value.trim();
-    setProviderPreference(document.getElementById("cfg-llm-provider").value);
-    state.byoKey = document.getElementById("cfg-byo-key").value.trim();
-    dlgSettings.close();
-    refreshSystemStatus();
-  });
+  document.getElementById("btn-save-settings").addEventListener("click", saveSettingsFromModal);
 
   document.getElementById("btn-run-selftest").addEventListener("click", () => {
     closeOpenDropdowns();
@@ -1614,8 +3321,13 @@ function wireEvents() {
 
 document.addEventListener("DOMContentLoaded", () => {
   initConfig();
+  renderWelcomeCard();
   wireEvents();
-  document.getElementById("input-protein").value = FALLBACK_EGFP;
+  const inputProt = document.getElementById("input-protein");
+  if (inputProt) {
+    inputProt.value = FALLBACK_EGFP;
+    state.userEditedProtein = false;
+  }
   updateProteinBadge();
   refreshSystemStatus();
 });
