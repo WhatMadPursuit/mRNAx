@@ -1,6 +1,6 @@
 # mRNAx v2 晨间交付简报（M1.5 → M2 阶段简报）
 
-> **当前进度结论**：**`G1`–`G8` 全部 8 道硬验收门已实测通过并同步至线上代码库与轻量控制面，`G9` 本地全量单测、MCP 进程通信与 HTTP 契约对等测试已 100% 全绿，正在执行终轮只读独立盲审（`gpt-6.2-astra` `ultra`）收官核验**。`mRNAx v2` 已建设为纯商用洁净（Clean-Room）、真内循环引导生成、双链协同优化、7×24 云端在线的工业级 mRNA 序列设计平台。
+> **当前进度结论**：**`G1`–`G9` 全部 9 道硬验收门已 100% 实测通过并获独立 `gpt-6.2-astra (ultra)` 只读终审放行（`SIGN-OFF READY`：`0 Critical · 0 Important`，审计提交 `d5e1b2c`），进度账本已正式封板为 `ALL_GATES_COMPLETE`**。`mRNAx v2` 已建设为纯商用洁净（Clean-Room）、真内循环引导生成、双链协同优化、7×24 云端在线的工业级 mRNA 序列设计平台。
 
 ---
 
@@ -34,7 +34,7 @@
 | **`G6`** | 方法级 FTO 护栏（`ADR-0003`）+ Wave 8 隐蔽许可陷阱拦截 | `RunManifest` 已写入非分区优化审计记录（阻断态与历史清单不虚报）；10 类隐蔽开源/非商用多跳依赖与 PEP 508/503 变体在 `commercial_clean` 档 100% 自动拦截 |
 | **`G7`** | **真生成器内循环升级** vs `本次未改善生成器` 纯重排（5 种子严格等算子调用对照） | **单链 eGFP（38 vs 38 次直接算子调用）**：模型半衰期得分 `8.11 → 10.56`（**+2.45，5/5 种子胜**），CDS 稳定性 **+15.3%（4/5 胜）**，双密码子指数 **+75.4%（5/5 胜）**；<br>**双链 DLL3×CD3（72 vs 72 次直接算子调用）**：最弱链模型半衰期得分 `5.39 → 5.47`（**+0.081，3/5 胜**），CDS 稳定性 **+81.6%（4/5 胜）**，双密码子指数提升至 **4.97 倍（5/5 胜）** |
 | **`G8`** | Colab L4 GPU 零漂移核验 + `RC-004` `EternaFold` 替换卡 + Drive 封存 | L4 实测 `Orthrus` 与 `structRFM`（强制 `USE_SPACED=False`）重复漂移均为 `0.0`；`EternaFold v1.3.1` 在 RMDB 基准相关性达 `0.6993`（优于 `ViennaRNA` `0.6747` 且零 `libRNA` 链接），运行时未挂载必阻断、挂载即执行；已写入 Google Drive `SEALED.json`（`1V6vt-fasVC9eEC7opoDPcV81XwR-WEsi`），闲置 Colab VM = `0` |
-| **`G9`** | MCP 标准进程通信 + BYO-LLM / Web API 一致性 + 统一终审归档 | `mrnax mcp-serve`（含 `ping` 与 `random_seed`）与独立 HTTP `/turn` 商用写路径结果完全一致；正在执行终轮只读 `gpt-6.2-astra (ultra)` 独立盲审放行核验 |
+| **`G9`** | MCP 标准进程通信 + BYO-LLM / Web API 一致性 + 统一终审归档 | `mrnax mcp-serve`（含 64 位 `RequestId` 回传、精确十进制种子前置边界、9 工具 Schema 对齐）与 HTTP `/turn` 商用写路径及 5,040 种并列排列幂等重排完全一致；独立只读 `gpt-6.2-astra (ultra)` 终审返回 **`SIGN-OFF READY`（`0 Critical · 0 Important`）** |
 
 ---
 
@@ -43,4 +43,4 @@
 - **接下来可以随时推进的方向（M3 演进准备）**：
   1. 在真实湿实验首批小样本（如 `N < 6` 预实验与 `N ≥ 6` 独立构建校准批）回传后，直接通过内置的双速反馈接口（`ingest_experiment`）触发自动换锚或项目内隔离权重微调。
   2. 若后续需要接入环状 RNA（circRNA / IRES）或自扩增 RNA（saRNA），可在当前多分子 `ConstructBundle` 底座上直接扩展拓扑模块。
-- **目前需要你拍板决定的事项**：**无阻塞项**。线上网页、7×24 云端网关、GitHub 主干与 Google Drive 封存均已同步就绪，终审完成后账本将自动切换为 `ALL_GATES_COMPLETE`。
+- **目前需要你拍板决定的事项**：**无阻塞项**。线上网页、7×24 云端网关、GitHub 主干与 Google Drive 封存均已同步就绪，全部 9 道验收门账本已正式切换为 `ALL_GATES_COMPLETE`。
