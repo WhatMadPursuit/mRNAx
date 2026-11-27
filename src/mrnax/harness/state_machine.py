@@ -16,11 +16,18 @@ from functools import wraps
 from pathlib import Path
 from typing import Any
 
+from mrnax.constraints.frameshift_m1psi import remediate_m1psi_slippery_runs
 from mrnax.constraints.registry import ScopedConstraintEngine, default_m1_constraints
 from mrnax.engine.pareto_director import next_report_timestamp_ns, run_design_pipeline
 from mrnax.harness.sandbox import UntrustedExternalText, redact_secret_markers
 from mrnax.schemas.common import ComplianceProfile, SegmentScope, UridineChemistry
-from mrnax.schemas.construct_bundle import ConstructBundle, ProteinTargetSpec, RNAMoleculeSpec
+from mrnax.schemas.construct_bundle import (
+    ChemistryTrackSpec,
+    ConstructBundle,
+    ProteinTargetSpec,
+    RNAMoleculeSpec,
+    SegmentSpan,
+)
 from mrnax.schemas.design_intent import (
     BundleSegmentLock,
     CellExpressionSpec,
@@ -128,6 +135,100 @@ def paired_chains(left: ConstructBundle, right: ConstructBundle) -> list[tuple[R
     if len({b.molecule_id for _, b in pairs}) != len(pairs):
         raise ValueError("No one-to-one chain identity across bundles")
     return pairs
+
+
+def build_preset_reference_r(seed_dir: Path) -> ConstructBundle:
+    """Construct the canonical commercial_clean eGFP + HBA1 reference ConstructBundle R."""
+    snap = json.loads((seed_dir / "egfp_reporter_snapshot.json").read_text(encoding="utf-8"))
+    utrs = json.loads((seed_dir / "utr_components_v1.json").read_text(encoding="utf-8"))
+    hba1_u5 = next(u for u in utrs["five_prime_utrs"] if u["gene_symbol"] == "HBA1")
+    hba1_u3 = next(u for u in utrs["three_prime_utrs"] if u["gene_symbol"] == "HBA1")
+
+    u5 = hba1_u5["sequence"]
+    cds_wt, _ = remediate_m1psi_slippery_runs(snap["mammalian_reporter_egfp"]["reference_cds_rna_no_stop"])
+    stop = snap["mammalian_reporter_egfp"]["reference_stop_codon"]
+    u3 = hba1_u3["sequence"]
+    pa = "A" * 100
+    prot = snap["mammalian_reporter_egfp"]["protein_sequence"]
+
+    c1 = len(u5)
+    c2 = c1 + len(cds_wt)
+    c3 = c2 + len(stop)
+    c4 = c3 + len(u3)
+    c5 = c4 + len(pa)
+
+    mol = RNAMoleculeSpec(
+        molecule_id="mol_egfp_ref_R",
+        modality="linear_mrna",
+        topology="linear",
+        chemistry_track=ChemistryTrackSpec(
+            uridine_chemistry="m1psi",
+            cap_chemistry="cap1_cleancap_ag",
+            source="user_declared",
+        ),
+        effective_translation_target=ProteinTargetSpec(
+            protein_sequence=prot,
+            transl_table=1,
+            accession_or_source="GenBank:U55762.1",
+            entry_version="AAB02572.1",
+            confirmation_status="confirmed",
+        ),
+        sequence=u5 + cds_wt + stop + u3 + pa,
+        segments=[
+            SegmentSpan(
+                segment_type="five_prime_utr",
+                start=0,
+                end=c1,
+                component_id=hba1_u5["component_id"],
+                origin_source=hba1_u5["origin_source"],
+                license_track="commercial_clean",
+                action_taken="locked_verbatim",
+            ),
+            SegmentSpan(
+                segment_type="cds",
+                start=c1,
+                end=c2,
+                component_id="cds_u55762_wt_m1psi_clean",
+                origin_source="GenBank:U55762.1",
+                license_track="commercial_clean",
+                action_taken="locked_verbatim",
+            ),
+            SegmentSpan(
+                segment_type="stop_cassette",
+                start=c2,
+                end=c3,
+                component_id="stop_uaa",
+                origin_source="GenBank:U55762.1",
+                license_track="commercial_clean",
+                action_taken="locked_verbatim",
+            ),
+            SegmentSpan(
+                segment_type="three_prime_utr",
+                start=c3,
+                end=c4,
+                component_id=hba1_u3["component_id"],
+                origin_source=hba1_u3["origin_source"],
+                license_track="commercial_clean",
+                action_taken="locked_verbatim",
+            ),
+            SegmentSpan(
+                segment_type="poly_a",
+                start=c4,
+                end=c5,
+                component_id="polya_a100",
+                origin_source="mrnax:homopolymer_tail",
+                license_track="commercial_clean",
+                action_taken="locked_verbatim",
+            ),
+        ],
+    )
+    return ConstructBundle.create(
+        bundle_id="bnd_egfp_ref_R",
+        parent_bundle_id=None,
+        derivation_action="reference_import",
+        target_stoichiometry={"mol_egfp_ref_R": 1.0},
+        molecules=[mol],
+    )
 
 
 class ProjectHarnessSession:
@@ -708,6 +809,119 @@ class ProjectHarnessSession:
         if reference_bundle is not None:
             self.register_bundle(reference_bundle, set_as_reference=True, originating_intent_id=intent.intent_id)
         return intent
+
+    def create_turn_intent_canonical(
+        self,
+        *,
+        user_utterance: str,
+        protein_sequence: str | None = None,
+        accession_or_source: str = "GenBank:U55762.1",
+        entry_version: str | None = None,
+        compliance_track: ComplianceProfile | None = None,
+        uridine_chemistry: UridineChemistry | None = None,
+        restriction_enzymes: list[str] | None = None,
+        locked_five_prime_utr: str | None = None,
+        detarget_liver: bool | None = None,
+        prioritize_late_signal: bool = False,
+        conflicting_single_pick: bool = False,
+        reference_bundle_id: str | None = None,
+        use_preset_reference_r: bool = False,
+        use_commercial_surrogate: bool | None = None,
+        random_seed: int = 42,
+    ) -> DesignIntent:
+        """Single shared initial-turn adapter used identically by HTTP `/turn` and MCP `design_constructs`."""
+        snap = json.loads((self.seed_dir / "egfp_reporter_snapshot.json").read_text(encoding="utf-8"))
+        prot_seq = (protein_sequence or snap["mammalian_reporter_egfp"]["protein_sequence"]).strip()
+        ref_bundle: ConstructBundle | None = None
+        if reference_bundle_id:
+            ref_bundle = self.get_bundle(reference_bundle_id)
+        elif use_preset_reference_r:
+            ref_bundle = build_preset_reference_r(self.seed_dir)
+
+        effective_entry_version = (
+            entry_version
+            if entry_version is not None
+            else ("AAB02572.1" if accession_or_source == "GenBank:U55762.1" else None)
+        )
+        locks_init: dict[SegmentScope, str] | None = (
+            {"five_prime_utr": locked_five_prime_utr} if locked_five_prime_utr else None
+        )
+        detarget_init = ["liver_hepatocyte"] if detarget_liver else None
+        prot_init = ["skeletal_muscle"] if detarget_liver else None
+        if detarget_liver is None and any(
+            k in user_utterance.lower() for k in ("mir-122", "肝脏去靶向", "避开肝脏", "detarget liver")
+        ):
+            detarget_init = ["liver_hepatocyte"]
+            prot_init = ["skeletal_muscle"]
+
+        effective_track: ComplianceProfile = compliance_track or "research_max"
+        return self.create_initial_intent(
+            turn_id=f"turn_{len(self._intents) + 1:02d}",
+            user_utterance=user_utterance,
+            protein_sequence=prot_seq,
+            accession_or_source=accession_or_source,
+            entry_version=effective_entry_version,
+            reference_bundle=ref_bundle,
+            compliance_track=effective_track,
+            uridine_chemistry=uridine_chemistry,
+            locked_regions=locks_init,
+            restriction_enzymes=restriction_enzymes,
+            detarget_tissues=detarget_init,
+            protected_tissues=prot_init,
+            prioritize_late_signal=prioritize_late_signal,
+            conflicting_single_pick=conflicting_single_pick,
+            use_commercial_surrogate=use_commercial_surrogate,
+            random_seed=random_seed,
+        )
+
+    def refine_turn_intent_canonical(
+        self,
+        *,
+        user_utterance: str,
+        restriction_enzymes: list[str] | None = None,
+        locked_five_prime_utr: str | None = None,
+        lock_cds_from_bundle_id: str | None = None,
+        unlock_scopes: list[SegmentScope] | None = None,
+        uridine_chemistry: UridineChemistry | None = None,
+        compliance_track: ComplianceProfile | None = None,
+        detarget_liver: bool | None = None,
+        use_commercial_surrogate: bool | None = None,
+    ) -> DesignIntent:
+        """Single shared refine-turn adapter used identically by HTTP `/turn` and MCP `refine_construct`."""
+        prev_intent = self.latest_intent()
+        add_locks: dict[SegmentScope, str] | None = (
+            {"five_prime_utr": locked_five_prime_utr} if locked_five_prime_utr else None
+        )
+        detarget: list[str] | None = None
+        prot_tiss: list[str] | None = None
+        if detarget_liver is True:
+            detarget = ["liver_hepatocyte"]
+            prot_tiss = ["skeletal_muscle"]
+        elif detarget_liver is False:
+            detarget = []
+            prot_tiss = []
+        elif any(k in user_utterance.lower() for k in ("mir-122", "肝脏去靶向", "避开肝脏", "detarget liver")):
+            detarget = ["liver_hepatocyte"]
+            prot_tiss = ["skeletal_muscle"]
+
+        explicit_track_change = (
+            compliance_track
+            if (compliance_track is not None and compliance_track != prev_intent.compliance_track)
+            else None
+        )
+        return self.apply_incremental_intent_update(
+            turn_id=f"turn_{len(self._intents) + 1:02d}",
+            user_utterance=user_utterance,
+            updated_restriction_enzymes=restriction_enzymes,
+            additional_locked_scopes=add_locks,
+            lock_cds_from_bundle_id=lock_cds_from_bundle_id,
+            unlocked_scopes=unlock_scopes,
+            updated_chemistry=uridine_chemistry,
+            updated_compliance_track=explicit_track_change,
+            detarget_tissues=detarget,
+            protected_tissues=prot_tiss,
+            use_commercial_surrogate=bool(use_commercial_surrogate),
+        )
 
     def extract_structured_intent_deterministic(
         self,

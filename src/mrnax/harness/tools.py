@@ -63,33 +63,36 @@ class AtomicToolbox:
         self,
         *,
         user_utterance: str,
-        protein_sequence: str,
+        protein_sequence: str | None = None,
         accession_or_source: str = "GenBank:U55762.1",
-        compliance_track: str = "research_max",
-        uridine_chemistry: str = "m1psi",
+        entry_version: str | None = None,
+        compliance_track: str | None = None,
+        uridine_chemistry: str | None = None,
         restriction_enzymes: list[str] | None = None,
         locked_five_prime_utr: str | None = None,
-        detarget_liver: bool = False,
+        detarget_liver: bool | None = None,
         prioritize_late_signal: bool = False,
+        conflicting_single_pick: bool = False,
         reference_bundle_id: str | None = None,
+        use_preset_reference_r: bool = False,
+        use_commercial_surrogate: bool | None = None,
         random_seed: int = 42,
     ) -> dict[str, Any]:
-        ref_b = self.session.get_bundle(reference_bundle_id) if reference_bundle_id else None
-        locks = {"five_prime_utr": locked_five_prime_utr} if locked_five_prime_utr else None
-        intent = self.session.create_initial_intent(
-            turn_id=f"turn_{len(self.session._intents) + 1:02d}",
+        intent = self.session.create_turn_intent_canonical(
             user_utterance=user_utterance,
             protein_sequence=protein_sequence,
             accession_or_source=accession_or_source,
-            reference_bundle=ref_b,
+            entry_version=entry_version,
             compliance_track=compliance_track,  # type: ignore[arg-type]
             uridine_chemistry=uridine_chemistry,  # type: ignore[arg-type]
-            locked_regions=locks,  # type: ignore[arg-type]
             restriction_enzymes=restriction_enzymes,
-            detarget_tissues=["liver_hepatocyte"] if detarget_liver else None,
-            protected_tissues=["skeletal_muscle"] if detarget_liver else None,
+            locked_five_prime_utr=locked_five_prime_utr,
+            detarget_liver=detarget_liver,
             prioritize_late_signal=prioritize_late_signal,
-            use_commercial_surrogate=(compliance_track == "commercial_clean"),
+            conflicting_single_pick=conflicting_single_pick,
+            reference_bundle_id=reference_bundle_id,
+            use_preset_reference_r=use_preset_reference_r,
+            use_commercial_surrogate=use_commercial_surrogate,
             random_seed=random_seed,
         )
         if intent.status != "ready":
@@ -117,17 +120,35 @@ class AtomicToolbox:
         *,
         user_utterance: str,
         updated_restriction_enzymes: list[str] | None = None,
+        restriction_enzymes: list[str] | None = None,
+        locked_five_prime_utr: str | None = None,
         lock_cds_from_bundle_id: str | None = None,
+        unlock_scopes: list[str] | None = None,
+        uridine_chemistry: str | None = None,
+        compliance_track: str | None = None,
         detarget_liver: bool | None = None,
+        use_commercial_surrogate: bool | None = None,
     ) -> dict[str, Any]:
-        intent_v = self.session.apply_incremental_intent_update(
-            turn_id=f"turn_{len(self.session._intents) + 1:02d}",
+        eff_enz = updated_restriction_enzymes if updated_restriction_enzymes is not None else restriction_enzymes
+        intent_v = self.session.refine_turn_intent_canonical(
             user_utterance=user_utterance,
-            updated_restriction_enzymes=updated_restriction_enzymes,
+            restriction_enzymes=eff_enz,
+            locked_five_prime_utr=locked_five_prime_utr,
             lock_cds_from_bundle_id=lock_cds_from_bundle_id,
-            detarget_tissues=(["liver_hepatocyte"] if detarget_liver else None),
-            protected_tissues=(["skeletal_muscle"] if detarget_liver else None),
+            unlock_scopes=unlock_scopes,  # type: ignore[arg-type]
+            uridine_chemistry=uridine_chemistry,  # type: ignore[arg-type]
+            compliance_track=compliance_track,  # type: ignore[arg-type]
+            detarget_liver=detarget_liver,
+            use_commercial_surrogate=use_commercial_surrogate,
         )
+        if intent_v.status != "ready":
+            return {
+                "intent_id": intent_v.intent_id,
+                "intent_version": intent_v.intent_version,
+                "parent_intent_id": intent_v.parent_intent_id,
+                "status": intent_v.status,
+                "blocking_questions": intent_v.blocking_questions,
+            }
         bundles = self.session.execute_design(intent_v)
         latest_rep = self.session.latest_report(intent_v.intent_id)
         assert latest_rep is not None
@@ -290,16 +311,20 @@ class AtomicToolbox:
                             "user_utterance": {"type": "string"},
                             "protein_sequence": {"type": "string"},
                             "accession_or_source": {"type": "string"},
+                            "entry_version": {"type": "string"},
                             "compliance_track": {"type": "string", "enum": ["research_max", "commercial_clean"]},
                             "uridine_chemistry": {"type": "string", "enum": ["unmodified_u", "pseudouridine", "m1psi"]},
                             "restriction_enzymes": {"type": "array", "items": {"type": "string"}},
                             "locked_five_prime_utr": {"type": "string"},
                             "detarget_liver": {"type": "boolean"},
                             "prioritize_late_signal": {"type": "boolean"},
+                            "conflicting_single_pick": {"type": "boolean"},
                             "reference_bundle_id": {"type": "string"},
+                            "use_preset_reference_r": {"type": "boolean"},
+                            "use_commercial_surrogate": {"type": "boolean"},
                             "random_seed": {"type": "integer", "default": 42},
                         },
-                        "required": ["user_utterance", "protein_sequence"],
+                        "required": ["user_utterance"],
                     },
                 },
             },
@@ -313,8 +338,14 @@ class AtomicToolbox:
                         "properties": {
                             "user_utterance": {"type": "string"},
                             "updated_restriction_enzymes": {"type": "array", "items": {"type": "string"}},
+                            "restriction_enzymes": {"type": "array", "items": {"type": "string"}},
+                            "locked_five_prime_utr": {"type": "string"},
                             "lock_cds_from_bundle_id": {"type": "string"},
+                            "unlock_scopes": {"type": "array", "items": {"type": "string"}},
+                            "uridine_chemistry": {"type": "string", "enum": ["unmodified_u", "pseudouridine", "m1psi"]},
+                            "compliance_track": {"type": "string", "enum": ["research_max", "commercial_clean"]},
                             "detarget_liver": {"type": "boolean"},
+                            "use_commercial_surrogate": {"type": "boolean"},
                         },
                         "required": ["user_utterance"],
                     },

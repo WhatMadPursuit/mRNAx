@@ -249,3 +249,69 @@ def test_mcp_stdio_subprocess_full_commercial_clean_lifecycle_and_web_contract_p
         assert [o["metric_id"] for o in http_clar["intent"]["objectives"]] == [
             o["metric_id"] for o in mcp_clar_intent["objectives"]
         ]
+
+        # Implicit utterance chemistry ("with unmodified uridine") & implicit tissue ("and detarget liver")
+        # + exact version_digest parity across independent MCP and HTTP stores
+        for case_tag, payload in (
+            (
+                "imp_chem",
+                {
+                    "user_utterance": "Evaluate the existing reporter with unmodified uridine",
+                    "protein_sequence": egfp_aa,
+                    "compliance_track": "commercial_clean",
+                    "restriction_enzymes": ["BsaI"],
+                    "random_seed": 43,
+                },
+            ),
+            (
+                "imp_tiss",
+                {
+                    "user_utterance": "Evaluate the existing reporter and detarget liver",
+                    "protein_sequence": egfp_aa,
+                    "compliance_track": "commercial_clean",
+                    "restriction_enzymes": ["BsaI"],
+                    "random_seed": 43,
+                },
+            ),
+        ):
+            m_dir = tmp_path / f"mcp_{case_tag}"
+            rpc_in = json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 20,
+                    "method": "tools/call",
+                    "params": {"name": "design_constructs", "arguments": payload},
+                }
+            )
+            subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "mrnax.harness.cli",
+                    "mcp-serve",
+                    "--project-id",
+                    f"proj_{case_tag}",
+                    "--store-dir",
+                    str(m_dir),
+                    "--seed-dir",
+                    str(SEED),
+                ],
+                input=rpc_in + "\n",
+                capture_output=True,
+                text=True,
+                env=env,
+                check=True,
+                timeout=60.0,
+            )
+            h_res = client.post(f"/v1/projects/proj_{case_tag}_http/turn", json=payload)
+            assert h_res.status_code == 200
+            h_body = h_res.json()
+            m_intent = json.loads(next((m_dir / "intents").glob("intent_v*.json")).read_text(encoding="utf-8"))
+            m_rep = json.loads(next((m_dir / "reports").glob("rep_*.json")).read_text(encoding="utf-8"))
+            h_intent = h_body["intent"]
+            assert m_intent["uridine_chemistry"] == h_intent["uridine_chemistry"]
+            assert m_intent["cell_expression_control"] == h_intent["cell_expression_control"]
+            assert m_intent["protein_targets"][0]["entry_version"] == h_intent["protein_targets"][0]["entry_version"]
+            assert [e["version_digest"] for e in m_rep["candidate_evaluations"]] == [
+                c["version_digest"] for c in h_body["candidates"]
+            ]

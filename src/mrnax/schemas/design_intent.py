@@ -7,7 +7,7 @@ import json
 import math
 from typing import Any, Literal, Self
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, field_serializer, field_validator, model_validator
 
 from mrnax.schemas.common import ComplianceProfile, ConstraintScope, SegmentScope, UridineChemistry
 from mrnax.schemas.construct_bundle import FrozenSchemaModel, ProteinTargetSpec, SegmentSpan
@@ -50,6 +50,10 @@ class ConstraintSpec(FrozenSchemaModel):
         if not v:
             raise ValueError("target_scopes must not be empty; every constraint requires explicit scopes")
         return v
+
+    @field_serializer("target_scopes", when_used="json")
+    def _serialize_sorted_scopes(self, v: frozenset[ConstraintScope]) -> list[ConstraintScope]:
+        return sorted(v)
 
 
 class ObjectiveSpec(FrozenSchemaModel):

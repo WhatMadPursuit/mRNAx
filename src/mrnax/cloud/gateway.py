@@ -46,7 +46,7 @@ from mrnax.engine.pareto_director import project_report_for_intent
 from mrnax.engine.profiles import resolve_default_seed_dir
 from mrnax.harness.auth_secrets import SecretVault
 from mrnax.harness.dialogue import LiveDialogueAgent, normalize_dialogue_provider
-from mrnax.harness.state_machine import ProjectHarnessSession, project_lock
+from mrnax.harness.state_machine import ProjectHarnessSession, build_preset_reference_r, project_lock
 from mrnax.harness.tools import AtomicToolbox
 from mrnax.federated.external_evidence_adapter import CleanRoomPolicyError
 from mrnax.io_insdc.genbank_io import ExportConstraintViolationError, export_construct_package
@@ -73,96 +73,7 @@ def _validate_safe_id(raw_id: str, label: str = "id") -> str:
 
 
 def _build_preset_reference_r(seed_dir: Path) -> ConstructBundle:
-    snap = json.loads((seed_dir / "egfp_reporter_snapshot.json").read_text(encoding="utf-8"))
-    utrs = json.loads((seed_dir / "utr_components_v1.json").read_text(encoding="utf-8"))
-    hba1_u5 = next(u for u in utrs["five_prime_utrs"] if u["gene_symbol"] == "HBA1")
-    hba1_u3 = next(u for u in utrs["three_prime_utrs"] if u["gene_symbol"] == "HBA1")
-
-    u5 = hba1_u5["sequence"]
-    cds_wt, _ = remediate_m1psi_slippery_runs(snap["mammalian_reporter_egfp"]["reference_cds_rna_no_stop"])
-    stop = snap["mammalian_reporter_egfp"]["reference_stop_codon"]
-    u3 = hba1_u3["sequence"]
-    pa = "A" * 100
-    prot = snap["mammalian_reporter_egfp"]["protein_sequence"]
-
-    c1 = len(u5)
-    c2 = c1 + len(cds_wt)
-    c3 = c2 + len(stop)
-    c4 = c3 + len(u3)
-    c5 = c4 + len(pa)
-
-    mol = RNAMoleculeSpec(
-        molecule_id="mol_egfp_ref_R",
-        modality="linear_mrna",
-        topology="linear",
-        chemistry_track=ChemistryTrackSpec(
-            uridine_chemistry="m1psi",
-            cap_chemistry="cap1_cleancap_ag",
-            source="user_declared",
-        ),
-        effective_translation_target=ProteinTargetSpec(
-            protein_sequence=prot,
-            transl_table=1,
-            accession_or_source="GenBank:U55762.1",
-            entry_version="AAB02572.1",
-            confirmation_status="confirmed",
-        ),
-        sequence=u5 + cds_wt + stop + u3 + pa,
-        segments=[
-            SegmentSpan(
-                segment_type="five_prime_utr",
-                start=0,
-                end=c1,
-                component_id=hba1_u5["component_id"],
-                origin_source=hba1_u5["origin_source"],
-                license_track="commercial_clean",
-                action_taken="locked_verbatim",
-            ),
-            SegmentSpan(
-                segment_type="cds",
-                start=c1,
-                end=c2,
-                component_id="cds_u55762_wt_m1psi_clean",
-                origin_source="GenBank:U55762.1",
-                license_track="commercial_clean",
-                action_taken="locked_verbatim",
-            ),
-            SegmentSpan(
-                segment_type="stop_cassette",
-                start=c2,
-                end=c3,
-                component_id="stop_uaa",
-                origin_source="GenBank:U55762.1",
-                license_track="commercial_clean",
-                action_taken="locked_verbatim",
-            ),
-            SegmentSpan(
-                segment_type="three_prime_utr",
-                start=c3,
-                end=c4,
-                component_id=hba1_u3["component_id"],
-                origin_source=hba1_u3["origin_source"],
-                license_track="commercial_clean",
-                action_taken="locked_verbatim",
-            ),
-            SegmentSpan(
-                segment_type="poly_a",
-                start=c4,
-                end=c5,
-                component_id="polya_a100",
-                origin_source="mrnax:homopolymer_tail",
-                license_track="commercial_clean",
-                action_taken="locked_verbatim",
-            ),
-        ],
-    )
-    return ConstructBundle.create(
-        bundle_id="bnd_egfp_ref_R",
-        parent_bundle_id=None,
-        derivation_action="reference_import",
-        target_stoichiometry={"mol_egfp_ref_R": 1.0},
-        molecules=[mol],
-    )
+    return build_preset_reference_r(seed_dir)
 
 
 def _compute_intent_diff(prev: DesignIntent | None, curr: DesignIntent) -> dict[str, Any] | None:
@@ -358,7 +269,7 @@ class ProjectTurnRequest(BaseModel):
     user_utterance: str = Field(min_length=1, max_length=4000)
     protein_sequence: str | None = None
     accession_or_source: str = "GenBank:U55762.1"
-    entry_version: str | None = "AAB02572.1"
+    entry_version: str | None = None
     compliance_track: ComplianceProfile | None = None
     uridine_chemistry: UridineChemistry | None = None
     restriction_enzymes: list[str] | None = None
@@ -368,6 +279,7 @@ class ProjectTurnRequest(BaseModel):
     detarget_liver: bool | None = None
     prioritize_late_signal: bool = False
     conflicting_single_pick: bool = False
+    reference_bundle_id: str | None = None
     use_preset_reference_r: bool = False
     use_commercial_surrogate: bool | None = None
     custom_reference_rna_sequence: str | None = None
@@ -681,72 +593,32 @@ def create_control_plane_app(
                         status_code=400,
                         detail="Cannot run 'refine' before creating an initial DesignIntent in this project.",
                     )
-                add_locks: dict[SegmentScope, str] | None = None
-                if req.locked_five_prime_utr:
-                    add_locks = dict(add_locks or {})
-                    add_locks["five_prime_utr"] = req.locked_five_prime_utr
-
-                detarget = None
-                prot_tiss = None
-                if req.detarget_liver is True:
-                    detarget = ["liver_hepatocyte"]
-                    prot_tiss = ["skeletal_muscle"]
-                elif req.detarget_liver is False:
-                    detarget = []
-                    prot_tiss = []
-
-                explicit_track_change = (
-                    req.compliance_track
-                    if (req.compliance_track is not None and req.compliance_track != prev_intent.compliance_track)
-                    else None
-                )
-                intent = session.apply_incremental_intent_update(
-                    turn_id=f"turn_{len(session._intents) + 1:02d}",
+                intent = session.refine_turn_intent_canonical(
                     user_utterance=req.user_utterance,
-                    updated_restriction_enzymes=req.restriction_enzymes,
-                    additional_locked_scopes=add_locks,
+                    restriction_enzymes=req.restriction_enzymes,
+                    locked_five_prime_utr=req.locked_five_prime_utr,
                     lock_cds_from_bundle_id=req.lock_cds_from_bundle_id,
-                    unlocked_scopes=req.unlock_scopes,
-                    updated_chemistry=req.uridine_chemistry,
-                    updated_compliance_track=explicit_track_change,
-                    detarget_tissues=detarget,
-                    protected_tissues=prot_tiss,
-                    use_commercial_surrogate=bool(req.use_commercial_surrogate),
+                    unlock_scopes=req.unlock_scopes,
+                    uridine_chemistry=req.uridine_chemistry,
+                    compliance_track=req.compliance_track,
+                    detarget_liver=req.detarget_liver,
+                    use_commercial_surrogate=req.use_commercial_surrogate,
                 )
             else:
-                snap = json.loads((resolved_seed / "egfp_reporter_snapshot.json").read_text(encoding="utf-8"))
-                prot_seq = (req.protein_sequence or snap["mammalian_reporter_egfp"]["protein_sequence"]).strip()
-                ref_bundle: ConstructBundle | None = None
-                if req.use_preset_reference_r:
-                    ref_bundle = _build_preset_reference_r(resolved_seed)
-
-                locks_init: dict[SegmentScope, str] | None = (
-                    {"five_prime_utr": req.locked_five_prime_utr} if req.locked_five_prime_utr else None
-                )
-                detarget_init = ["liver_hepatocyte"] if req.detarget_liver else None
-                prot_init = ["skeletal_muscle"] if req.detarget_liver else None
-                if detarget_init is None and any(
-                    k in req.user_utterance.lower() for k in ("mir-122", "肝脏去靶向", "避开肝脏", "detarget liver")
-                ):
-                    detarget_init = ["liver_hepatocyte"]
-                    prot_init = ["skeletal_muscle"]
-
-                effective_init_track: ComplianceProfile = req.compliance_track or "research_max"
-                intent = session.create_initial_intent(
-                    turn_id=f"turn_{len(session._intents) + 1:02d}",
+                intent = session.create_turn_intent_canonical(
                     user_utterance=req.user_utterance,
-                    protein_sequence=prot_seq,
+                    protein_sequence=req.protein_sequence,
                     accession_or_source=req.accession_or_source,
                     entry_version=req.entry_version,
-                    reference_bundle=ref_bundle,
-                    compliance_track=effective_init_track,
+                    compliance_track=req.compliance_track,
                     uridine_chemistry=req.uridine_chemistry,
-                    locked_regions=locks_init,
                     restriction_enzymes=req.restriction_enzymes,
-                    detarget_tissues=detarget_init,
-                    protected_tissues=prot_init,
+                    locked_five_prime_utr=req.locked_five_prime_utr,
+                    detarget_liver=req.detarget_liver,
                     prioritize_late_signal=req.prioritize_late_signal,
                     conflicting_single_pick=req.conflicting_single_pick,
+                    reference_bundle_id=req.reference_bundle_id,
+                    use_preset_reference_r=req.use_preset_reference_r,
                     use_commercial_surrogate=req.use_commercial_surrogate,
                     random_seed=req.random_seed,
                 )
