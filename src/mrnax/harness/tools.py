@@ -122,8 +122,10 @@ def detect_available_engines(seed_dir: Path | None = None) -> dict[str, dict[str
     ]
     ef_bin = next((p for p in ef_candidates if p is not None and p.is_file() and os.access(p, os.X_OK)), None)
 
+    from mrnax.engine.surrogates import has_surrogate_v2_artifacts
+
     surr_v1_ok = (eff_seed / "surrogate_v1").is_dir()
-    surr_v2_ok = (eff_seed / "surrogate_v2").is_dir() or (_WAVE1B_FALLBACK_DIR / "surrogate_v2").is_dir()
+    surr_v2_ok = has_surrogate_v2_artifacts(eff_seed)
     return {
         "viennarna": {"available": vienna_ok, "license_track": "research_max"},
         "lineardesign": {"available": ld_bin is not None, "license_track": "research_max"},
@@ -766,56 +768,102 @@ def render_ivt_synthesis_order(
     rows: list[dict[str, Any]] = []
     for mol in bundle.molecules:
         rna = mol.sequence
-        dna_transcript = rna.replace("U", "T")
         cap = mol.chemistry_track.cap_chemistry
-        # Invariant: template_dna_5to3 MUST match the validated molecule transcript 1:1,
-        # AND promoter/capping metadata must follow mol.chemistry_track.cap_chemistry without prefix conflict.
+        # Invariant: template_dna_5to3 MUST match the verified linear IVT transcript 1:1
+        # (for circRNA: the verified linear PIE ribozyme precursor whose spliced exon product equals mol.sequence).
         from mrnax.io_insdc.genbank_io import ExportConstraintViolationError
 
-        core_dna = dna_transcript
-        promoter_dna = "TAATACGACTCACTATA"
-        if cap == "cap1_cleancap_ag":
-            if rna.startswith("AG"):
-                promoter_type = "T7_CleanCap_AG_Phi6.5"
-                leader_check = "PASS (transcript starts with 5'-AG matching cap1_cleancap_ag)"
-            elif mol.modality == "sarna" and rna.startswith("AU"):
-                promoter_type = "T7_CleanCap_AU_Alphavirus"
-                leader_check = "PASS (saRNA starts with 5'-AU for alphavirus CleanCap AU replication)"
-            else:
-                promoter_type = "T7_CleanCap_AG_Incompatible_Prefix"
-                leader_check = (
-                    f"ADVISORY: bundle declares cap_chemistry='cap1_cleancap_ag' while transcript starts with 5'-{rna[:2]}; "
-                    "approved transcript emitted verbatim without prepended bases — revise and re-validate bundle for 5'-AG or enzymatic Cap-1"
+        if mol.modality == "circrna" or mol.topology == "circular":
+            e2_ann = next((a for a in mol.annotations if a.feature_id == "pie_exon2_scar" and a.intervals), None)
+            e1_ann = next((a for a in mol.annotations if a.feature_id == "pie_exon1_scar" and a.intervals), None)
+            if e2_ann is None or e1_ann is None:
+                raise ExportConstraintViolationError(
+                    f"Circular molecule '{mol.molecule_id}' lacks PIE exon-scar annotations required to build a verified linear IVT precursor."
                 )
-        elif cap == "cap1_arca_gg":
-            promoter_type = "T7_ARCA_GG_Standard"
-            if rna.startswith("GG"):
-                leader_check = "PASS (transcript starts with 5'-GG matching cap1_arca_gg)"
-            else:
-                leader_check = (
-                    f"ADVISORY: bundle declares cap_chemistry='cap1_arca_gg' while transcript starts with 5'-{rna[:2]}; "
-                    "approved transcript emitted verbatim without prepended bases"
+            pie_status = (e2_ann.qualifiers.get("pie_precursor_status") or [""])[0]
+            up_arm = (e2_ann.qualifiers.get("pie_upstream_arm_rna") or [""])[0].strip().upper()
+            dn_arm = (e1_ann.qualifiers.get("pie_downstream_arm_rna") or [""])[0].strip().upper()
+            raw_prec_len = (e2_ann.qualifiers.get("ivt_precursor_length_nt") or [""])[0].strip()
+            e2_lo, e2_hi = e2_ann.intervals[0]
+            e1_lo, e1_hi = e1_ann.intervals[0]
+            e2_scar = rna[e2_lo:e2_hi]
+            e1_scar = rna[e1_lo:e1_hi]
+            if (
+                pie_status != "verified_split_intron_arms"
+                or e2_lo != 0
+                or e1_hi != len(rna)
+                or e2_hi > e1_lo
+                or not up_arm
+                or not dn_arm
+                or len(up_arm) <= len(e2_scar)
+                or len(dn_arm) <= len(e1_scar)
+                or not _VALID_RNA_RE.fullmatch(up_arm)
+                or not _VALID_RNA_RE.fullmatch(dn_arm)
+                or not up_arm.endswith(e2_scar)
+                or not dn_arm.startswith(e1_scar)
+                or not raw_prec_len.isdigit()
+            ):
+                raise ExportConstraintViolationError(
+                    f"Circular molecule '{mol.molecule_id}' lacks verified split PIE intron precursor arms (status='{pie_status or 'missing'}'); refusing to export mature circular sequence as a linear IVT plasmid."
                 )
-        elif cap == "cap1_enzymatic":
-            promoter_type = "T7_Vaccinia_Enzymatic_Cap1"
+            internal_body = rna[e2_hi:e1_lo]
+            ivt_rna = up_arm + internal_body + dn_arm
+            expected_prec_len = int(raw_prec_len)
+            spliced_check = up_arm[-len(e2_scar) :] + internal_body + dn_arm[: len(e1_scar)]
+            if len(ivt_rna) != expected_prec_len or spliced_check != rna:
+                raise ExportConstraintViolationError(
+                    f"Circular molecule '{mol.molecule_id}' PIE precursor reconstruction failed length or splice-scar round-trip check."
+                )
+            core_dna = ivt_rna.replace("U", "T")
+            promoter_dna = "TAATACGACTCACTATA"
+            promoter_type = "T7_Uncapped_Circular_or_Custom"
             leader_check = (
-                "PASS (post-transcriptional enzymatic Cap-1 compatible with 5'-purine start)"
-                if rna[:1] in ("G", "A")
-                else f"ADVISORY: transcript starts with pyrimidine 5'-{rna[:1]} (lower T7 yield; preserved verbatim)"
+                f"PASS (verified PIE linear IVT precursor {len(ivt_rna)} nt splices to {len(rna)} nt mature circRNA)"
             )
+            if core_dna.replace("T", "U") != ivt_rna:
+                raise ExportConstraintViolationError("Internal invariant failure: exported PIE IVT precursor diverged.")
         else:
-            promoter_type = "T7_Uncapped_Circular_or_Custom" if mol.modality == "circrna" else "T7_Standard_Exact_Transcript"
-            leader_check = (
-                "PASS (cap-independent PIE circRNA precursor)"
-                if mol.modality == "circrna"
-                else (
+            ivt_rna = rna
+            core_dna = ivt_rna.replace("U", "T")
+            promoter_dna = "TAATACGACTCACTATA"
+            if cap == "cap1_cleancap_ag":
+                if rna.startswith("AG"):
+                    promoter_type = "T7_CleanCap_AG_Phi6.5"
+                    leader_check = "PASS (transcript starts with 5'-AG matching cap1_cleancap_ag)"
+                elif mol.modality == "sarna" and rna.startswith("AU"):
+                    promoter_type = "T7_CleanCap_AU_Alphavirus"
+                    leader_check = "PASS (saRNA starts with 5'-AU for alphavirus CleanCap AU replication)"
+                else:
+                    promoter_type = "T7_CleanCap_AG_Incompatible_Prefix"
+                    leader_check = (
+                        f"ADVISORY: bundle declares cap_chemistry='cap1_cleancap_ag' while transcript starts with 5'-{rna[:2]}; "
+                        "approved transcript emitted verbatim without prepended bases — revise and re-validate bundle for 5'-AG or enzymatic Cap-1"
+                    )
+            elif cap == "cap1_arca_gg":
+                promoter_type = "T7_ARCA_GG_Standard"
+                if rna.startswith("GG"):
+                    leader_check = "PASS (transcript starts with 5'-GG matching cap1_arca_gg)"
+                else:
+                    leader_check = (
+                        f"ADVISORY: bundle declares cap_chemistry='cap1_arca_gg' while transcript starts with 5'-{rna[:2]}; "
+                        "approved transcript emitted verbatim without prepended bases"
+                    )
+            elif cap == "cap1_enzymatic":
+                promoter_type = "T7_Vaccinia_Enzymatic_Cap1"
+                leader_check = (
+                    "PASS (post-transcriptional enzymatic Cap-1 compatible with 5'-purine start)"
+                    if rna[:1] in ("G", "A")
+                    else f"ADVISORY: transcript starts with pyrimidine 5'-{rna[:1]} (lower T7 yield; preserved verbatim)"
+                )
+            else:
+                promoter_type = "T7_Standard_Exact_Transcript"
+                leader_check = (
                     "PASS (transcript starts with 5'-GGG)"
                     if rna.startswith("GGG")
                     else "ADVISORY: approved transcript emitted verbatim without prepended bases"
                 )
-            )
-        if core_dna.replace("T", "U") != rna:
-            raise ExportConstraintViolationError("Internal invariant failure: exported IVT template diverged from approved bundle.")
+            if core_dna.replace("T", "U") != rna:
+                raise ExportConstraintViolationError("Internal invariant failure: exported IVT template diverged from approved bundle.")
 
         full_cassette_dna = promoter_dna + core_dna + lin_adapter_dna
         gc_pct = round(((full_cassette_dna.count("G") + full_cassette_dna.count("C")) / max(1, len(full_cassette_dna))) * 100.0, 2)
@@ -834,7 +882,8 @@ def render_ivt_synthesis_order(
                 "promoter_dna_5to3": promoter_dna,
                 "five_prime_leader_check": leader_check,
                 "cds_length_nt": (cds_seg.end - cds_seg.start) if cds_seg else 0,
-                "full_rna_length_nt": len(rna),
+                "full_rna_length_nt": len(ivt_rna),
+                "mature_rna_length_nt": len(rna),
                 "poly_a_length_nt": (pa_seg.end - pa_seg.start) if pa_seg else 0,
                 "linearization_enzyme": lin_enzyme,
                 "linearization_site_dna_5to3": lin_adapter_dna,

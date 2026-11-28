@@ -1369,11 +1369,35 @@ class ExternalEvidenceAdapterV2:
                     if isinstance(hpa_rec, dict):
                         subcell_locs = [str(x) for x in (hpa_rec.get("Subcellular main location") or [])]
                         secretome_loc = str(hpa_rec.get("Secretome location")) if hpa_rec.get("Secretome location") else None
+                        raw_tissue_spec = str(hpa_rec.get("RNA tissue specificity")) if hpa_rec.get("RNA tissue specificity") else None
+                        subcell_joined = "; ".join(subcell_locs)
+                        hpa_src = f"HPA:{ensg_clean}"
                         hpa_summary = {
                             "ensembl_id": ensg_clean,
-                            "subcellular_main_location": subcell_locs,
-                            "secretome_location": secretome_loc,
-                            "rna_tissue_specificity": hpa_rec.get("RNA tissue specificity"),
+                            "subcellular_main_location_sandboxed": (
+                                sandbox_untrusted_text(subcell_joined, hpa_src) if subcell_joined else None
+                            ),
+                            "subcellular_main_location_quarantined": (
+                                wrap_untrusted_external_text(subcell_joined, source_id=hpa_src, max_chars=240).model_dump(mode="json")
+                                if subcell_joined
+                                else None
+                            ),
+                            "secretome_location_sandboxed": (
+                                sandbox_untrusted_text(secretome_loc, hpa_src) if secretome_loc else None
+                            ),
+                            "secretome_location_quarantined": (
+                                wrap_untrusted_external_text(secretome_loc, source_id=hpa_src, max_chars=240).model_dump(mode="json")
+                                if secretome_loc
+                                else None
+                            ),
+                            "rna_tissue_specificity_sandboxed": (
+                                sandbox_untrusted_text(raw_tissue_spec, hpa_src) if raw_tissue_spec else None
+                            ),
+                            "rna_tissue_specificity_quarantined": (
+                                wrap_untrusted_external_text(raw_tissue_spec, source_id=hpa_src, max_chars=240).model_dump(mode="json")
+                                if raw_tissue_spec
+                                else None
+                            ),
                             "license_tier": "lookup_only_sharealike_boundary",
                         }
                         lookup_evidence.append(
@@ -1382,7 +1406,12 @@ class ExternalEvidenceAdapterV2:
                                 "CC-BY-SA-3.0",
                                 "lookup_only_sharealike_boundary",
                                 hpa_url,
-                                hpa_summary,
+                                {
+                                    "ensembl_id": ensg_clean,
+                                    "has_subcellular_annotation": bool(subcell_locs),
+                                    "has_secretome_annotation": bool(secretome_loc),
+                                    "license_tier": "lookup_only_sharealike_boundary",
+                                },
                                 {"pointer_only_no_raw_redistribution": True},
                             )
                         )

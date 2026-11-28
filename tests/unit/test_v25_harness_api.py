@@ -696,3 +696,161 @@ def test_gateway_v25_endpoints_candidate_enrichment_auth_and_low_rss(tmp_path: P
     assert r_ivt_csv.status_code == 200
     assert "text/csv" in r_ivt_csv.headers["content-type"]
     assert "TAATACGACTCACTATA" in r_ivt_csv.text
+
+
+def test_gate_a_round3_security_and_precursor_invariants(tmp_path: Path) -> None:
+    import gzip
+    import httpx
+    from mrnax.engine.modalities import _validate_scaffold_component, build_circrna_bundle
+    from mrnax.engine.pareto_director import run_design_pipeline
+    from mrnax.harness.dialogue import (
+        UpstreamProviderProtocolError,
+        _decode_bounded_http_chunks,
+        _post_json_bounded,
+        _project_llm_tool_payload,
+    )
+    from mrnax.harness.tools import render_ivt_synthesis_order
+    from mrnax.io_insdc.genbank_io import ExportConstraintViolationError
+    from mrnax.schemas.construct_bundle import ProteinTargetSpec
+    from mrnax.schemas.design_intent import DesignIntent, ObjectiveSpec, RuntimePolicySpec
+
+    short_prot = "MVSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPTLVTT"
+
+    # 1. circRNA IVT synthesis order: T4_TD emits verified linear PIE precursor; Anabaena scar-only fails closed
+    circ_t4 = build_circrna_bundle(short_prot, pie_backbone="T4_TD", compliance_track="commercial_clean", use_lineardesign=False, seed_dir=SEED_DIR)
+    _, rows_t4 = render_ivt_synthesis_order(circ_t4)
+    assert rows_t4[0]["full_rna_length_nt"] > rows_t4[0]["mature_rna_length_nt"] == len(circ_t4.molecules[0].sequence)
+    assert "verified PIE linear IVT precursor" in rows_t4[0]["five_prime_leader_check"]
+    assert rows_t4[0]["template_dna_5to3"].startswith("GGGAATTCTAGAGAAAATTT")
+
+    circ_ana = build_circrna_bundle(short_prot, pie_backbone="Anabaena", compliance_track="commercial_clean", use_lineardesign=False, seed_dir=SEED_DIR)
+    with pytest.raises(ExportConstraintViolationError, match="verified split PIE intron"):
+        render_ivt_synthesis_order(circ_ana)
+
+    # 2. Bounded decoded gzip handling & materialized HTTP error responses
+    ok_payload = b'{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"ok"}}]}'
+    gz_payload = gzip.compress(ok_payload)
+    assert _decode_bounded_http_chunks([gz_payload], "gzip", max_bytes=1024) == ok_payload
+
+    gz_bomb = gzip.compress(b"A" * 200_000)
+    assert len(gz_bomb) < 1024
+    with pytest.raises(UpstreamProviderProtocolError, match="decoded safety cap"):
+        _decode_bounded_http_chunks([gz_bomb], "gzip", max_bytes=32_768)
+
+    def _mock_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/err"):
+            return httpx.Response(
+                429,
+                headers={"Content-Encoding": "gzip", "Content-Type": "application/json"},
+                content=gzip.compress(b'{"error":{"code":"rate_limit_exceeded"}}'),
+            )
+        return httpx.Response(
+            200,
+            headers={"Content-Encoding": "gzip", "Content-Type": "application/json"},
+            content=gz_payload,
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(_mock_handler)) as mock_client:
+        r_ok = _post_json_bounded(mock_client, "https://example.com/ok", headers={}, json_body={})
+        assert "content-encoding" not in r_ok.headers
+        assert r_ok.json()["choices"][0]["message"]["content"] == "ok"
+
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            _post_json_bounded(mock_client, "https://example.com/err", headers={}, json_body={})
+        assert exc_info.value.response.json()["error"]["code"] == "rate_limit_exceeded"
+
+    # 3. _project_llm_tool_payload omits lookup_only_evidence and _sandboxed siblings
+    projected = _project_llm_tool_payload(
+        {
+            "hpa_summary": {
+                "subcellular_main_location_sandboxed": "raw_sandbox",
+                "subcellular_main_location_quarantined": {"wrapped_payload": "<UNTRUSTED_DATA>Vesicles</UNTRUSTED_DATA>"},
+            },
+            "lookup_only_evidence": [{"raw": "must_not_reach_llm"}],
+        }
+    )
+    assert "lookup_only_evidence" not in projected
+    assert "subcellular_main_location_sandboxed" not in projected["hpa_summary"]
+    assert "<UNTRUSTED_DATA>" in projected["hpa_summary"]["subcellular_main_location_quarantined"]["wrapped_payload"]
+
+    # 4. Compound SPDX license allowlist rejects unknown/proprietary terms paired with CC-BY-4.0
+    bad_scaf = {
+        "scaffold_id": "SCAF-TEST-BAD-COMPOUND",
+        "modality": "linear_mrna",
+        "scaffold_category": "five_prime_utr",
+        "license": {
+            "license_track": "commercial_clean",
+            "spdx": "CC-BY-4.0 AND CustomVendorClause-1.0",
+            "external_redistribution_allowed": True,
+        },
+        "patent_fto_tag": {"commercial_clean_allowed": True, "status": "CLEAR"},
+    }
+    with pytest.raises(PermissionError):
+        _validate_scaffold_component(
+            bad_scaf,
+            expected_modality="linear_mrna",
+            allowed_categories=("five_prime_utr",),
+            compliance_track="commercial_clean",
+        )
+
+    # 5. surrogate_v2 participates in Pareto ranking when enabled
+    egfp_snap = json.loads((SEED_DIR / "egfp_reporter_snapshot.json").read_text(encoding="utf-8"))
+    wt_cds_rna = egfp_snap["mammalian_reporter_egfp"]["reference_cds_rna_no_stop"][: len(short_prot) * 3]
+    intent_v2 = DesignIntent(
+        intent_id="int_surr_v2_test",
+        project_id="proj_surr_v2_test",
+        intent_version=1,
+        created_from_turn_ids=["turn_01"],
+        status="ready",
+        compliance_track="commercial_clean",
+        uridine_chemistry="m1psi",
+        entry_mode="protein_only",
+        protein_targets=[
+            ProteinTargetSpec(
+                protein_sequence=short_prot,
+                transl_table=1,
+                accession_or_source="test:egfp_short",
+                confirmation_status="confirmed",
+                wildtype_cds_rna=wt_cds_rna,
+            )
+        ],
+        objectives=[
+            ObjectiveSpec(
+                requirement_id="obj_mrl",
+                metric_id="utr5_mrl_pred",
+                direction="maximize",
+                priority_rank=1,
+                evidence_status="validated_predictor",
+                source_utterance="maximize mrl",
+            ),
+            ObjectiveSpec(
+                requirement_id="obj_hl",
+                metric_id="consensus_halflife_pred",
+                direction="maximize",
+                priority_rank=2,
+                evidence_status="validated_predictor",
+                source_utterance="maximize halflife",
+            ),
+        ],
+        runtime_policy=RuntimePolicySpec(
+            enabled_generators=["dnachisel_cds", "pareto_nsga2"],
+            enabled_evaluators=["surrogate_v2"],
+            max_evaluations=12,
+            random_seed=42,
+        ),
+    )
+    _, rep_v2, _ = run_design_pipeline(intent_v2, seed_dir=SEED_DIR)
+    assert rep_v2.outcome_status == "COMPLETED_WITH_CANDIDATES"
+    top_ev = rep_v2.candidate_evaluations[0]
+    assert any(m.tool_name.startswith("CommercialCleanSurrogateV2:") and m.participated_in == "pareto_selection_or_ranking" for m in top_ev.metrics)
+
+    # 6. Per-route-bucket rate limit & strict extra='forbid' on gateway models
+    store = ExecutionCASStore(tmp_path / "r3_cas.sqlite")
+    app = create_control_plane_app(store, projects_root=tmp_path / "projects", seed_dir=SEED_DIR)
+    client = TestClient(app)
+    for _ in range(25):
+        assert client.get("/healthz").status_code == 200
+    # Extra fields rejected with 422 (and NOT 429 from /healthz traffic!)
+    r_extra = client.post("/v1/projects/p_r3/agent-chat", json={"message": "hi", "unexpected_field": 123})
+    assert r_extra.status_code == 422
+

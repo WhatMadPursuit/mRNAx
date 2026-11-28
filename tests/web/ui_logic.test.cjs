@@ -993,3 +993,108 @@ test("deterministic direct submit & fallback share readonly classification, comm
   assert.equal(reqs[0].body.protein_sequence, null);
   assert.equal(reqs[0].body.use_preset_reference_r, false);
 });
+
+test("Wave 3 Gate B security: safeExternalUrl, renderSafeExternalLink, citation allowlist, and XSS escaping", () => {
+  const { run, document } = app();
+  assert.equal(run('safeExternalUrl("javascript:alert(1)")'), "");
+  assert.equal(run('safeExternalUrl("data:text/html,<script>alert(1)</script>")'), "");
+  assert.equal(run('safeExternalUrl("vbscript:msgbox(1)")'), "");
+  assert.equal(run('safeExternalUrl("https://user:secret@example.com/path")'), "");
+  assert.equal(run('safeExternalUrl("https://doi.org/10.1038/s41586-023-06800-3")'), "https://doi.org/10.1038/s41586-023-06800-3");
+
+  const safeLink = run('renderSafeExternalLink("https://pubmed.ncbi.nlm.nih.gov/38057662/", "Mulroney <script>1</script>")');
+  assert.match(safeLink, /rel="noopener noreferrer"/);
+  assert.match(safeLink, /target="_blank"/);
+  assert.doesNotMatch(safeLink, /<script>/i);
+
+  const blockedLink = run('renderSafeExternalLink("javascript:evil()", "Click <img onerror=1>")');
+  assert.doesNotMatch(blockedLink, /<a\b|javascript:|<img/i);
+
+  assert.equal(run('buildVerifiedCitationUrl("doi", "10.1038/s41586-023-06800-3")'), "https://doi.org/10.1038/s41586-023-06800-3");
+  assert.equal(run('buildVerifiedCitationUrl("doi", "https://evil.example/x")'), "");
+  assert.equal(run('buildVerifiedCitationUrl("pmid", "38057662")'), "https://pubmed.ncbi.nlm.nih.gov/38057662/");
+  assert.equal(run('buildVerifiedCitationUrl("pmid", "38057662/../../evil")'), "");
+
+  const unwrapped = run('extractSandboxedText({ text_excerpt: "<UNTRUSTED_EXTERNAL_DATA source=\\"x\\">Safe <b>Title</b></UNTRUSTED_EXTERNAL_DATA>" })');
+  assert.equal(unwrapped, "Safe <b>Title</b>");
+  assert.doesNotMatch(run(`escapeHtml(${JSON.stringify(unwrapped)})`), /<b>/);
+
+  // Rules renderer escapes malicious rule payloads and citations
+  run(`
+    renderRulesAtlas({
+      total_available: 1,
+      rules: [{
+        rule_id: "RUL-XSS-<script>1</script>",
+        title_zh: "<img src=x onerror=alert(9)>",
+        title_en: "Test \\"quote\\"",
+        evidence_grade: "cross_lab_verified",
+        region: "5'UTR",
+        modality: ["linear_mrna"],
+        effect_size_summary: "rho=-0.58 <svg onload=1>",
+        enforced_in_generator: true,
+        failure_modes: ["<script>boom()</script>"],
+        citations: [{ authors: "Author<x>", year: 2024, doi: "10.1038/s41586-023-06800-3" }]
+      }]
+    });
+  `);
+  const rulesHtml = document.getElementById("rules-list").innerHTML;
+  assert.doesNotMatch(rulesHtml, /<script|<img|<svg onload/i);
+  assert.match(rulesHtml, /跨实验室实证/);
+  assert.match(rulesHtml, /rel="noopener noreferrer"/);
+});
+
+test("Wave 3 de-AI-ification, tool-call pills, client structure profiler, and dual-speed wet-lab calibration", () => {
+  const { run, document } = app();
+
+  // 1. Routine COMPLETED turn keeps #banner-notes hidden and moves CRS/domain advisories to boundaries modal
+  run(`
+    applyTurnResult({
+      status: "COMPLETED",
+      intent: { intent_id: "i_v1", intent_version: 1, status: "ready", compliance_track: "research_max", uridine_chemistry: "m1psi", locked_scopes: {} },
+      report: {
+        outcome_status: "COMPLETED_WITH_CANDIDATES",
+        honest_attribution_banner: "Generator attribution note",
+        pre_synthesis_advisories: [
+          { category: "crs_safety_layer_boundary", message: "CRS note" },
+          { category: "model_domain_boundary", message: "Domain note" }
+        ]
+      },
+      candidates: []
+    }, "design eGFP", 1);
+  `);
+  assert.equal(document.getElementById("banner-notes").hidden, true);
+  assert.equal(run("state.boundaryAdvisories.length"), 3);
+  assert.doesNotMatch(document.getElementById("badge-outcome").textContent, /COMPLETED_WITH_CANDIDATES/);
+
+  // 2. buildToolTraceHtml renders clean pills & collapsed receipt without raw JSON dumps
+  const traceHtml = run(`buildToolTraceHtml([{ name: "design_constructs", arguments: { uridine_chemistry: "m1psi", restriction_enzymes: ["BsaI"] } }])`);
+  assert.match(traceHtml, /tool-pill/);
+  assert.match(traceHtml, /tool-trace-fold/);
+  assert.match(traceHtml, /验证回执/);
+  assert.doesNotMatch(traceHtml, /\{"uridine_chemistry"/);
+
+  // 3. Client deterministic structure profiler builds initiation arcs, sliding tracks, and scans uAUG / UUUU
+  const profJson = run(`JSON.stringify(computeClientStructureProfile({
+    full_sequence: "GGGAUGCCCGCCACCAUGUUUUAAAACCCCGGGGUAAUAGAAAAAAAAAAAA",
+    segments: [
+      { segment_type: "five_prime_utr", start: 0, end: 15, length_nt: 15, gc_pct: 60 },
+      { segment_type: "cds", start: 15, end: 36, length_nt: 21, gc_pct: 48 },
+      { segment_type: "three_prime_utr", start: 36, end: 40, length_nt: 4, gc_pct: 25 }
+    ]
+  }, "linear_mrna"))`);
+  const prof = JSON.parse(profJson);
+  assert.ok(prof.initiation_window && prof.initiation_window.sequence.length > 10);
+  assert.ok(prof.sliding_tracks.positions.length >= 1);
+  assert.ok(prof.motifs.some((m) => m.kind === "uaug"));
+  assert.ok(prof.motifs.some((m) => m.kind === "uuuu_frameshift"));
+
+  // 4. Dual-speed wet-lab calibration rule (N=4 anchor-only vs N=8 calibration unlocked)
+  document.getElementById("wetlab-input").value = "id,pred,obs\nc1,1.0,1.2\nc2,2.0,2.1\nc3,3.0,3.4\nc4,4.0,3.9";
+  run("parseAndRenderWetLabFeedback()");
+  assert.match(document.getElementById("wetlab-gate-banner").className, /anchor-only/);
+  assert.match(document.getElementById("wetlab-svg-wrap").innerHTML, /<svg/);
+
+  document.getElementById("wetlab-input").value = "id,pred,obs\nc1,1,1.1\nc2,2,2.1\nc3,3,2.9\nc4,4,4.2\nc5,5,4.8\nc6,6,6.1";
+  run("parseAndRenderWetLabFeedback()");
+  assert.match(document.getElementById("wetlab-gate-banner").className, /calibrate-ok/);
+});

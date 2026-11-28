@@ -392,12 +392,14 @@ def _serialize_report_with_candidates(
 
 
 class SubmitExecutionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     submission_id: str
     request_digest: str
     intent_id: str
 
 
 class LeaseAcquireRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     worker_id: str
     ttl_seconds: int = Field(default=300, ge=1, le=86_400)
     lease_token: str | None = None
@@ -409,6 +411,7 @@ class LeaseAcquireRequest(BaseModel):
 
 
 class CommitAttemptRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     lease_epoch: int = Field(ge=0, le=2_147_483_647)
     lease_token: str
     sealed_file_id: str
@@ -555,6 +558,7 @@ def _looks_like_credential_value(value: str) -> bool:
 
 
 class AgentChatRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     message: str = Field(min_length=1, max_length=4000)
     provider: Annotated[str, AfterValidator(normalize_dialogue_provider)] | None = None
     model: str | None = Field(default=None, max_length=100)
@@ -1026,7 +1030,7 @@ def _safe_upstream_status_detail(
                 and redact_secrets_in_text(raw_code, extra_secrets=extra_secrets) == raw_code
             ):
                 code_hint = f" ({raw_code})"
-    except ValueError:
+    except (ValueError, httpx.ResponseNotRead):
         pass
     return f"Upstream LLM provider returned HTTP {exc.response.status_code}{code_hint}."
 
@@ -1138,52 +1142,60 @@ def create_control_plane_app(
         expose_headers=["X-MRNAX-Project-Key"],
     )
 
-    # Bounded LRU sliding-window IP rate limiter across all gateway endpoints (enforced BEFORE body allocation)
-    MAX_TRACKED_IPS = 2048
-    ip_buckets: OrderedDict[str, deque[float]] = OrderedDict()
+    # Bounded LRU sliding-window per-(IP, route_bucket) rate limiter across all gateway endpoints
+    MAX_TRACKED_BUCKETS = 4096
+    ip_buckets: OrderedDict[tuple[str, str], deque[float]] = OrderedDict()
     rate_lock = threading.Lock()
 
-    def _route_rate_limit_for_path(path: str, method: str) -> int:
+    def _route_rate_bucket_and_limit(path: str, method: str) -> tuple[str, int]:
         if path == "/healthz":
-            return 240
-        if path in ("/api/v1/rules", "/v1/system/status", "/v1/presets"):
-            return 90
+            return ("healthz", 240)
+        if path in ("/api/v1/rules", "/v1/rules", "/v1/system/status", "/v1/presets"):
+            return ("readonly_meta", 90)
         if path in ("/api/v1/data-hub", "/v1/executions", "/v1/webhooks/stage-check/latest"):
-            return 60
+            return ("data_or_exec_list", 60)
         if path.startswith("/v1/projects/") and path.endswith("/state"):
-            return 60
+            return ("project_state", 60)
         if path.startswith("/v1/executions/"):
             if path.endswith(":commit"):
-                return 60
-            return 90
+                return ("exec_commit", 60)
+            return ("exec_lease", 90)
         if path == "/v1/webhooks/stage-check":
-            return 30
-        if path in ("/api/v1/structure/analyze", "/api/v1/evidence/resolve"):
-            return 30
+            return ("stage_webhook", 30)
+        if path in (
+            "/api/v1/structure/analyze",
+            "/v1/tools/structure-profile",
+            "/api/v1/evidence/resolve",
+            "/v1/evidence/protein",
+            "/v1/evidence/literature",
+            "/v1/tools/clinical-benchmark",
+        ):
+            return ("tools_analysis", 30)
         if path.endswith("/agent-chat"):
-            return 20
-        return 45
+            return ("agent_chat", 20)
+        return ("default", 45)
 
-    def _enforce_rate_limit(req: Request, max_per_min: int = 45) -> None:
+    def _enforce_rate_limit(req: Request, max_per_min: int = 45, *, bucket_group: str = "default") -> None:
         if getattr(req.state, "_mrnax_rate_checked", False):
             return
         client_ip = req.client.host if req.client else "local"
+        bucket_key = (client_ip, bucket_group)
         now = time.time()
         with rate_lock:
-            dq = ip_buckets.get(client_ip)
+            dq = ip_buckets.get(bucket_key)
             if dq is None:
-                if len(ip_buckets) >= MAX_TRACKED_IPS:
+                if len(ip_buckets) >= MAX_TRACKED_BUCKETS:
                     ip_buckets.popitem(last=False)
                 dq = deque()
-                ip_buckets[client_ip] = dq
+                ip_buckets[bucket_key] = dq
             else:
-                ip_buckets.move_to_end(client_ip)
+                ip_buckets.move_to_end(bucket_key)
             while dq and now - dq[0] > 60.0:
                 dq.popleft()
             if len(dq) >= max_per_min:
                 raise HTTPException(
                     status_code=429,
-                    detail=f"Rate limit exceeded (max {max_per_min} requests/min per IP).",
+                    detail=f"Rate limit exceeded (max {max_per_min} requests/min per IP for {bucket_group}).",
                 )
             dq.append(now)
             req.state._mrnax_rate_checked = True
@@ -1199,7 +1211,8 @@ def create_control_plane_app(
                     )
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail="Invalid Content-Length header.") from exc
-        _enforce_rate_limit(req, max_per_min=_route_rate_limit_for_path(req.url.path, req.method))
+        b_grp, b_lim = _route_rate_bucket_and_limit(req.url.path, req.method)
+        _enforce_rate_limit(req, max_per_min=b_lim, bucket_group=b_grp)
 
     app.state.pre_body_admission = _pre_body_admission
 

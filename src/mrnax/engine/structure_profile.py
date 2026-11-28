@@ -11,11 +11,14 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 from typing import Any
 
 from mrnax.constraints.sequence_gates import RESTRICTION_SITES_RNA
 from mrnax.engine.profiles import resolve_default_seed_dir
 from mrnax.engine.surrogates import CODON_W
+
+_PROFILER_CONCURRENCY_SEM = threading.BoundedSemaphore(4)
 
 _STOP_CODONS_RNA = frozenset({"UAA", "UAG", "UGA"})
 _CLASS_II_T7_RNA = "AUCUGUU"
@@ -455,10 +458,10 @@ def _scan_motifs(
                 )
             s_idx = hit + 1
 
-    # 7. AU-rich element (ARE) decay motifs in 3'UTR (or full sequence when no distinct 3'UTR)
-    are_lo = three_prime_start if three_prime_end > three_prime_start else 0
-    are_hi = three_prime_end if three_prime_end > three_prime_start else n
-    are_region = seq[are_lo:are_hi]
+    # 7. AU-rich element (ARE) decay motifs in 3'UTR [three_prime_start, three_prime_end)
+    are_lo = three_prime_start
+    are_hi = three_prime_end
+    are_region = seq[are_lo:are_hi] if are_hi > are_lo else ""
     for pat, lbl in (("UUAUUUAUU", "ARE nonamer"), ("AUUUA", "ARE pentamer")):
         s_idx = 0
         while True:
@@ -566,6 +569,40 @@ def analyze_rna_structure(
     seed_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Compute 2D initiation base-pair arcs, ensemble metrics, sliding tracks, and motif coordinates."""
+    if compliance_track not in ("research_max", "commercial_clean"):
+        raise PermissionError(f"Unsupported compliance_track '{compliance_track}' for structure analysis")
+    if not _PROFILER_CONCURRENCY_SEM.acquire(timeout=3.0):
+        raise RuntimeError("Structure profiler concurrency limit reached; please retry shortly.")
+    try:
+        return _analyze_rna_structure_impl(
+            sequence,
+            five_prime_end=five_prime_end,
+            cds_start=cds_start,
+            cds_end=cds_end,
+            three_prime_start=three_prime_start,
+            three_prime_end=three_prime_end,
+            modality=modality,
+            compliance_track=compliance_track,
+            include_eternafold=include_eternafold,
+            seed_dir=seed_dir,
+        )
+    finally:
+        _PROFILER_CONCURRENCY_SEM.release()
+
+
+def _analyze_rna_structure_impl(
+    sequence: str,
+    *,
+    five_prime_end: int | None = None,
+    cds_start: int | None = None,
+    cds_end: int | None = None,
+    three_prime_start: int | None = None,
+    three_prime_end: int | None = None,
+    modality: str = "linear_mrna",
+    compliance_track: str = "research_max",
+    include_eternafold: bool = False,
+    seed_dir: Path | None = None,
+) -> dict[str, Any]:
     seq = _normalize_rna(sequence)
     n = len(seq)
     eff_seed = seed_dir or resolve_default_seed_dir()
@@ -743,6 +780,11 @@ def analyze_rna_structure(
         if rna_mod is not None
         else "pure_seq_gc_approx"
     )
+    ens_div_method = (
+        ("exact_mean_bp_distance" if n <= 1800 else "local_marginal_variance_proxy")
+        if rna_mod is not None
+        else "length_scaled_heuristic"
+    )
 
     result: dict[str, Any] = {
         "length_nt": n,
@@ -754,6 +796,7 @@ def analyze_rna_structure(
         "mfe_method": mfe_method,
         "mfe_per_nt": round(dg_total / max(1, n), 4),
         "ensemble_diversity": ensemble_diversity,
+        "ensemble_diversity_method": ens_div_method,
         "aup_mean": aup_mean,
         "kozak_unpaired_prob": kozak_unpaired_prob,
         "initiation_window": {

@@ -45,7 +45,13 @@ from mrnax.engine.stage0_baseline import (
     mutate_cds_region_synonymously,
     propose_non_partitioned_bicodon_cds,
 )
-from mrnax.engine.surrogates import STRUCTRFM_NATIVE_CHEMISTRIES, CommercialCleanSurrogateV1, StructRFMNativeScorer
+from mrnax.engine.surrogates import (
+    STRUCTRFM_NATIVE_CHEMISTRIES,
+    CommercialCleanSurrogateV1,
+    CommercialCleanSurrogateV2,
+    StructRFMNativeScorer,
+    has_surrogate_v2_artifacts,
+)
 from mrnax.engine.thermodynamics import (
     compute_cds_sliding_window_mfe,
     evaluate_molecule_thermodynamics,
@@ -550,9 +556,12 @@ def project_report_for_intent(
         if requires_rc005_partner and not has_cleared_partner_metric:
             continue
         if constraint_engine is not None:
+            from mrnax.io_insdc.genbank_io import resolve_expected_chemistry_for_bundle
+
+            proj_chem = resolve_expected_chemistry_for_bundle(bundle, intent.uridine_chemistry) if intent else None
             checked = constraint_engine.evaluate_bundle(
                 bundle, intent.constraints if intent else [], compliance_track="commercial_clean",
-                expected_chemistry=intent.uridine_chemistry if intent else None,
+                expected_chemistry=proj_chem,
                 locked_scopes=intent.locked_scopes if intent else None,
                 expected_protein_targets=intent.protein_targets if intent else None,
                 rc005_active=requires_rc005_partner,
@@ -1207,8 +1216,15 @@ def run_design_pipeline(
         except MissingTissueMeasurement as exc:
             return unavailable(str(exc))
 
+    use_surrogate_v2 = "surrogate_v2" in intent.runtime_policy.enabled_evaluators
+    if use_surrogate_v2 and not has_surrogate_v2_artifacts(seed_dir):
+        return unavailable(
+            "无法比较：已请求 surrogate_v2 评估器，但当前 seed_dir 未包含通过 SHA-256 与许可证校验的 surrogate_v2 权重清单。"
+        )
+    surrogate_v2 = CommercialCleanSurrogateV2.from_seed_dir(seed_dir) if use_surrogate_v2 else None
     use_surrogate_v1 = "surrogate_v1_clean" in intent.runtime_policy.enabled_evaluators
-    surrogate_v1 = CommercialCleanSurrogateV1.from_seed_dir(seed_dir) if use_surrogate_v1 else None
+    surrogate_v1_only = CommercialCleanSurrogateV1.from_seed_dir(seed_dir) if use_surrogate_v1 else None
+    surrogate_v1 = surrogate_v2 if surrogate_v2 is not None else surrogate_v1_only
 
     use_orthrus = "orthrus_mamba_rna_foundation" in intent.runtime_policy.enabled_evaluators
     active_orthrus_model: Any = None
@@ -2846,10 +2862,11 @@ def run_design_pipeline(
                     if adv.advisory_id not in {a.advisory_id for a in all_advisories}:
                         all_advisories.append(adv)
             if surrogate_v1 is not None:
+                active_surr_cid = "surrogate_v2" if surrogate_v2 is not None else "surrogate_v1_clean"
                 t_sr = time.perf_counter()
                 sr_list, sr_adv = surrogate_v1.evaluate_molecule(mol)
                 surr_wall += time.perf_counter() - t_sr
-                if valid_measurement(sr_list, "surrogate_v1_clean", requires_partner):
+                if valid_measurement(sr_list, active_surr_cid, requires_partner):
                     surr_ok_mols += 1
                     chain_has_cleared_partner = True
                 else:
@@ -3007,7 +3024,8 @@ def run_design_pipeline(
             )
         )
     if surrogate_v1 is not None and qualified:
-        spec_s = COMPONENT_CATALOG["surrogate_v1_clean"]
+        active_surr_cid = "surrogate_v2" if surrogate_v2 is not None else "surrogate_v1_clean"
+        spec_s = COMPONENT_CATALOG[active_surr_cid]
         comp_records.append(
             ComponentInvocationRecord(
                 name=spec_s.display_name,

@@ -657,6 +657,8 @@ def _receipt_asset(component_id: str, seed_dir: Path | None) -> Path | None:
         return resolve_default_cards_dir() / _REPLACEMENT_CARD_BY_COMPONENT[component_id]
     if component_id == "surrogate_v1_clean":
         return (seed_dir or resolve_default_seed_dir()) / "surrogate_v1/TRAINING_PROVENANCE_MANIFEST.json"
+    if component_id == "surrogate_v2":
+        return (seed_dir or resolve_default_seed_dir()) / "surrogate_v2/TRAINING_PROVENANCE_MANIFEST.json"
     if component_id == "stage0_random":
         return engine_dir / "stage0_baseline.py"
     if component_id == "pareto_nsga2":

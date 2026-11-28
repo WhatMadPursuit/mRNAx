@@ -181,10 +181,29 @@ def _strictest_license_track(*tiers: str) -> LicenseTrack:
     return max(valid, key=_LICENSE_TRACK_ORDER.index)
 
 
-_FORBIDDEN_SCAFFOLD_LICENSE_RE = re.compile(
-    r"(?:non[-\s]?commercial|cc[-\s]?by[-\s]?nc|cc[-\s]?by[-\s]?sa|sharealike|\b(?:a?gpl|lgpl)\b|research[-\s_]?only|proprietary|pending|quarantine)",
+_SCAFFOLD_LICENSE_SPLIT_RE = re.compile(r"\s+(?:AND|OR|/|,|;|\+)\s+|\s*[+,;/]\s*", re.IGNORECASE)
+_APPROVED_SCAFFOLD_LICENSE_CLAUSE_RE = re.compile(
+    r"^(?:"
+    r"CC0(?:[-_ ]?1\.0)?"
+    r"|CC[-_ ]?BY(?:[-_ ]?4\.0)?"
+    r"|MIT(?:\s+License)?"
+    r"|Apache[-_ ]?2\.0"
+    r"|BSD[-_ ]?[23][-_ ]?Clause"
+    r"|0BSD"
+    r"|ISC"
+    r"|Unlicense"
+    r"|(?:NCBI\s+|US[-_ ]Government\s+)?Public[-_ ]Domain"
+    r")$",
     re.IGNORECASE,
 )
+
+
+def _is_approved_permissive_spdx(spdx_str: str) -> bool:
+    cleaned = spdx_str.strip()
+    if not cleaned:
+        return False
+    clauses = [c.strip("() ") for c in _SCAFFOLD_LICENSE_SPLIT_RE.split(cleaned) if c.strip("() ")]
+    return bool(clauses) and all(bool(_APPROVED_SCAFFOLD_LICENSE_CLAUSE_RE.fullmatch(c)) for c in clauses)
 
 
 def _validate_scaffold_component(
@@ -216,14 +235,14 @@ def _validate_scaffold_component(
         )
     spdx_str = str(lic_obj.get("spdx") or "") if isinstance(lic_obj, dict) else ""
     redist_ok = isinstance(lic_obj, dict) and (lic_obj.get("external_redistribution_allowed") is True)
-    spdx_clean = bool(spdx_str.strip()) and not bool(_FORBIDDEN_SCAFFOLD_LICENSE_RE.search(spdx_str))
+    spdx_clean = _is_approved_permissive_spdx(spdx_str)
     fto_obj = scaf.get("patent_fto_tag")
     fto_clean_ok = (
         isinstance(fto_obj, dict)
         and (fto_obj.get("commercial_clean_allowed") is True)
         and str(fto_obj.get("status") or "").upper() != "BLOCKED_IN_COMMERCIAL_CLEAN"
     )
-    # Never allow a segment to retain 'commercial_clean' when commercial redistribution or FTO clearance is denied/absent.
+    # Never allow a segment to retain 'commercial_clean' when commercial redistribution, permissive SPDX, or FTO clearance is absent.
     if tier == "commercial_clean" and not (redist_ok and spdx_clean and fto_clean_ok):
         tier = "research_only"
     if compliance_track == "commercial_clean" and tier != "commercial_clean":
@@ -348,6 +367,7 @@ def _optimize_cds_for_modality(
     constraints: list[ConstraintSpec] | None = None,
     seed: int = 42,
     baseline_v20_mode: bool = False,
+    transl_table: int = 1,
 ) -> tuple[str, str, dict[str, Any]]:
     """Optimize CDS respecting `commercial_clean` isolation (`LinearDesign+Polisher` vs clean bicodon/v2.0)."""
     if baseline_v20_mode:
@@ -356,6 +376,7 @@ def _optimize_cds_for_modality(
             constraints or default_m1_constraints(),
             seed=seed,
             chemistry=chemistry,
+            transl_table=transl_table,
         )
         return (
             cds_dc,
@@ -375,6 +396,7 @@ def _optimize_cds_for_modality(
             eliminate_uuuu=(chemistry in {"m1psi", "pseudouridine"} or True),
             extra_forbidden_motifs=extra_forbidden_motifs,
             constraints=constraints,
+            transl_table=transl_table,
             seed=seed,
         )
         best = cands[0]
@@ -398,6 +420,7 @@ def _optimize_cds_for_modality(
         constraints or default_m1_constraints(),
         seed=seed,
         chemistry=chemistry,
+        transl_table=transl_table,
     )
     trials = [init_cds]
     cur = init_cds
@@ -412,6 +435,7 @@ def _optimize_cds_for_modality(
             stop_head=stop_rna + utr3_rna[:9],
             target_gc=(0.52, 0.55, 0.57)[step_i],
             mutation_prob=0.65,
+            transl_table=transl_table,
         )
         trials.append(cur)
     chosen = trials[-1]
@@ -546,6 +570,7 @@ def build_linear_mrna_bundle(
             constraints=constraints,
             seed=seed + 101 * idx,
             baseline_v20_mode=baseline_v20_mode,
+            transl_table=tgt.transl_table,
         )
         cds_tier = _strictest_license_track(str(cds_meta.get("license_track", "commercial_clean")))
         c1 = len(u5_seq)
@@ -766,8 +791,12 @@ def _uncouple_cds_from_ires_synonymously(
     *,
     k_ban: int = 12,
     forbidden_motifs: tuple[str, ...] = (),
+    transl_table: int = 1,
 ) -> str:
     """Eliminate >=12-nt antisense base-pairing invasions between CDS and viral IRES domains IV-VI."""
+    from mrnax.engine.stage0_baseline import _codons_for_transl_table
+
+    codon_map = _codons_for_transl_table(transl_table)
     ires_core = ires_rna[-480:] if len(ires_rna) > 480 else ires_rna
     banned_rc_kmers = {
         str(Seq(ires_core[i : i + k_ban]).reverse_complement_rna())
@@ -786,7 +815,7 @@ def _uncouple_cds_from_ires_synonymously(
         c_mid = min(len(codons) - 1, max(1, (hit_pos + k_ban // 2) // 3))
         replaced = False
         for idx in (c_mid, max(1, c_mid - 1), min(len(codons) - 1, c_mid + 1)):
-            choices = AA_TO_SYNONYMOUS_RNA_CODONS.get(protein_seq[idx], (codons[idx],))
+            choices = codon_map.get(protein_seq[idx], (codons[idx],))
             for cand_c in choices:
                 if cand_c == codons[idx]:
                     continue
@@ -814,7 +843,7 @@ def build_circrna_bundle(
     *,
     bundle_id: str = "bnd_v25_circrna",
     ires_name: str = "HRV-B3",
-    pie_backbone: str = "Anabaena",
+    pie_backbone: str = "T4_TD",
     spacer5_scaffold_id: str = "SCAF-CIRC-SPACER5-POLYAC-51NT",
     spacer3_scaffold_id: str = "SCAF-CIRC-SPACER3-RANDOM50-50NT",
     compliance_track: ComplianceProfile = "research_max",
@@ -861,12 +890,16 @@ def build_circrna_bundle(
     utr5_circ_tier = _strictest_license_track(pie_tier, sp5_tier, ires_tier)
     utr3_circ_tier = _strictest_license_track(sp3_tier, pie_tier)
 
-    if pie_scaf["scaffold_id"] == "SCAF-CIRC-PIE-ANABAENA-TRNALEU-GROUP1":
+    has_verified_pie_arms = (
+        isinstance(pie_scaf.get("upstream_arm_3prime_intron_plus_e2_rna"), str)
+        and isinstance(pie_scaf.get("downstream_arm_e1_plus_5prime_intron_rna"), str)
+    )
+    if not has_verified_pie_arms:
         scar_27 = str(pie_scaf["verified_ligated_27nt_e2_e1_splicing_scar_rna"]).upper()
         e2_scar = scar_27[:8]
         e1_scar = scar_27[8:]
-        up_arm = e2_scar
-        dn_arm = e1_scar
+        up_arm = ""
+        dn_arm = ""
     else:
         up_arm = str(pie_scaf["upstream_arm_3prime_intron_plus_e2_rna"]).upper()
         dn_arm = str(pie_scaf["downstream_arm_e1_plus_5prime_intron_rna"]).upper()
@@ -903,10 +936,13 @@ def build_circrna_bundle(
         lambda_val=lambda_val,
         seed=seed,
         baseline_v20_mode=baseline_v20_mode,
+        transl_table=tgt.transl_table,
     )
     used_vendor_polisher = False
     if not baseline_v20_mode:
-        cds_seq = _uncouple_cds_from_ires_synonymously(cds_seq, tgt.protein_sequence, ires_rna)
+        cds_seq = _uncouple_cds_from_ires_synonymously(
+            cds_seq, tgt.protein_sequence, ires_rna, transl_table=tgt.transl_table
+        )
         if compliance_track != "commercial_clean":
             cds_seq, _ = polish_cds_5prime_and_constraints(
                 cds_seq,
@@ -917,6 +953,7 @@ def build_circrna_bundle(
                 compliance_track=compliance_track,
                 eliminate_uuuu=True,
                 max_homopolymer=5,
+                transl_table=tgt.transl_table,
             )
             used_vendor_polisher = True
 
@@ -930,17 +967,28 @@ def build_circrna_bundle(
     c3 = c2 + len(stop_rna)
     c4 = c3 + len(utr3_composite)
     full_circ_seq = utr5_composite + cds_seq + stop_rna + utr3_composite
-    precursor_len = len(up_arm) + len(spacer5_rna) + len(ires_rna) + len(cds_seq) + len(stop_rna) + len(spacer3_rna) + len(dn_arm)
+
+    e2_quals: dict[str, list[str]] = {
+        "pie_scaffold_id": [pie_scaf["scaffold_id"]],
+        "pie_precursor_status": [
+            "verified_split_intron_arms" if has_verified_pie_arms else "descriptor_scar_only_missing_intron_arms"
+        ],
+    }
+    e1_quals: dict[str, list[str]] = {"pie_scaffold_id": [pie_scaf["scaffold_id"]]}
+    if has_verified_pie_arms:
+        precursor_len = (
+            len(up_arm) + len(spacer5_rna) + len(ires_rna) + len(cds_seq) + len(stop_rna) + len(spacer3_rna) + len(dn_arm)
+        )
+        e2_quals["ivt_precursor_length_nt"] = [str(precursor_len)]
+        e2_quals["pie_upstream_arm_rna"] = [up_arm]
+        e1_quals["pie_downstream_arm_rna"] = [dn_arm]
 
     anns = [
         FeatureAnnotation(
             feature_id="pie_exon2_scar",
             feature_key="misc_feature",
             intervals=[(0, len(e2_scar))],
-            qualifiers={
-                "pie_scaffold_id": [pie_scaf["scaffold_id"]],
-                "ivt_precursor_length_nt": [str(precursor_len)],
-            },
+            qualifiers=e2_quals,
         ),
         FeatureAnnotation(
             feature_id="circ_5prime_spacer",
@@ -968,7 +1016,7 @@ def build_circrna_bundle(
             feature_id="pie_exon1_scar",
             feature_key="misc_feature",
             intervals=[(c3 + len(spacer3_rna), c4)],
-            qualifiers={"pie_scaffold_id": [pie_scaf["scaffold_id"]]},
+            qualifiers=e1_quals,
         ),
     ]
 
@@ -1203,6 +1251,7 @@ def build_sarna_bundle(
         lambda_val=lambda_val,
         seed=seed,
         baseline_v20_mode=baseline_v20_mode,
+        transl_table=tgt.transl_table,
     )
     cds_tier = _strictest_license_track(str(cds_meta.get("license_track", "commercial_clean")))
 

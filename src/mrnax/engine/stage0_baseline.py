@@ -49,17 +49,38 @@ AA_TO_SYNONYMOUS_RNA_CODONS: dict[str, tuple[str, ...]] = {
 }
 
 
+@functools.lru_cache(maxsize=8)
+def _codons_for_transl_table(transl_table: int = 1) -> dict[str, tuple[str, ...]]:
+    if transl_table == 1:
+        return AA_TO_SYNONYMOUS_RNA_CODONS
+    from Bio.Data import CodonTable
+
+    tbl = CodonTable.unambiguous_rna_by_id[int(transl_table)]
+    by_aa: dict[str, list[str]] = {}
+    for codon, aa in tbl.forward_table.items():
+        by_aa.setdefault(aa, []).append(codon)
+    # Order preferred codons using standard human ranking when shared, deterministic fallback otherwise
+    out: dict[str, tuple[str, ...]] = {}
+    for aa, c_list in by_aa.items():
+        pref = AA_TO_SYNONYMOUS_RNA_CODONS.get(aa, ())
+        ordered = sorted(c_list, key=lambda c: (pref.index(c) if c in pref else 99, c))
+        out[aa] = tuple(ordered)
+    return out
+
+
 def generate_random_synonymous_cds(
     protein_seq: str,
     rng: random.Random,
     *,
     chemistry: UridineChemistry,
     slowdown_codon_ranges: list[tuple[int, int]] | None = None,
+    transl_table: int = 1,
 ) -> str:
     slowdown = slowdown_codon_ranges or []
+    codon_map = _codons_for_transl_table(transl_table)
     codons: list[str] = []
     for idx, aa in enumerate(protein_seq):
-        choices = AA_TO_SYNONYMOUS_RNA_CODONS[aa]
+        choices = codon_map[aa]
         in_slowdown = any(lo <= idx < hi for lo, hi in slowdown)
         if in_slowdown and len(choices) > 1:
             # Prefer sub-maximal / moderate elongation codons in co-translational folding slowdown zones
@@ -67,7 +88,7 @@ def generate_random_synonymous_cds(
         else:
             codons.append(rng.choice(choices))
     cds_rna = "".join(codons)
-    if chemistry in {"m1psi", "pseudouridine"}:
+    if chemistry in {"m1psi", "pseudouridine"} and transl_table == 1:
         cds_rna, _ = remediate_m1psi_slippery_runs(cds_rna)
     return cds_rna
 
@@ -131,6 +152,7 @@ def propose_non_partitioned_bicodon_cds(
     temperature: float = 0.08,
     target_gc: float = 0.565,
     mutation_prob: float = 0.60,
+    transl_table: int = 1,
 ) -> str:
     """Continuous full-CDS non-partitioned GC-homeostatic bicodon + CSC + RBP proposal operator.
 
@@ -146,6 +168,7 @@ def propose_non_partitioned_bicodon_cds(
     n_codons = len(protein_seq)
     if len(codons) != n_codons or n_codons <= 1:
         return cds_rna
+    codon_map = _codons_for_transl_table(transl_table)
     csc_map, bic_map = _load_bicodon_atlas()
     forbidden_cds = _extract_forbidden_rna_motifs(constraints, chemistry, junction_only=False)
     forbidden_junc = _extract_forbidden_rna_motifs(constraints, chemistry, junction_only=True)
@@ -158,7 +181,7 @@ def propose_non_partitioned_bicodon_cds(
 
     for idx in range(1, n_codons):
         aa = protein_seq[idx]
-        choices = AA_TO_SYNONYMOUS_RNA_CODONS[aa]
+        choices = codon_map[aa]
         if len(choices) <= 1:
             continue
         if any(lo <= idx < hi for lo, hi in slowdown):
@@ -231,7 +254,7 @@ def propose_non_partitioned_bicodon_cds(
         codons[idx] = chosen
 
     out = "".join(codons)
-    if chemistry in {"m1psi", "pseudouridine"}:
+    if chemistry in {"m1psi", "pseudouridine"} and transl_table == 1:
         out, _ = remediate_m1psi_slippery_runs(out)
     return out
 
@@ -247,15 +270,17 @@ def mutate_cds_region_synonymously(
     chemistry: UridineChemistry = "m1psi",
     legacy_single_boundary: bool = False,
     constraints: list[ConstraintSpec] | None = None,
+    transl_table: int = 1,
 ) -> str:
     codons = [cds_rna[i : i + 3] for i in range(0, len(cds_rna), 3)]
     lo = max(0, codon_start)
     hi = min(len(protein_seq), codon_end)
+    codon_map = _codons_for_transl_table(transl_table)
     csc_map, bic_map = _load_bicodon_atlas()
     forbidden = () if legacy_single_boundary else _extract_forbidden_rna_motifs(constraints, chemistry)
     for idx in range(lo, hi):
         aa = protein_seq[idx]
-        choices = AA_TO_SYNONYMOUS_RNA_CODONS[aa]
+        choices = codon_map[aa]
         if len(choices) <= 1:
             continue
         if prefer_open_au:
@@ -293,7 +318,7 @@ def mutate_cds_region_synonymously(
                 ranked = sorted(choices, key=lambda c: -(c.count("G") + c.count("C")))
             codons[idx] = ranked[0] if rng.random() < 0.85 else rng.choice(ranked[:2])
     out = "".join(codons)
-    if chemistry in {"m1psi", "pseudouridine"}:
+    if chemistry in {"m1psi", "pseudouridine"} and transl_table == 1:
         out, _ = remediate_m1psi_slippery_runs(out)
     return out
 
@@ -307,14 +332,22 @@ def generate_dnachisel_cds(
     *,
     seed: int,
     chemistry: UridineChemistry,
+    transl_table: int = 1,
 ) -> str:
     """Solve CDS constraints & human codon optimization via MIT-licensed DNA Chisel."""
     rng = random.Random(seed)
-    init_rna = generate_random_synonymous_cds(protein_seq, rng, chemistry=chemistry)
+    init_rna = generate_random_synonymous_cds(
+        protein_seq, rng, chemistry=chemistry, transl_table=transl_table
+    )
     init_dna = init_rna.replace("U", "T")
 
+    enf_tr = (
+        EnforceTranslation(location=(0, len(init_dna)), genetic_code=str(transl_table))
+        if transl_table != 1
+        else EnforceTranslation(location=(0, len(init_dna)))
+    )
     dc_constraints = [
-        EnforceTranslation(location=(0, len(init_dna))),
+        enf_tr,
         EnforceGCContent(mini=0.35, maxi=0.72, window=min(60, len(init_dna))),
         AvoidPattern("ATCTGTT"),  # Class II T7 terminator
     ]
@@ -362,6 +395,11 @@ def generate_dnachisel_cds(
             random.setstate(py_rng_state)
             np.random.set_state(np_rng_state)
 
-    if chemistry in {"m1psi", "pseudouridine"}:
+    if chemistry in {"m1psi", "pseudouridine"} and transl_table == 1:
         solved_rna, _ = remediate_m1psi_slippery_runs(solved_rna)
+    if transl_table != 1:
+        from Bio.Seq import Seq
+
+        if str(Seq(solved_rna).translate(table=transl_table)) != protein_seq:
+            return init_rna
     return solved_rna

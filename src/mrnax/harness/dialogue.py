@@ -209,6 +209,99 @@ def _extract_choice_message(resp: httpx.Response, *, allow_tool_calls: bool = Tr
 
 
 MAX_LLM_RESPONSE_BYTES = 2 * 1024 * 1024
+MAX_LLM_ERROR_BODY_BYTES = 16 * 1024
+
+
+def _strip_encoding_and_length_headers(raw_headers: Iterable[tuple[str, str]]) -> list[tuple[str, str]]:
+    return [
+        (k, v)
+        for k, v in raw_headers
+        if k.lower() not in ("content-encoding", "content-length", "transfer-encoding")
+    ]
+
+
+def _decode_bounded_http_chunks(
+    chunks: Iterable[bytes],
+    content_encoding: str | None,
+    *,
+    max_bytes: int,
+    truncate_on_cap: bool = False,
+) -> bytes:
+    import zlib
+
+    enc = (content_encoding or "").strip().lower()
+    if "," in enc:
+        raise UpstreamProviderProtocolError(f"Unsupported stacked Content-Encoding '{content_encoding}'")
+
+    out_parts: list[bytes] = []
+    total_decoded = 0
+    step_cap = 65_536
+
+    def _append_decoded(piece: bytes) -> bool:
+        nonlocal total_decoded
+        if not piece:
+            return False
+        remaining = max_bytes - total_decoded
+        if len(piece) > remaining:
+            if truncate_on_cap:
+                if remaining > 0:
+                    out_parts.append(piece[:remaining])
+                    total_decoded += remaining
+                return True
+            raise UpstreamProviderProtocolError(
+                f"Upstream LLM response exceeded {max_bytes}-byte decoded safety cap"
+            )
+        out_parts.append(piece)
+        total_decoded += len(piece)
+        return False
+
+    if enc in ("", "identity"):
+        for raw_chunk in chunks:
+            if _append_decoded(raw_chunk):
+                return b"".join(out_parts)
+        return b"".join(out_parts)
+
+    if enc in ("gzip", "x-gzip"):
+        decomp = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    elif enc == "deflate":
+        decomp = zlib.decompressobj(zlib.MAX_WBITS)
+    else:
+        raise UpstreamProviderProtocolError(f"Unsupported upstream Content-Encoding '{content_encoding}'")
+
+    deflate_raw_fallback = enc == "deflate"
+    first_chunk = True
+    try:
+        for raw_chunk in chunks:
+            if not raw_chunk:
+                continue
+            try:
+                piece = decomp.decompress(raw_chunk, step_cap)
+            except zlib.error:
+                if first_chunk and deflate_raw_fallback:
+                    decomp = zlib.decompressobj(-zlib.MAX_WBITS)
+                    deflate_raw_fallback = False
+                    piece = decomp.decompress(raw_chunk, step_cap)
+                else:
+                    raise
+            first_chunk = False
+            if _append_decoded(piece):
+                return b"".join(out_parts)
+            while decomp.unconsumed_tail:
+                piece = decomp.decompress(decomp.unconsumed_tail, step_cap)
+                if _append_decoded(piece):
+                    return b"".join(out_parts)
+        tail = decomp.flush(step_cap)
+        if _append_decoded(tail):
+            return b"".join(out_parts)
+        while decomp.unconsumed_tail:
+            tail = decomp.flush(step_cap)
+            if _append_decoded(tail):
+                return b"".join(out_parts)
+    except zlib.error as exc:
+        if truncate_on_cap and out_parts:
+            return b"".join(out_parts)
+        raise UpstreamProviderProtocolError("Invalid compressed body from upstream LLM provider") from exc
+    return b"".join(out_parts)
 
 
 class _PinnedHostHTTPTransport(httpx.BaseTransport):
@@ -228,7 +321,7 @@ class _PinnedHostHTTPTransport(httpx.BaseTransport):
         req_host = (request.url.host or "").lower()
         req_port = request.url.port or (443 if request.url.scheme == "https" else 80)
         if request.url.scheme != "https" or req_host != self._expected_host or req_port != self._pinned_port:
-            raise UpstreamProviderProtocolError("Custom LLM request escaped pinned verified origin")
+            raise UpstreamProviderProtocolError("LLM request escaped pinned verified origin")
 
         ctx = ssl.create_default_context()
         raw_sock = socket.create_connection((self._pinned_ip, self._pinned_port), timeout=self._timeout_sec)
@@ -238,22 +331,49 @@ class _PinnedHostHTTPTransport(httpx.BaseTransport):
         try:
             target_path = request.url.raw_path.decode("ascii", errors="strict")
             hdrs = {k: v for k, v in request.headers.items()}
+            hdrs["Accept-Encoding"] = "identity"
             conn.request(request.method, target_path, body=request.read(), headers=hdrs)
             resp = conn.getresponse()
-            raw_body = resp.read(MAX_LLM_RESPONSE_BYTES + 1)
-            if len(raw_body) > MAX_LLM_RESPONSE_BYTES:
-                raise UpstreamProviderProtocolError(
-                    f"Upstream LLM response exceeded {MAX_LLM_RESPONSE_BYTES}-byte cap"
-                )
-            resp_headers = list(resp.getheaders())
+            is_err = resp.status >= 400
+            cap = MAX_LLM_ERROR_BODY_BYTES if is_err else MAX_LLM_RESPONSE_BYTES
+
+            def _iter_http_resp() -> Iterable[bytes]:
+                raw_seen = 0
+                while True:
+                    blk = resp.read(32_768)
+                    if not blk:
+                        break
+                    raw_seen += len(blk)
+                    if not is_err and raw_seen > MAX_LLM_RESPONSE_BYTES:
+                        raise UpstreamProviderProtocolError(
+                            f"Upstream LLM response exceeded {MAX_LLM_RESPONSE_BYTES}-byte raw wire cap"
+                        )
+                    yield blk
+
+            decoded_body = _decode_bounded_http_chunks(
+                _iter_http_resp(),
+                resp.getheader("Content-Encoding"),
+                max_bytes=cap,
+                truncate_on_cap=is_err,
+            )
+            clean_headers = _strip_encoding_and_length_headers(resp.getheaders())
             return httpx.Response(
                 status_code=resp.status,
-                headers=resp_headers,
-                content=raw_body,
+                headers=clean_headers,
+                content=decoded_body,
                 request=request,
             )
         finally:
             conn.close()
+
+
+def _iter_raw_response_chunks(stream_resp: httpx.Response, *, chunk_size: int = 32_768) -> Iterable[bytes]:
+    if not stream_resp.is_stream_consumed:
+        yield from stream_resp.iter_raw(chunk_size=chunk_size)
+        return
+    for block in stream_resp.stream:
+        for idx in range(0, len(block), chunk_size):
+            yield block[idx : idx + chunk_size]
 
 
 def _post_json_bounded(
@@ -264,26 +384,53 @@ def _post_json_bounded(
     json_body: dict[str, Any],
     max_bytes: int = MAX_LLM_RESPONSE_BYTES,
 ) -> httpx.Response:
+    req_headers = {**headers, "Accept-Encoding": "identity"}
     # Preserve seamless compatibility when unit tests monkeypatch httpx.Client.post directly
     if getattr(httpx.Client.post, "__qualname__", "") != "Client.post":
-        resp = client.post(url, headers=headers, json=json_body)
+        resp = client.post(url, headers=req_headers, json=json_body)
         resp.raise_for_status()
         return resp
-    with client.stream("POST", url, headers=headers, json=json_body) as stream_resp:
-        stream_resp.raise_for_status()
-        chunks: list[bytes] = []
-        total = 0
-        for chunk in stream_resp.iter_bytes():
-            total += len(chunk)
-            if total > max_bytes:
-                raise UpstreamProviderProtocolError(
-                    f"Upstream LLM response exceeded {max_bytes}-byte safety cap"
-                )
-            chunks.append(chunk)
+    with client.stream("POST", url, headers=req_headers, json=json_body) as stream_resp:
+        enc = stream_resp.headers.get("content-encoding")
+        clean_headers = _strip_encoding_and_length_headers(stream_resp.headers.items())
+        if stream_resp.status_code >= 400:
+            err_body = _decode_bounded_http_chunks(
+                _iter_raw_response_chunks(stream_resp, chunk_size=16_384),
+                enc,
+                max_bytes=MAX_LLM_ERROR_BODY_BYTES,
+                truncate_on_cap=True,
+            )
+            err_resp = httpx.Response(
+                status_code=stream_resp.status_code,
+                headers=clean_headers,
+                content=err_body,
+                request=stream_resp.request,
+            )
+            err_resp.raise_for_status()
+            return err_resp
+
+        raw_seen = 0
+
+        def _bounded_raw() -> Iterable[bytes]:
+            nonlocal raw_seen
+            for raw_chunk in _iter_raw_response_chunks(stream_resp, chunk_size=32_768):
+                raw_seen += len(raw_chunk)
+                if raw_seen > max_bytes:
+                    raise UpstreamProviderProtocolError(
+                        f"Upstream LLM response exceeded {max_bytes}-byte wire safety cap"
+                    )
+                yield raw_chunk
+
+        decoded_body = _decode_bounded_http_chunks(
+            _bounded_raw(),
+            enc,
+            max_bytes=max_bytes,
+            truncate_on_cap=False,
+        )
         return httpx.Response(
             status_code=stream_resp.status_code,
-            headers=stream_resp.headers,
-            content=b"".join(chunks),
+            headers=clean_headers,
+            content=decoded_body,
             request=stream_resp.request,
         )
 
@@ -298,6 +445,8 @@ def _project_llm_tool_payload(obj: Any, *, depth: int = 0) -> Any:
         }
         out: dict[str, Any] = {}
         for k, v in obj.items():
+            if k == "lookup_only_evidence":
+                continue
             if isinstance(k, str) and k.endswith("_sandboxed") and k[:-10] in quarantined_bases:
                 continue
             out[k] = _project_llm_tool_payload(v, depth=depth + 1)
@@ -568,7 +717,11 @@ class LiveDialogueAgent:
         )
 
         custom_transport: httpx.BaseTransport | None = None
-        if self._has_custom_base_url:
+        http_client_unpatched = (
+            getattr(httpx.Client.post, "__qualname__", "") == "Client.post"
+            and getattr(httpx.Client.stream, "__qualname__", "") == "Client.stream"
+        )
+        if self._has_custom_base_url or http_client_unpatched:
             from mrnax.harness.sandbox import resolve_verified_public_peer
 
             _, exp_host, exp_port, pinned_ip = resolve_verified_public_peer(self.base_url, allow_localhost=False)

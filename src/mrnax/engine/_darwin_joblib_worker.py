@@ -343,9 +343,10 @@ class _DarwinJoblibClient:
         except Exception:
             pass
 
-    def _exchange_unlocked(self, proc: subprocess.Popen[bytes], req: tuple[Any, ...]) -> Any:
+    def _exchange_unlocked(
+        self, proc: subprocess.Popen[bytes], req: tuple[Any, ...], deadline: float
+    ) -> Any:
         assert proc.stdin is not None and proc.stdout is not None
-        deadline = time.monotonic() + self._timeout_sec
         try:
             wire_req = _encode_request_frame(req)
             _write_all_fd_with_deadline(proc.stdin.fileno(), wire_req, deadline)
@@ -357,7 +358,7 @@ class _DarwinJoblibClient:
             raise RuntimeError(f"Darwin joblib worker error ({req[0]}): {payload}")
         return payload
 
-    def _ensure_proc(self) -> subprocess.Popen[bytes]:
+    def _ensure_proc(self, deadline: float) -> subprocess.Popen[bytes]:
         if self._proc is not None and self._proc.poll() is None:
             return self._proc
         self._kill_proc_unlocked()
@@ -378,18 +379,31 @@ class _DarwinJoblibClient:
         os.set_blocking(proc.stdout.fileno(), False)
         self._proc = proc
         for key, raw in self._loaded_bytes.items():
-            self._exchange_unlocked(proc, ("load", key, raw))
+            self._exchange_unlocked(proc, ("load", key, raw), deadline)
         return proc
 
     def call(self, op: str, *args: Any) -> Any:
-        with self._lock:
-            proc = self._ensure_proc()
-            return self._exchange_unlocked(proc, (op, *args))
+        deadline = time.monotonic() + self._timeout_sec
+        rem_lock = max(0.01, deadline - time.monotonic())
+        if not self._lock.acquire(timeout=rem_lock):
+            raise TimeoutError(f"Darwin joblib client lock acquisition timed out ({self._timeout_sec}s)")
+        try:
+            proc = self._ensure_proc(deadline)
+            return self._exchange_unlocked(proc, (op, *args), deadline)
+        finally:
+            self._lock.release()
 
     def load_verified_bytes(self, cache_key: str, raw_bytes: bytes) -> dict[str, Any]:
-        meta: dict[str, Any] = self.call("load", cache_key, raw_bytes)
-        with self._lock:
+        deadline = time.monotonic() + self._timeout_sec
+        rem_lock = max(0.01, deadline - time.monotonic())
+        if not self._lock.acquire(timeout=rem_lock):
+            raise TimeoutError(f"Darwin joblib client lock acquisition timed out ({self._timeout_sec}s)")
+        try:
+            proc = self._ensure_proc(deadline)
+            meta: dict[str, Any] = self._exchange_unlocked(proc, ("load", cache_key, raw_bytes), deadline)
             self._loaded_bytes[cache_key] = raw_bytes
+        finally:
+            self._lock.release()
         out = dict(meta["primitives"])
         if meta.get("has_scaler"):
             out["scaler"] = _IsolatedTransformProxy(self, cache_key)
@@ -400,7 +414,9 @@ class _DarwinJoblibClient:
         return out
 
     def close(self) -> None:
-        with self._lock:
+        if not self._lock.acquire(timeout=2.0):
+            return
+        try:
             if self._proc is not None:
                 try:
                     if self._proc.stdin is not None and self._proc.poll() is None:
@@ -411,6 +427,8 @@ class _DarwinJoblibClient:
                     pass
                 finally:
                     self._kill_proc_unlocked()
+        finally:
+            self._lock.release()
 
 
 _SINGLETON_CLIENT: _DarwinJoblibClient | None = None

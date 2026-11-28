@@ -46,7 +46,7 @@ _WAVE1B_LINUX_BIN_DIR = Path(
     "scratch/wave1_sota_models/bin/linux_x86_64"
 )
 
-_SEQ_LINE_RE = re.compile(r"mRNA sequence:\s*([ACGUacgu]+)")
+_SEQ_LINE_RE = re.compile(r"(?:^|[\r\n])[ \t]*mRNA sequence:[ \t]*([ACGUacgu]+)[ \t]*(?=\r?\n|$)")
 _ENERGY_CAI_RE = re.compile(
     r"mRNA folding free energy:\s*([-+]?\d+(?:\.\d+)?)\s*kcal/mol;\s*mRNA CAI:\s*([-+]?\d+(?:\.\d+)?)"
 )
@@ -55,10 +55,10 @@ _CLASS_II_T7_RNA = "AUCUGUU"
 
 
 def _assert_research_track_allowed(compliance_track: str) -> None:
-    if compliance_track == "commercial_clean":
+    if compliance_track not in ("research_max", "sota_open"):
         raise PermissionError(
-            "LinearDesign is strictly isolated from 'commercial_clean' (Academic/Non-Commercial license; "
-            "use 'research_max' or 'sota_open' track only)."
+            f"LinearDesign is strictly isolated from '{compliance_track}'; "
+            "only explicit 'research_max' or 'sota_open' tracks are permitted."
         )
 
 
@@ -238,11 +238,15 @@ def _run_bounded_subprocess(
     err_chunks: list[bytes] = []
     out_len = 0
     err_len = 0
+    in_buf = memoryview(stdin_text.encode("ascii"))
+    in_written = 0
     try:
         assert proc.stdin is not None and proc.stdout is not None and proc.stderr is not None
-        proc.stdin.write(stdin_text.encode("ascii"))
-        proc.stdin.close()
+        os.set_blocking(proc.stdin.fileno(), False)
+        os.set_blocking(proc.stdout.fileno(), False)
+        os.set_blocking(proc.stderr.fileno(), False)
         with selectors.DefaultSelector() as sel:
+            sel.register(proc.stdin, selectors.EVENT_WRITE, data="in")
             sel.register(proc.stdout, selectors.EVENT_READ, data="out")
             sel.register(proc.stderr, selectors.EVENT_READ, data="err")
             while sel.get_map():
@@ -254,7 +258,20 @@ def _run_bounded_subprocess(
                     raise subprocess.TimeoutExpired(argv, timeout_sec)
                 for key, _ in events:
                     stream = key.fileobj
-                    chunk = os.read(stream.fileno(), 16384)  # type: ignore[union-attr]
+                    if key.data == "in":
+                        try:
+                            nw = os.write(stream.fileno(), in_buf[in_written : min(len(in_buf), in_written + 16384)])  # type: ignore[union-attr]
+                            in_written += nw
+                        except BlockingIOError:
+                            continue
+                        if in_written >= len(in_buf):
+                            sel.unregister(stream)
+                            proc.stdin.close()
+                        continue
+                    try:
+                        chunk = os.read(stream.fileno(), 16384)  # type: ignore[union-attr]
+                    except BlockingIOError:
+                        continue
                     if not chunk:
                         sel.unregister(stream)
                         continue
@@ -265,8 +282,9 @@ def _run_bounded_subprocess(
                         out_chunks.append(chunk)
                     else:
                         err_len += len(chunk)
-                        if err_len <= max_stderr_bytes:
-                            err_chunks.append(chunk)
+                        if err_len > max_stderr_bytes:
+                            raise RuntimeError("LinearDesign stderr exceeded byte cap")
+                        err_chunks.append(chunk)
         rem_wait = max(0.05, deadline - time.monotonic())
         rc = proc.wait(timeout=rem_wait)
     except Exception:
@@ -300,11 +318,15 @@ def _cached_cpp_lineardesign_call(
     seq_m = _SEQ_LINE_RE.search(stdout_text)
     ec_m = _ENERGY_CAI_RE.search(stdout_text)
     if seq_m is None:
-        raise RuntimeError(f"LinearDesign stdout missing 'mRNA sequence:' line: {stdout_text[-300:]!r}")
+        raise RuntimeError(f"LinearDesign stdout missing valid 'mRNA sequence:' line: {stdout_text[-300:]!r}")
     cds_rna = seq_m.group(1).upper().replace("T", "U")
+    if len(cds_rna) != 3 * len(sense_aa):
+        raise RuntimeError("LinearDesign stdout sequence length mismatch")
     if ec_m is not None:
         dg_kcal = float(ec_m.group(1))
         cai_val = float(ec_m.group(2))
+        if not math.isfinite(dg_kcal) or not math.isfinite(cai_val) or not (0.0 < cai_val <= 1.0):
+            raise RuntimeError(f"LinearDesign stdout reported invalid energy/CAI ({dg_kcal}, {cai_val})")
     else:
         dg_kcal = _compute_folding_dg_kcal(cds_rna)
         cai_val = compute_human_cai(cds_rna)

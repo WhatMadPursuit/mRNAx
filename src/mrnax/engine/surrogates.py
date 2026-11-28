@@ -283,19 +283,11 @@ _SUPPORTED_PROVENANCE_SCHEMAS = frozenset(
 )
 
 
-_APPROVED_ARTIFACT_LICENSE_TOKENS = (
-    "mit",
-    "apache-2.0",
-    "bsd",
-    "cc-by-4.0",
-    "cc by 4.0",
-    "cc0",
-    "public domain",
-)
-_FORBIDDEN_ARTIFACT_LICENSE_RE = re.compile(
-    r"(?:non[-\s]?commercial|cc[-\s]?by[-\s]?nc|cc[-\s]?by[-\s]?sa|sharealike|\b(?:a?gpl|lgpl)\b|research[-\s_]?only|proprietary|pending|quarantine)",
+_APPROVED_LICENSE_CLAUSE_RE = re.compile(
+    r"^(?:mit(?:\s+license)?|apache-2\.0|bsd-[23]-clause|cc(?:\s+|-)by(?:\s+|-)?4\.0|cc0(?:\s+|-)?1\.0|cc0|(?:ncbi\s+geo\s+|us[-_\s]+)?public[-_\s]+domain)$",
     re.IGNORECASE,
 )
+_LICENSE_SPLIT_RE = re.compile(r"\s*(?:/|\+|,|;|\bAND\b|\bOR\b)\s*", re.IGNORECASE)
 
 
 def _assert_permissive_artifact_license(lic_raw: Any, *, filename: str) -> None:
@@ -304,15 +296,15 @@ def _assert_permissive_artifact_license(lic_raw: Any, *, filename: str) -> None:
         raise PermissionError(
             f"Refusing to deserialize '{filename}' in commercial_clean loader: missing artifact license declaration"
         )
-    low = lic_s.lower()
-    if _FORBIDDEN_ARTIFACT_LICENSE_RE.search(low) or not any(tok in low for tok in _APPROVED_ARTIFACT_LICENSE_TOKENS):
+    clauses = [c.strip() for c in _LICENSE_SPLIT_RE.split(lic_s) if c.strip()]
+    if not clauses or any(not _APPROVED_LICENSE_CLAUSE_RE.fullmatch(c) for c in clauses):
         raise PermissionError(
             f"Refusing to deserialize '{filename}' in commercial_clean loader: prohibited or unrecognized artifact license '{lic_s}'"
         )
 
 
 def extract_circrna_ires_interval(mol: RNAMoleculeSpec) -> str:
-    """Resolve the canonical circRNA viral IRES slice across compound intervals & validate sense strand."""
+    """Resolve the canonical circRNA viral IRES slice across compound/origin-spanning intervals & sense strand."""
     u5_seq = mol.get_segment_sequence("five_prime_utr")
     ires_ann = next(
         (a for a in mol.annotations if a.feature_id.startswith("viral_ires_") and a.intervals),
@@ -324,26 +316,39 @@ def extract_circrna_ires_interval(mol: RNAMoleculeSpec) -> str:
                 f"circRNA annotation '{ires_ann.feature_id}' must lie on positive (+1) sense strand, got {ires_ann.strand}"
             )
         seq_len = len(mol.sequence)
+        is_circular = mol.topology == "circular"
         pieces: list[str] = []
+        covered: list[tuple[int, int]] = []
         prev_hi = 0
+        wrapped_once = False
         for lo, hi in ires_ann.intervals:
-            if lo < prev_hi or hi <= lo or hi > seq_len:
+            if lo < 0 or hi <= lo or hi > seq_len:
                 raise ValueError(
-                    f"Invalid compound interval ({lo}, {hi}) on '{ires_ann.feature_id}' for molecule length {seq_len}"
+                    f"Invalid interval ({lo}, {hi}) on '{ires_ann.feature_id}' for molecule length {seq_len}"
                 )
+            if lo < prev_hi:
+                if is_circular and not wrapped_once:
+                    wrapped_once = True
+                else:
+                    raise ValueError(
+                        f"Out-of-order interval ({lo}, {hi}) on '{ires_ann.feature_id}'"
+                    )
+            if any(not (hi <= clo or lo >= chi) for clo, chi in covered):
+                raise ValueError(f"Overlapping intervals on '{ires_ann.feature_id}'")
+            covered.append((lo, hi))
             pieces.append(mol.sequence[lo:hi])
             prev_hi = hi
         return "".join(pieces)
     return u5_seq[-600:]
 
 
-def _load_verified_joblib(
+def _verify_manifest_artifact(
     weights_dir: Path,
     filename: str,
     *,
     require_commercial_clean: bool = True,
-) -> dict[str, Any]:
-    """Authenticate joblib artifact size, SHA-256, and license track against TRAINING_PROVENANCE_MANIFEST.json."""
+) -> tuple[bytes, str, int, dict[str, Any], str]:
+    """Authenticate joblib artifact size, SHA-256, and license track against TRAINING_PROVENANCE_MANIFEST.json without unpickling."""
     manifest_path = weights_dir / "TRAINING_PROVENANCE_MANIFEST.json"
     if not manifest_path.is_file():
         raise FileNotFoundError(
@@ -413,6 +418,21 @@ def _load_verified_joblib(
         raise ValueError(
             f"Integrity error on '{filename}': sha256 {actual_sha} != expected {expected['sha256']}"
         )
+    return raw_bytes, actual_sha, decl_feats, expected, str(schema_id or "")
+
+
+def _load_verified_joblib(
+    weights_dir: Path,
+    filename: str,
+    *,
+    require_commercial_clean: bool = True,
+) -> dict[str, Any]:
+    """Authenticate joblib artifact size, SHA-256, and license track against TRAINING_PROVENANCE_MANIFEST.json."""
+    raw_bytes, actual_sha, decl_feats, expected, schema_id = _verify_manifest_artifact(
+        weights_dir,
+        filename,
+        require_commercial_clean=require_commercial_clean,
+    )
     if sys.platform == "darwin":
         from mrnax.engine._darwin_joblib_worker import get_darwin_joblib_client
 
@@ -428,7 +448,7 @@ def _load_verified_joblib(
 
     loaded["_manifest_n_features"] = decl_feats
     loaded["_manifest_filename"] = filename
-    loaded["_manifest_schema"] = str(schema_id or "")
+    loaded["_manifest_schema"] = schema_id
     loaded["_manifest_model_name"] = str(expected.get("model_name") or Path(filename).stem)
     return loaded
 
@@ -689,13 +709,20 @@ _SURROGATE_V2_HEAD_CANDIDATES: dict[str, tuple[str, ...]] = {
 
 
 def has_surrogate_v2_artifacts(seed_dir: Path) -> bool:
-    """Return True when `seed_dir / 'surrogate_v2'` has a verified provenance manifest and core 3-head models."""
+    """Return True when `seed_dir / 'surrogate_v2'` has SHA-256 & license-verified core and optional heads."""
     v2_dir = Path(seed_dir) / "surrogate_v2"
     if not (v2_dir / "TRAINING_PROVENANCE_MANIFEST.json").is_file():
         return False
-    for req_key in ("utr5", "cds", "hl"):
-        if not any((v2_dir / fname).is_file() for fname in _SURROGATE_V2_HEAD_CANDIDATES[req_key]):
-            return False
+    try:
+        for head_key, candidates in _SURROGATE_V2_HEAD_CANDIDATES.items():
+            chosen = next((fname for fname in candidates if (v2_dir / fname).is_file()), None)
+            if chosen is None:
+                if head_key in ("utr5", "cds", "hl"):
+                    return False
+                continue
+            _verify_manifest_artifact(v2_dir, chosen, require_commercial_clean=True)
+    except (OSError, ValueError, KeyError, PermissionError, json.JSONDecodeError):
+        return False
     return True
 
 
@@ -981,7 +1008,7 @@ class CommercialCleanSurrogateV2(CommercialCleanSurrogateV1):
                 MetricResult(
                     metric_id="rmdb_aup_hydrolysis_proxy_pred",
                     value=axes["rmdb_aup_hydrolysis_proxy_pred"],
-                    unit="predicted_reactivity_aup",
+                    unit="predicted_standardized_reactivity_proxy",
                     direction="minimize",
                     evaluated_scopes=["five_prime_utr", "cds", "three_prime_utr"],
                     tool_name=aup_tool,
@@ -996,7 +1023,7 @@ class CommercialCleanSurrogateV2(CommercialCleanSurrogateV1):
                 MetricResult(
                     metric_id="circrna_ires_translation_pred",
                     value=axes["circrna_ires_translation_pred"],
-                    unit="predicted_ires_log2_rel_expr",
+                    unit="predicted_standardized_ires_translation_proxy",
                     direction="maximize",
                     evaluated_scopes=["five_prime_utr"],
                     tool_name=ci_tool,

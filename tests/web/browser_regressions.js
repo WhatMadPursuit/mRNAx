@@ -365,6 +365,188 @@ async function runBrowserRegressions() {
     const modalEl = document.getElementById("modal-settings");
     check("settings_modal_shows_inline_error_on_untrusted_url",
       Boolean(errEl) && !errEl.hidden && errEl.textContent.trim().length > 0 && Boolean(modalEl?.open));
+    document.getElementById("btn-close-settings").click();
+    clearErrorBanner();
+
+    // 5. Wave 3 De-AI-ification, 2D Structure Arc & Sliding Tracks SVG, Side-by-Side Compare, IVT & QC Dossier
+    const wave3Seq =
+      "GGGAAAUCCGCCACCAUGGUGAGCAAGGGCGAGGAGCUGUUCACCGGGGUGGUGCCCAUCCUGGUCGAGCUGGACGGCGACGUAAACGGCCACAAGUUCAGCGUGUCCGGCGAGGGCGAGGGCGAUGCCACCUACGGCAAGCUGACCCUGAAGUUCAUCUGCACCACCGGCAAGCUGCCCGUGCCCUGGCCCUGAUAAUAGACACUCCAAAAAAAAAAAAA";
+    const wave3Ver = Math.max(20, (Number(state.activeVersion) || 0) + 1);
+    const wave3Candidates = [0, 1].map((idx) => ({
+      bundle_id: `bnd_wave3_${idx}_` + "a".repeat(24),
+      version_digest: (idx ? "b" : "c").repeat(64),
+      display_label: idx === 0 ? "Pareto #1 · LinearDesign + 5' Polished Candidate" : "Conservative Refinement (Minimal Edit)",
+      strategy_tag: idx === 0 ? "lineardesign_5prime_polished" : "conservative_refinement",
+      short_digest: (idx ? "b" : "c").repeat(12),
+      gate_passed_count: 6,
+      gate_total_count: 6,
+      fto_badge: "sequence_screen_clear",
+      derivation_action: idx === 0 ? "seed_init" : "locked_refinement",
+      pareto_rank: 1,
+      length_nt: wave3Seq.length,
+      full_gc_pct: 58.2 + idx,
+      uridine_chemistry: "m1psi",
+      full_sequence: wave3Seq,
+      segments: [
+        { segment_type: "five_prime_utr", start: 0, end: 15, length_nt: 15, gc_pct: 53.3, license_track: "commercial_clean", action_taken: "selected" },
+        { segment_type: "cds", start: 15, end: 192, length_nt: 177, gc_pct: 61.0, license_track: "commercial_clean", action_taken: "optimized" },
+        { segment_type: "stop_cassette", start: 192, end: 201, length_nt: 9, gc_pct: 11.1, license_track: "commercial_clean", action_taken: "verified" },
+        { segment_type: "three_prime_utr", start: 201, end: 209, length_nt: 8, gc_pct: 50.0, license_track: "commercial_clean", action_taken: "detargeted" },
+        { segment_type: "poly_a", start: 209, end: wave3Seq.length, length_nt: wave3Seq.length - 209, gc_pct: 0.0, license_track: "commercial_clean", action_taken: "verified" },
+      ],
+      metric_details: [
+        { metric_id: "kozak_unpaired_prob", value: 0.78 - idx * 0.05, unit: "prob", direction: "maximize" },
+        { metric_id: "cds_mean_window_mfe", value: -42.5 + idx * 3.1, unit: "kcal/mol", direction: "minimize" },
+      ],
+    }));
+
+    window.fetch = async (url, _opts = {}) => {
+      const u = String(url);
+      if (u.includes("/api/v1/structure/analyze")) {
+        return response({
+          length_nt: wave3Seq.length,
+          modality: "linear_mrna",
+          full_gc_pct: 58.2,
+          full_u_pct: 16.4,
+          cai: 0.892,
+          mfe_kcal_mol: -84.6,
+          kozak_unpaired_prob: 0.812,
+          aup_mean: 0.44,
+          initiation_window: {
+            start: 0,
+            end: 60,
+            aug_index_in_window: 15,
+            sequence: wave3Seq.slice(0, 60),
+            dot_bracket: "...............(((....)))...................................",
+            arcs: [{ i: 15, j: 24, prob: 0.72 }, { i: 16, j: 23, prob: 0.54 }],
+          },
+          sliding_tracks: {
+            window_nt: 60,
+            step_nt: 20,
+            positions: [0, 20, 40, 60, 80, 100],
+            local_mfe: [-18.2, -24.5, -27.1, -25.0, -21.4, -12.0],
+            local_gc_pct: [52, 61, 64, 60, 55, 32],
+            local_u_pct: [18, 14, 12, 15, 19, 10],
+            local_unpaired_prob: [0.76, 0.42, 0.38, 0.44, 0.51, 0.82],
+          },
+          motifs: [{ kind: "mirna_site", label: "hsa-miR-122-5p site", start: 201, end: 209, severity: "info" }],
+          engines_used: ["ViennaRNA"],
+        });
+      }
+      if (u.includes("/ivt-order")) {
+        return response({ ivt_synthesis_order_csv: "bundle_id,template_dna_5to3\nbnd_wave3_0,ATG\n" });
+      }
+      if (u.includes("/dossier")) {
+        return response({ qc_dossier_html: "<!doctype html><html><body>QC PASS</body></html>" });
+      }
+      if (u.includes("/api/v1/rules")) {
+        return response({
+          total_available: 2,
+          total_matched: 2,
+          rules: FALLBACK_SCIENTIFIC_RULES.slice(0, 2),
+        });
+      }
+      if (u.includes("/api/v1/data-hub")) {
+        return response(FALLBACK_DATA_HUB);
+      }
+      if (u.includes("/api/v1/evidence/resolve")) {
+        return response({
+          protein: {
+            matched: true,
+            gene_symbol: "EPO",
+            uniprot_accession: "P01588",
+            protein_name_sandboxed: "Erythropoietin",
+            protein_sequence: FALLBACK_HEPO,
+            aa_length: FALLBACK_HEPO.length,
+            starts_with_met: true,
+            has_signal_peptide: true,
+            signal_peptide_hint: "Signal peptide [1..27]",
+          },
+          literature_and_trials: { papers: [], clinical_trials: [] },
+        });
+      }
+      if (u.includes("/api/v1/benchmarks/clinical")) {
+        return response(computeClientClinicalBenchmark(wave3Seq, "linear_mrna", "m1psi"));
+      }
+      return response({});
+    };
+
+    applyTurnResult(
+      {
+        status: "COMPLETED",
+        assistant_reply: "已完成 **eGFP** 多目标帕累托设计。",
+        tool_calls: [{ name: "design_constructs", arguments: { uridine_chemistry: "m1psi" } }],
+        intent: {
+          intent_id: `i_w3_${wave3Ver}`,
+          intent_version: wave3Ver,
+          status: "ready",
+          compliance_track: "research_max",
+          uridine_chemistry: "m1psi",
+          locked_scopes: {},
+        },
+        report: {
+          outcome_status: "COMPLETED_WITH_CANDIDATES",
+          recommended_bundle_ids: [wave3Candidates[0].bundle_id],
+          pre_synthesis_advisories: [{ category: "crs_safety_layer_boundary", message: "CRS note" }],
+        },
+        candidates: wave3Candidates,
+      },
+      "设计 eGFP",
+      ++state.turnSequence
+    );
+
+    await runStructureAnalysisForSelected();
+    check("wave3_de_ai_studio_and_2d_structure_svgs",
+      el("banner-notes").hidden === true
+      && !el("cand-tbody").rows[0].textContent.includes("aaaaaaaaaaaa")
+      && el("cand-tbody").rows[0].textContent.includes("LinearDesign")
+      && Boolean(document.querySelector("#structure-arc-svg-wrap svg path"))
+      && Boolean(document.querySelector("#structure-track-svg-wrap svg polyline"))
+      && el("structure-source-badge").textContent.includes("ViennaRNA"));
+
+    // Side-by-side compare modal + IVT & QC Dossier actions
+    el("btn-compare-selected").click();
+    const cmpOpen = Boolean(el("modal-compare")?.open) && el("compare-body").textContent.includes("序列碱基位点差异");
+    el("btn-close-compare").click();
+    const origAnchorClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = () => {};
+    try {
+      await downloadIvtSynthesisOrder();
+      await openOrDownloadQcDossier();
+    } finally {
+      HTMLAnchorElement.prototype.click = origAnchorClick;
+    }
+    const dossierLoaded = Boolean(el("modal-dossier-preview")?.open) && el("dossier-iframe").srcdoc.includes("QC PASS");
+    el("btn-close-dossier").click();
+    check("wave3_compare_ivt_and_qc_dossier", cmpOpen && dossierLoaded);
+
+    // 6. All 4 Tabs (Rules, Data Hub + Import to Studio, Benchmarks + Wet-Lab) & 390px zero horizontal overflow
+    el("tab-btn-rules").click();
+    await new Promise((r) => setTimeout(r, 20));
+    const rulesWidthOk = document.documentElement.scrollWidth === 390;
+    const rulesRendered = el("rules-list").children.length >= 2
+      && Array.from(el("rules-list").querySelectorAll("a.ext-link")).every((a) => a.rel.includes("noopener"));
+
+    el("tab-btn-data").click();
+    await new Promise((r) => setTimeout(r, 20));
+    await resolveTargetProteinInHub("EPO");
+    const dataWidthOk = document.documentElement.scrollWidth === 390;
+    const importBtn = document.getElementById("btn-import-resolved-protein");
+    importBtn.click();
+    const importedToStudio = !el("view-studio").hidden && el("input-protein").value === FALLBACK_HEPO;
+
+    el("tab-btn-benchmarks").click();
+    await new Promise((r) => setTimeout(r, 20));
+    el("btn-load-sample-wetlab-cal").click();
+    const benchWidthOk = document.documentElement.scrollWidth === 390;
+    const benchRendered = el("bench-delta-tbody").rows.length >= 1
+      && Boolean(document.querySelector("#wetlab-svg-wrap svg"));
+
+    el("tab-btn-studio").click();
+    const studioWidthOk = document.documentElement.scrollWidth === 390;
+    check("wave3_four_tabs_and_390_zero_overflow",
+      rulesRendered && importedToStudio && benchRendered
+      && rulesWidthOk && dataWidthOk && benchWidthOk && studioWidthOk);
   } finally {
     window.fetch = _prevFetchR3;
   }
