@@ -1759,6 +1759,7 @@ def run_design_pipeline(
         mod_built: list[ConstructBundle] = []
         scaf_choice = (intent.scaffold_id or "").lower()
         if effective_modality == "circrna":
+            pie_bb = "ANABAENA" if "anabaena" in scaf_choice else "T4_TD"
             if "cvb3" in scaf_choice:
                 circ_plan: tuple[tuple[str, float], ...] = (("CVB3", 1.0), ("CVB3", 2.0))
             elif "hrvb3" in scaf_choice or "hrv_b3" in scaf_choice:
@@ -1766,10 +1767,13 @@ def run_design_pipeline(
             else:
                 circ_plan = (("HRV-B3", 1.0), ("EV-B107", 1.0), ("CVB3", 2.0))
             for c_idx, (ires_nm, lam_v) in enumerate(circ_plan, start=1):
+                ires_tag = ires_nm.lower().replace("-", "")
+                lam_tag = f"_lam{lam_v:g}" if use_ld_mod else ""
                 bnd_c = build_circrna_bundle(
                     intent.protein_targets[0],
-                    bundle_id=f"bnd_{exec_tag}_circ_{c_idx:02d}",
+                    bundle_id=f"bnd_{exec_tag}_circ_{pie_bb.lower()}_{ires_tag}{lam_tag}_{c_idx:02d}",
                     ires_name=ires_nm,
+                    pie_backbone=pie_bb,
                     compliance_track=intent.compliance_track,
                     use_lineardesign=use_ld_mod,
                     lambda_val=lam_v,
@@ -1787,9 +1791,11 @@ def run_design_pipeline(
             else:
                 sarna_plan = (("VEEV_TC83", 1.0), ("VEEV_TC83", 2.0), ("SINV", 1.0))
             for s_idx, (bb_nm, lam_v) in enumerate(sarna_plan, start=1):
+                bb_tag = "veev_tc83" if "veev" in bb_nm.lower() else "sinv"
+                lam_tag = f"_lam{lam_v:g}" if use_ld_mod else ""
                 bnd_s = build_sarna_bundle(
                     intent.protein_targets[0],
-                    bundle_id=f"bnd_{exec_tag}_sarna_{s_idx:02d}",
+                    bundle_id=f"bnd_{exec_tag}_sarna_{bb_tag}{lam_tag}_{s_idx:02d}",
                     replicon_backbone=bb_nm,
                     compliance_track=intent.compliance_track,
                     use_lineardesign=use_ld_mod,

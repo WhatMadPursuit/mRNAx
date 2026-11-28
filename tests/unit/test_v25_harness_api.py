@@ -1020,3 +1020,242 @@ def test_gate_a_round3_security_and_precursor_invariants(tmp_path: Path) -> None
     assert sentinel.read_text(encoding="utf-8") == "PREVIOUS_GENERATION_SENTINEL"
     assert not (reused_exp / "full_rna.fasta").exists()
 
+
+def test_v25_presets_dll3_dual_chain_turn_mcp_and_unique_display_labels(tmp_path: Path) -> None:
+    from mrnax.cloud.gateway import _derive_candidate_display_meta, _serialize_report_with_candidates
+    from mrnax.engine.modalities import build_circrna_bundle, build_sarna_bundle
+    from mrnax.schemas.construct_bundle import ConstructBundle, ProteinTargetSpec
+    from mrnax.schemas.design_intent import DesignIntent, ObjectiveSpec, RuntimePolicySpec
+    from mrnax.schemas.evaluation_report import BundleEvaluation, EvaluationReport, MetricResult
+
+    store = ExecutionCASStore(tmp_path / "v252_gw.sqlite3")
+    app = create_control_plane_app(
+        store,
+        projects_root=tmp_path / "projects_v252",
+        seed_dir=SEED_DIR,
+    )
+    client = TestClient(app)
+
+    # 1. GET /v1/presets exposes dll3_cd3_bispecific cleanly without disturbing existing keys
+    presets_resp = client.get("/v1/presets")
+    assert presets_resp.status_code == 200
+    presets = presets_resp.json()
+    assert {"egfp_reporter", "uniprot_reference", "preset_reference_r", "verified_empirical_rule", "dll3_cd3_bispecific"} <= set(presets.keys())
+    dll3 = presets["dll3_cd3_bispecific"]
+    assert dll3["name"] == "DLL3×CD3 Dual-Chain Bispecific (Non-Proprietary Synthetic Igκ Scaffolds)"
+    assert "Tarlatamab" in dll3["sequence_provenance_honesty_notice"]
+    assert dll3["primary_chain_id"] == "anti_dll3_vh_scaffold"
+    assert dll3["accession_or_source"] == "SYNTHETIC_NON_PROPRIETARY_DLL3_CD3_DUAL_CHAIN_DEMO_V1"
+    assert len(dll3["primary_protein_sequence"]) == 118
+    assert len(dll3["additional_protein_sequences"]) == 1
+    assert len(dll3["additional_protein_sequences"][0]) == 118
+
+    # 2. Dual-chain POST /v1/projects/{id}/turn threads additional_protein_sequences & builds 2 ProteinTargetSpecs
+    r_dll3 = client.post(
+        "/v1/projects/proj_dll3_demo/turn",
+        json={
+            "mode": "initial",
+            "user_utterance": "Design commercial_clean dual-chain DLL3xCD3 bispecific mRNA",
+            "protein_sequence": dll3["primary_protein_sequence"],
+            "additional_protein_sequences": dll3["additional_protein_sequences"],
+            "accession_or_source": dll3["accession_or_source"],
+            "compliance_track": "commercial_clean",
+            "uridine_chemistry": "m1psi",
+            "use_commercial_surrogate": True,
+        },
+    )
+    assert r_dll3.status_code == 200
+    dll3_body = r_dll3.json()
+    assert dll3_body["status"] == "COMPLETED"
+    targets = dll3_body["intent"]["protein_targets"]
+    assert len(targets) == 2
+    assert targets[0]["protein_sequence"] == dll3["primary_protein_sequence"]
+    assert targets[0]["accession_or_source"] == dll3["accession_or_source"]
+    assert targets[1]["protein_sequence"] == dll3["additional_protein_sequences"][0]
+    assert targets[1]["accession_or_source"] == f"{dll3['accession_or_source']}:chain_2"
+    assert targets[1]["confirmation_status"] == "confirmed"
+    cands_dll3 = dll3_body["candidates"]
+    assert len(cands_dll3) >= 2
+    assert all(c["molecules_count"] == 2 for c in cands_dll3)
+    assert all(c["strategy_tag"] == "multi_chain_coexpression" for c in cands_dll3)
+    assert all("2-Chain" in c["display_label"] for c in cands_dll3)
+    dll3_labels = [c["display_label"] for c in cands_dll3]
+    assert len(dll3_labels) == len(set(dll3_labels))
+
+    # 3. Validation fail-closed guards for additional_protein_sequences (HTTP 422 & MCP error)
+    bad_payloads: list[dict[str, Any]] = [
+        {"user_utterance": "empty list", "protein_sequence": dll3["primary_protein_sequence"], "additional_protein_sequences": []},
+        {"user_utterance": "too many chains", "protein_sequence": dll3["primary_protein_sequence"], "additional_protein_sequences": [dll3["additional_protein_sequences"][0]] * 4},
+        {"user_utterance": "too short", "protein_sequence": dll3["primary_protein_sequence"], "additional_protein_sequences": ["METDTLLLW"]},
+        {"user_utterance": "too long", "protein_sequence": dll3["primary_protein_sequence"], "additional_protein_sequences": ["M" * 5001]},
+        {"user_utterance": "invalid AA X", "protein_sequence": dll3["primary_protein_sequence"], "additional_protein_sequences": ["METDTLLLXXVPGSTG"]},
+        {"user_utterance": "internal stop", "protein_sequence": dll3["primary_protein_sequence"], "additional_protein_sequences": ["METDTLLL*WVPGSTG"]},
+        {"user_utterance": "Design eGFP without primary", "use_preset_reference_r": True, "additional_protein_sequences": dll3["additional_protein_sequences"]},
+    ]
+    for idx_bad, bad_p in enumerate(bad_payloads):
+        r_bad = client.post(f"/v1/projects/proj_bad_mc_{idx_bad}/turn", json={"mode": "initial", **bad_p})
+        assert r_bad.status_code == 422, f"Expected 422 for payload {bad_p}, got {r_bad.status_code}"
+
+    # 4. Up to 3 additional chains (4 total) + whitespace/lowercase/trailing '*' normalization via MCP & Toolbox
+    sess_mc = ProjectHarnessSession(project_id="proj_mcp_mc", store_dir=tmp_path / "proj_mcp_mc", seed_dir=SEED_DIR)
+    tb_mc = AtomicToolbox(sess_mc)
+    short_a = "MVSKGEELFTGVVPILVELD"
+    short_b = "MVSKGEELFTGVVPILVELA"
+    short_c = "MVSKGEELFTGVVPILVELC"
+    r_mcp_mc = handle_mcp_request(
+        tb_mc,
+        {
+            "jsonrpc": "2.0",
+            "id": 77,
+            "method": "tools/call",
+            "params": {
+                "name": "design_constructs",
+                "arguments": {
+                    "user_utterance": "Design 4-chain commercial clean mRNA",
+                    "protein_sequence": short_a,
+                    "additional_protein_sequences": [f"  {short_b.lower()}* ", short_c, short_a],
+                    "accession_or_source": "QUAD_TEST",
+                    "compliance_track": "commercial_clean",
+                },
+            },
+        },
+    )
+    assert r_mcp_mc is not None and r_mcp_mc["result"]["isError"] is False
+    intent_4c = sess_mc.latest_intent()
+    assert len(intent_4c.protein_targets) == 4
+    assert intent_4c.protein_targets[1].protein_sequence == short_b
+    assert intent_4c.protein_targets[1].accession_or_source == "QUAD_TEST:chain_2"
+    assert intent_4c.protein_targets[2].accession_or_source == "QUAD_TEST:chain_3"
+    assert intent_4c.protein_targets[3].accession_or_source == "QUAD_TEST:chain_4"
+
+    # 5. Gateway circRNA T4_TD (200 ivt-order) vs Anabaena (409 ivt-order) + unique clean display_labels
+    r_t4 = client.post(
+        "/v1/projects/proj_gw_t4/turn",
+        json={
+            "mode": "initial",
+            "user_utterance": "Design T4 td circRNA HRV-B3",
+            "protein_sequence": dll3["primary_protein_sequence"],
+            "compliance_track": "research_max",
+            "modality": "circrna",
+            "scaffold_id": "circ_t4td_hrvb3",
+        },
+    )
+    assert r_t4.status_code == 200
+    t4_body = r_t4.json()
+    t4_labels = [c["display_label"] for c in t4_body["candidates"]]
+    assert len(t4_labels) == len(set(t4_labels)) == 2
+    assert all("T4 td PIE" in lbl and "HRV-B3" in lbl for lbl in t4_labels)
+    t4_bid = t4_body["candidates"][0]["bundle_id"]
+    t4_key = t4_body["project_key"]
+    assert client.get(f"/v1/projects/proj_gw_t4/bundles/{t4_bid}/ivt-order", headers={"X-MRNAX-Project-Key": t4_key}).status_code == 200
+
+    r_ana = client.post(
+        "/v1/projects/proj_gw_ana/turn",
+        json={
+            "mode": "initial",
+            "user_utterance": "Design Anabaena circRNA CVB3",
+            "protein_sequence": dll3["primary_protein_sequence"],
+            "compliance_track": "research_max",
+            "modality": "circrna",
+            "scaffold_id": "circ_anabaena_cvb3",
+        },
+    )
+    assert r_ana.status_code == 200
+    ana_body = r_ana.json()
+    ana_labels = [c["display_label"] for c in ana_body["candidates"]]
+    assert len(ana_labels) == len(set(ana_labels)) == 2
+    assert all("Anabaena PIE" in lbl and "CVB3" in lbl for lbl in ana_labels)
+    ana_bid = ana_body["candidates"][0]["bundle_id"]
+    ana_key = ana_body["project_key"]
+    assert client.get(f"/v1/projects/proj_gw_ana/bundles/{ana_bid}/ivt-order", headers={"X-MRNAX-Project-Key": ana_key}).status_code == 409
+
+    # 6. No raw eto_06 / e0_ref / chisel leaks and disambiguation fallback guarantees uniqueness
+    base_bnd = build_sarna_bundle(short_a, replicon_backbone="VEEV_TC83", compliance_track="commercial_clean", use_lineardesign=False, seed_dir=SEED_DIR)
+    lbl_sarna, _ = _derive_candidate_display_meta(base_bnd, 1)
+    assert "VEEV TC-83" in lbl_sarna
+
+    circ_t4_s = build_circrna_bundle(short_a, ires_name="HRV-B3", pie_backbone="T4_TD", compliance_track="commercial_clean", use_lineardesign=False, seed_dir=SEED_DIR)
+    bnd_p6 = circ_t4_s.model_copy_validated(bundle_id="bnd_12345678_pareto_06")
+    bnd_s0 = circ_t4_s.model_copy_validated(bundle_id="bnd_12345678_stage0_ref")
+    bnd_dc = circ_t4_s.model_copy_validated(bundle_id="bnd_12345678_dnachisel")
+    bnd_ct = circ_t4_s.model_copy_validated(bundle_id="bnd_12345678_codontransformer")
+    for b_test, exp_frag in (
+        (bnd_p6, "T4 td PIE"),
+        (bnd_s0, "T4 td PIE"),
+        (bnd_dc, "DNA Chisel"),
+    ):
+        lbl_x, _ = _derive_candidate_display_meta(b_test, 2)
+        assert exp_frag in lbl_x
+        assert "eto_06" not in lbl_x and "e0_ref" not in lbl_x and "chisel" not in lbl_x.lower().replace("dna chisel", "")
+
+    lin_ref = _serialize_report_with_candidates.__globals__["_build_preset_reference_r"](SEED_DIR)
+    b_p06 = lin_ref.model_copy_validated(bundle_id="bnd_abcd_pareto_06", derivation_action="de_novo_design")
+    b_ct_lin = lin_ref.model_copy_validated(bundle_id="bnd_abcd_codontransformer", derivation_action="de_novo_design")
+    assert "Multi-Objective #6" in _derive_candidate_display_meta(b_p06, 2)[0]
+    assert "eto_06" not in _derive_candidate_display_meta(b_p06, 2)[0]
+    assert "CodonTransformer" in _derive_candidate_display_meta(b_ct_lin, 1)[0]
+
+    from mrnax.engine.pareto_director import run_design_pipeline
+
+    dummy_intent = DesignIntent(
+        intent_id="int_disp_uniq",
+        project_id="proj_disp_uniq",
+        intent_version=1,
+        created_from_turn_ids=["t1"],
+        entry_mode="protein_only",
+        compliance_track="commercial_clean",
+        uridine_chemistry="m1psi",
+        status="ready",
+        protein_targets=[
+            ProteinTargetSpec(
+                protein_sequence=short_a,
+                transl_table=1,
+                accession_or_source="test:short_a",
+                confirmation_status="confirmed",
+            )
+        ],
+        objectives=[
+            ObjectiveSpec(
+                requirement_id="obj_mrl",
+                metric_id="utr5_mrl_pred",
+                direction="maximize",
+                priority_rank=1,
+                evidence_status="validated_predictor",
+                source_utterance="max mrl",
+            )
+        ],
+        runtime_policy=RuntimePolicySpec(
+            enabled_generators=["dnachisel_cds", "pareto_nsga2"],
+            enabled_evaluators=["surrogate_v1_clean"],
+            max_evaluations=4,
+            random_seed=42,
+        ),
+    )
+    real_bnds, real_rep, _ = run_design_pipeline(dummy_intent, seed_dir=SEED_DIR)
+    assert real_bnds and real_rep.candidate_evaluations
+    base_real = real_bnds[0]
+    base_ev = next(e for e in real_rep.candidate_evaluations if e.bundle_id == base_real.bundle_id)
+    b_dup1 = base_real.model_copy_validated(bundle_id="bnd_custom_alpha")
+    b_dup2 = base_real.model_copy_validated(bundle_id="bnd_custom_beta")
+    b_p06 = base_real.model_copy_validated(bundle_id="bnd_abcd_pareto_06")
+    dummy_rep = real_rep.model_copy_validated(
+        report_id="rep_uniq",
+        candidate_evaluations=[
+            base_ev.model_copy_validated(bundle_id=b_dup1.bundle_id, pareto_rank=1),
+            base_ev.model_copy_validated(bundle_id=b_dup2.bundle_id, pareto_rank=1),
+            base_ev.model_copy_validated(bundle_id=b_p06.bundle_id, pareto_rank=2),
+        ],
+        recommended_bundle_ids=[b_dup1.bundle_id],
+    )
+    _, uniq_cards = _serialize_report_with_candidates(
+        dummy_rep,
+        [b_dup1, b_dup2, b_p06],
+        intent=dummy_intent,
+        seed_dir=SEED_DIR,
+    )
+    uniq_labels = [c["display_label"] for c in uniq_cards]
+    assert len(uniq_labels) == 3
+    assert len(uniq_labels) == len(set(uniq_labels))
+    assert uniq_labels[0].endswith("· #1") and uniq_labels[1].endswith("· #2")
+    assert all("eto_06" not in lbl for lbl in uniq_labels)
+

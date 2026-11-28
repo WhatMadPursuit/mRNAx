@@ -717,3 +717,229 @@ def test_paired_v25_moderna_benchmark_artifact() -> None:
         assert v25["cds_mfe_kcal_mol"] < v20["cds_mfe_kcal_mol"], (
             f"{name}: v2.5 MFE ({v25['cds_mfe_kcal_mol']}) did not improve over v2.0 ({v20['cds_mfe_kcal_mol']})"
         )
+
+
+def test_lineardesign_max_workers_semaphore_and_linux_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import os
+    import threading
+    import time
+    import mrnax.engine.lineardesign_adapter as ld_mod
+
+    # 1. resolve_lineardesign_max_workers bounds & fallback
+    monkeypatch.delenv("MRNAX_LINEARDESIGN_MAX_WORKERS", raising=False)
+    expected_default = min(5, max(1, os.cpu_count() or 1))
+    assert ld_mod.resolve_lineardesign_max_workers() == expected_default
+
+    monkeypatch.setenv("MRNAX_LINEARDESIGN_MAX_WORKERS", "invalid")
+    assert ld_mod.resolve_lineardesign_max_workers() == expected_default
+
+    monkeypatch.setenv("MRNAX_LINEARDESIGN_MAX_WORKERS", "0")
+    assert ld_mod.resolve_lineardesign_max_workers() == 1
+    monkeypatch.setenv("MRNAX_LINEARDESIGN_MAX_WORKERS", "-4")
+    assert ld_mod.resolve_lineardesign_max_workers() == 1
+    monkeypatch.setenv("MRNAX_LINEARDESIGN_MAX_WORKERS", "3")
+    assert ld_mod.resolve_lineardesign_max_workers() == 3
+    monkeypatch.setenv("MRNAX_LINEARDESIGN_MAX_WORKERS", "99")
+    assert ld_mod.resolve_lineardesign_max_workers() == 8
+
+    # 2. Sequential sweep when max_workers=1 (zero ThreadPoolExecutor) & semaphore serializes concurrent callers
+    fake_bin = tmp_path / "lineardesign"
+    fake_bin.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    fake_bin.chmod(0o755)
+    egfp_snap = json.loads((SEED_DIR / "egfp_reporter_snapshot.json").read_text(encoding="utf-8"))
+    ref_egfp_cds: str = egfp_snap["mammalian_reporter_egfp"]["reference_cds_rna_no_stop"]
+    prot_short = "MVSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPT"
+    cds_short = ref_egfp_cds[: len(prot_short) * 3]
+
+    active_lock = threading.Lock()
+    active_count = 0
+    max_observed = 0
+
+    def _slow_stub(argv: list[str], *, stdin_text: str, cwd_str: str, timeout_sec: float, **_kw: object) -> str:
+        nonlocal active_count, max_observed
+        with active_lock:
+            active_count += 1
+            max_observed = max(max_observed, active_count)
+        try:
+            time.sleep(0.03)
+            return f"mRNA sequence:  {cds_short}\nmRNA folding free energy: -110.50 kcal/mol; mRNA CAI: 0.850\n"
+        finally:
+            with active_lock:
+                active_count -= 1
+
+    monkeypatch.setenv("MRNAX_LINEARDESIGN_MAX_WORKERS", "1")
+    ld_mod._cached_cpp_lineardesign_call.cache_clear()
+    monkeypatch.setattr(ld_mod, "discover_lineardesign_binary", lambda *_a, **_k: (fake_bin, tmp_path))
+    monkeypatch.setattr(ld_mod, "_run_bounded_subprocess", _slow_stub)
+
+    def _forbid_pool(*_a: object, **_k: object) -> object:
+        raise AssertionError("ThreadPoolExecutor must not be constructed when max_workers <= 1")
+
+    monkeypatch.setattr(ld_mod, "ThreadPoolExecutor", _forbid_pool)
+    cands_seq = sweep_lineardesign_candidates(prot_short, lambdas=(0.5, 1.0, 2.0), compliance_track="research_max")
+    assert len(cands_seq) == 3
+
+    # Concurrent threads calling run_lineardesign_single with different lambdas serialize under BoundedSemaphore(1)
+    ld_mod._cached_cpp_lineardesign_call.cache_clear()
+    active_count = 0
+    max_observed = 0
+    errors: list[BaseException] = []
+
+    def _worker(lam_v: float) -> None:
+        try:
+            run_lineardesign_single(prot_short, lambda_val=lam_v, compliance_track="research_max")
+        except BaseException as exc:  # pragma: no cover
+            errors.append(exc)
+
+    threads = [threading.Thread(target=_worker, args=(0.1 * (i + 1),)) for i in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10.0)
+    assert not errors
+    assert max_observed == 1
+
+    # 3. Clean minimal env & Linux LD_LIBRARY_PATH prepending in _run_bounded_subprocess
+    ld_mod._cached_cpp_lineardesign_call.cache_clear()
+    monkeypatch.undo()  # restore original _run_bounded_subprocess & ThreadPoolExecutor cleanly
+    captured_envs: list[dict[str, str] | None] = []
+
+    class _FakeStream:
+        def __init__(self, data: bytes) -> None:
+            self._r, self._w = os.pipe()
+            if data:
+                os.write(self._w, data)
+            os.close(self._w)
+
+        def fileno(self) -> int:
+            return self._r
+
+        def close(self) -> None:
+            try:
+                os.close(self._r)
+            except OSError:
+                pass
+
+    class _FakeStdin:
+        def __init__(self) -> None:
+            self._r, self._w = os.pipe()
+
+        def fileno(self) -> int:
+            return self._w
+
+        def close(self) -> None:
+            for fd in (self._w, self._r):
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+
+    class _FakePopen:
+        def __init__(self, argv: list[str], **kwargs: object) -> None:
+            captured_envs.append(kwargs.get("env"))  # type: ignore[arg-type]
+            self.stdin = _FakeStdin()
+            self.stdout = _FakeStream(b"mRNA sequence:  AUG\n")
+            self.stderr = _FakeStream(b"")
+
+        def wait(self, timeout: float | None = None) -> int:
+            self.stdout.close()
+            self.stderr.close()
+            return 0
+
+        def kill(self) -> None:
+            pass
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-SuperSecretMustNotLeak1234567890")
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/usr/local/lib")
+    monkeypatch.setattr(subprocess, "Popen", _FakePopen)
+
+    out_txt = ld_mod._run_bounded_subprocess(
+        [str(fake_bin), "-l", "1"],
+        stdin_text="M\n",
+        cwd_str=str(tmp_path),
+        timeout_sec=5.0,
+    )
+    assert "mRNA sequence:" in out_txt
+    assert len(captured_envs) == 1 and captured_envs[0] is not None
+    env_passed = captured_envs[0]
+    assert "OPENAI_API_KEY" not in env_passed
+    expected_dir = str(fake_bin.resolve().parent)
+    assert env_passed["LD_LIBRARY_PATH"] == f"{expected_dir}:/usr/local/lib"
+
+
+def test_circrna_pie_backbone_routing_and_ivt_fail_closed() -> None:
+    from mrnax.harness.tools import render_ivt_synthesis_order
+    from mrnax.io_insdc.genbank_io import ExportConstraintViolationError
+
+    short_prot = "MVSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPT"
+    base_intent = DesignIntent(
+        intent_id="int_circ_pie_test",
+        project_id="proj_circ_pie",
+        intent_version=1,
+        created_from_turn_ids=["t1"],
+        entry_mode="protein_only",
+        compliance_track="research_max",
+        uridine_chemistry="unmodified_u",
+        status="ready",
+        modality="circrna",
+        protein_targets=[
+            ProteinTargetSpec(
+                protein_sequence=short_prot,
+                transl_table=1,
+                accession_or_source="test_circ_pie",
+                confirmation_status="confirmed",
+            )
+        ],
+        constraints=default_m1_constraints(restriction_enzymes=["BspQI"]),
+        objectives=[
+            ObjectiveSpec(
+                requirement_id="obj_open",
+                metric_id="kozak_unpaired_prob",
+                direction="maximize",
+                priority_rank=1,
+                evidence_status="thermodynamic_proxy",
+                source_utterance="Maximize initiation openness",
+            )
+        ],
+        runtime_policy=RuntimePolicySpec(
+            enabled_generators=["dnachisel_cds", "pareto_nsga2"],
+            enabled_evaluators=["viennarna_thermo"],
+            max_evaluations=8,
+            random_seed=42,
+        ),
+    )
+
+    # 1. T4_TD scaffolds (HRV-B3 & CVB3) include verified split PIE arms and render IVT synthesis order cleanly
+    for scaf_id, expected_ires in (("circ_t4td_hrvb3", "HRVB3"), ("circ_t4td_cvb3", "CVB3")):
+        intent_t4 = base_intent.model_copy_validated(scaffold_id=scaf_id)
+        bundles_t4, rep_t4, _ = run_design_pipeline(intent_t4, seed_dir=SEED_DIR)
+        assert rep_t4.outcome_status in {"COMPLETED_WITH_CANDIDATES", "COMPLETED_TIE"}
+        assert len(bundles_t4) == 2
+        for b in bundles_t4:
+            assert "_circ_t4_td_" in b.bundle_id
+            assert expected_ires.lower() in b.bundle_id
+            u5_seg = b.molecules[0].get_segment("five_prime_utr")
+            assert u5_seg is not None and "SCAF-CIRC-PIE-T4-TD-GROUP1" in u5_seg.origin_source
+            assert f"SCAF-CIRC-IRES-{expected_ires}-WT" in u5_seg.origin_source
+            csv_txt, rows = render_ivt_synthesis_order(b, intent=intent_t4)
+            assert "TAATACGACTCACTATA" in csv_txt and len(rows) == 1
+            assert rows[0]["full_rna_length_nt"] > rows[0]["mature_rna_length_nt"]
+
+    # 2. Anabaena scaffolds (HRV-B3 & CVB3) route to ANABAENA PIE and fail closed in render_ivt_synthesis_order
+    for scaf_id, expected_ires in (("circ_anabaena_hrvb3", "HRVB3"), ("circ_anabaena_cvb3", "CVB3")):
+        intent_ana = base_intent.model_copy_validated(scaffold_id=scaf_id)
+        bundles_ana, rep_ana, _ = run_design_pipeline(intent_ana, seed_dir=SEED_DIR)
+        assert rep_ana.outcome_status in {"COMPLETED_WITH_CANDIDATES", "COMPLETED_TIE"}
+        assert len(bundles_ana) == 2
+        for b in bundles_ana:
+            assert "_circ_anabaena_" in b.bundle_id
+            assert expected_ires.lower() in b.bundle_id
+            u5_seg = b.molecules[0].get_segment("five_prime_utr")
+            assert u5_seg is not None and "SCAF-CIRC-PIE-ANABAENA-TRNALEU-GROUP1" in u5_seg.origin_source
+            assert f"SCAF-CIRC-IRES-{expected_ires}-WT" in u5_seg.origin_source
+            with pytest.raises((ExportConstraintViolationError, ValueError), match="verified split PIE intron"):
+                render_ivt_synthesis_order(b, intent=intent_ana)

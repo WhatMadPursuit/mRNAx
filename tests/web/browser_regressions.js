@@ -88,7 +88,12 @@ async function runBrowserRegressions() {
     && el("btn-dl-gb").title.includes(newest.candidates[0].bundle_id));
 
   for (const c of newest.candidates) {
-    const node = document.querySelector(`.pareto-node[aria-label="${c.bundle_id}"]`);
+    const node = document.querySelector(`.pareto-node[data-bundle-id="${c.bundle_id}"]`);
+    const ariaLbl = node?.getAttribute("aria-label") || "";
+    const titleText = node?.querySelector("title")?.textContent || "";
+    if (!ariaLbl.includes("0.000") || !titleText.includes("0.000")) {
+      throw new Error("pareto tooltip/aria missing metrics for " + c.bundle_id);
+    }
     const mark = node.querySelector("circle[fill]:not([fill=none])");
     mark.scrollIntoView({block: "center"});
     const rect = mark.getBoundingClientRect();
@@ -96,6 +101,19 @@ async function runBrowserRegressions() {
     if (hit?.closest(".pareto-node") !== node) throw new Error("marker center missed " + c.bundle_id);
     hit.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     if (state.selectedBundleId !== c.bundle_id) throw new Error("wrong candidate selected");
+  }
+  const visibleTags = Array.from(document.querySelectorAll("#pareto-svg-wrap .pareto-point-tag"));
+  if (!visibleTags.length || visibleTags.some((t) => !/^#\d+$/.test((t.textContent || "").trim()))) {
+    throw new Error("expected compact #N pareto point tags");
+  }
+  const tagBoxes = visibleTags.map((t) => t.getBoundingClientRect());
+  for (let i = 0; i < tagBoxes.length; i += 1) {
+    for (let j = i + 1; j < tagBoxes.length; j += 1) {
+      const a = tagBoxes[i];
+      const b = tagBoxes[j];
+      const overlaps = !(a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom);
+      if (overlaps) throw new Error(`pareto tags overlap: #${i + 1} and #${j + 1}`);
+    }
   }
   check("ten_coincident_centers_select_exact_candidates", true);
 
@@ -156,7 +174,7 @@ async function runBrowserRegressions() {
     && state.llmProvider === "deepseek"
     && state.llmModel === "deepseek-v4-pro"
     && localStorage.getItem("mrnax_llm_model") === "deepseek-v4-pro"
-    && el("sel-llm-model").value === "deepseek-v4-pro"
+    && el("sel-llm-model").value === "deepseek::deepseek-v4-pro"
     && el("cfg-llm-model").value === "deepseek-v4-pro"
     && state.byoKeys.deepseek === "sk-ds-draft"
     && state.byoKeys.openai === "sk-openai-draft"
@@ -169,7 +187,7 @@ async function runBrowserRegressions() {
   el("cfg-llm-model").dispatchEvent(new Event("change"));
   el("btn-close-settings").click();
   check("settings_cancel_keeps_main_model_selector_synced",
-    state.llmModel === "deepseek-v4-pro" && el("sel-llm-model").value === "deepseek-v4-pro");
+    state.llmModel === "deepseek-v4-pro" && el("sel-llm-model").value === "deepseek::deepseek-v4-pro");
 
   // Agent constraint sync: intent constraints update enzyme chips, summary & inspector markers
   const syncResp = report(5);
@@ -569,10 +587,15 @@ async function runBrowserRegressions() {
     el("tab-btn-data").click();
     await waitUntil(() => Boolean(document.getElementById("dh-datasets-tbody")?.rows.length));
     await resolveTargetProteinInHub("EPO");
+    const computeTierOk =
+      el("dh-compute-tier-grid").textContent.includes("Vultr 7×24 轻量控制面与保活中转")
+      && el("dh-compute-tier-grid").textContent.includes("Colab + Drive 重算引擎池")
+      && !el("dh-compute-tier-grid").textContent.includes("gateway_role")
+      && el("dh-engines-grid").textContent.includes("Surrogate v2 (商用洁净代理)");
     const dataWidthOk = document.documentElement.scrollWidth === 390;
     const importBtn = document.getElementById("btn-import-resolved-protein");
     importBtn.click();
-    const importedToStudio = !el("view-studio").hidden && el("input-protein").value === FALLBACK_HEPO;
+    const importedToStudio = !el("view-studio").hidden && el("input-protein").value === FALLBACK_HEPO && computeTierOk;
 
     el("tab-btn-benchmarks").click();
     await waitUntil(() => el("bench-delta-tbody").rows.length >= 1);
@@ -586,6 +609,172 @@ async function runBrowserRegressions() {
     check("wave3_four_tabs_and_390_zero_overflow",
       rulesRendered && importedToStudio && benchRendered
       && rulesWidthOk && dataWidthOk && benchWidthOk && studioWidthOk);
+
+    // 7. v2.5.2 upgrades: calm header pill, unified optgroup model selector, dual-chain DLL3 starter, circRNA T4 td default, and clean labels
+    state.callerTokenAuthenticated = false;
+    state.byoKey = "";
+    state.byoKeys = { deepseek: "", openai: "sk-openai-ui", gemini: "", kimi: "", qwen: "" };
+    updateAgentAuthPill(null);
+    const pillMutedOk =
+      el("pill-agent-auth").classList.contains("muted")
+      && !el("pill-agent-auth").classList.contains("warn")
+      && el("pill-agent-auth").textContent.trim() === "Agent: 配置密钥";
+    const heroGroups = Array.from(el("sel-llm-model").querySelectorAll("optgroup")).map((g) => g.label);
+    el("sel-llm-model").value = "openai::gpt-5.4";
+    el("sel-llm-model").dispatchEvent(new Event("change"));
+    const unifiedModelOk =
+      heroGroups.join(",") === "DeepSeek,OpenAI,Kimi,Qwen,Gemini"
+      && state.llmProvider === "openai"
+      && state.llmModel === "gpt-5.4"
+      && el("cfg-llm-provider").value === "openai"
+      && el("cfg-llm-model").value === "gpt-5.4"
+      && el("rail-model-pill").textContent === "openai:gpt-5.4"
+      && el("pill-agent-auth").classList.contains("ok")
+      && el("pill-agent-auth").textContent === "Agent: BYO gpt-5.4 ✓";
+    check("v252_calm_auth_pill_and_unified_model_selector", pillMutedOk && unifiedModelOk);
+
+    // circRNA T4 td default + #sel-scaffold options
+    const scafVals = Array.from(el("sel-scaffold").options).map((o) => o.value);
+    const hasExpectedScaffolds = [
+      "cap1_hba1_aes_mt_a30l70",
+      "cap1_minimal_structured_3utr",
+      "circ_t4td_hrvb3",
+      "circ_t4td_cvb3",
+      "circ_anabaena_hrvb3",
+      "circ_anabaena_cvb3",
+      "sarna_veev_tc83",
+      "sarna_sinv",
+    ].every((id) => scafVals.includes(id));
+    setModality("linear_mrna");
+    setModality("circrna");
+    const circDefaultOk =
+      el("starter-circ").textContent.includes("T4 td PIE")
+      && el("sel-scaffold").value === "circ_t4td_hrvb3";
+    el("sel-scaffold").value = "circ_anabaena_cvb3";
+    const circCalls = [];
+    window.fetch = async (url, opts = {}) => {
+      const u = String(url || "");
+      if (u.endsWith("/turn")) {
+        circCalls.push(JSON.parse(opts.body));
+        return response({
+          status: "COMPLETED",
+          intent: {
+            intent_id: "i_circ_t4td",
+            intent_version: 49,
+            status: "ready",
+            modality: "circrna",
+            scaffold_id: "circ_t4td_hrvb3",
+            compliance_track: "research_max",
+            uridine_chemistry: "unmodified_u",
+            locked_scopes: {},
+          },
+          report: { outcome_status: "COMPLETED" },
+          candidates: [],
+        });
+      }
+      return response({});
+    };
+    state.activeVersion = 0;
+    state.intentHistory = [];
+    el("sel-exec-mode").value = "deterministic";
+    el("starter-circ").click();
+    await new Promise((r) => setTimeout(r, 25));
+    const circTurnReq = circCalls[0];
+    check("v252_circrna_t4td_default_and_scaffold_options",
+      hasExpectedScaffolds && circDefaultOk && Boolean(circTurnReq) && circTurnReq.scaffold_id === "circ_t4td_hrvb3");
+
+    // Dual-chain DLL3xCD3 starter + chain_01/chain_02 switcher + clean eto_06 fallback
+    const dualChainResp = {
+      status: "COMPLETED",
+      intent: {
+        intent_id: "i_dll3_browser",
+        intent_version: 50,
+        status: "ready",
+        compliance_track: "commercial_clean",
+        uridine_chemistry: "m1psi",
+        protein_targets: [
+          { protein_sequence: FALLBACK_DLL3_CD3.primary_protein_sequence },
+          { protein_sequence: FALLBACK_DLL3_CD3.additional_protein_sequences[0] },
+        ],
+        locked_scopes: {},
+      },
+      report: { outcome_status: "COMPLETED_WITH_CANDIDATES", recommended_bundle_ids: ["bnd_pareto_06"] },
+      candidates: [
+        {
+          bundle_id: "bnd_pareto_06",
+          version_digest: "e".repeat(64),
+          pareto_rank: 1,
+          length_nt: 39,
+          full_gc_pct: 54.0,
+          full_sequence: "GGGAAAUCCGCCACCAUGGAGACAGACACACUCCUGUGA",
+          molecules: [
+            {
+              molecule_id: "chain_01",
+              length_nt: 39,
+              full_gc_pct: 54.0,
+              full_sequence: "GGGAAAUCCGCCACCAUGGAGACAGACACACUCCUGUGA",
+              segments: [
+                { segment_type: "five_prime_utr", start: 0, end: 15, length_nt: 15, gc_pct: 53.3 },
+                { segment_type: "cds", start: 15, end: 36, length_nt: 21, gc_pct: 57.1 },
+                { segment_type: "stop_cassette", start: 36, end: 39, length_nt: 3, gc_pct: 33.3 },
+              ],
+            },
+            {
+              molecule_id: "chain_02",
+              length_nt: 39,
+              full_gc_pct: 59.0,
+              full_sequence: "GGGAAAUCCGCCACCAUGGACAUCUAGAUGACCCAGUGA",
+              segments: [
+                { segment_type: "five_prime_utr", start: 0, end: 15, length_nt: 15, gc_pct: 53.3 },
+                { segment_type: "cds", start: 15, end: 36, length_nt: 21, gc_pct: 66.7 },
+                { segment_type: "stop_cassette", start: 36, end: 39, length_nt: 3, gc_pct: 33.3 },
+              ],
+            },
+          ],
+          metric_details: [
+            { metric_id: "kozak_unpaired_prob", value: 0.79, unit: "prob", direction: "maximize" },
+            { metric_id: "cds_mean_window_mfe", value: -38.4, unit: "kcal/mol", direction: "minimize" },
+          ],
+        },
+      ],
+    };
+    const dll3Calls = [];
+    window.fetch = async (url, opts = {}) => {
+      const u = String(url);
+      if (u.endsWith("/turn") || u.endsWith("/agent-chat")) {
+        dll3Calls.push({ url: u, body: JSON.parse(opts.body) });
+        return response(dualChainResp);
+      }
+      return response({});
+    };
+    el("sel-exec-mode").value = "deterministic";
+    el("starter-dll3").click();
+    await new Promise((r) => setTimeout(r, 25));
+    const dll3Det = dll3Calls.find((c) => c.url.endsWith("/turn"));
+    const expectedDualLenLabel = `2 chains · ${FALLBACK_DLL3_CD3.primary_protein_sequence.length} + ${FALLBACK_DLL3_CD3.additional_protein_sequences[0].length} aa`;
+    const dll3DetOk =
+      el("input-protein").value === FALLBACK_DLL3_CD3.primary_protein_sequence
+      && el("badge-aa-len").textContent === expectedDualLenLabel
+      && el("setup-collapsed-summary").textContent.includes(expectedDualLenLabel)
+      && Array.isArray(dll3Det?.body?.additional_protein_sequences)
+      && dll3Det.body.additional_protein_sequences[0] === FALLBACK_DLL3_CD3.additional_protein_sequences[0]
+      && !el("cand-tbody").rows[0].textContent.includes("eto_06")
+      && !el("chain-picker").hidden
+      && el("inspect-chain").options[0].textContent === "chain_01"
+      && el("inspect-chain").options[1].textContent === "chain_02";
+    el("inspect-chain").value = "1";
+    el("inspect-chain").dispatchEvent(new Event("change"));
+    const chainSwitchOk =
+      el("txt-selected-bundle").textContent.includes(" · chain_02 · ")
+      && el("seg-inspector").textContent.includes("AUG GAC AUC UAG");
+    el("sel-exec-mode").value = "llm_agent";
+    await runInitialTurn("Design DLL3xCD3 bispecific", { fromForm: true });
+    const dll3AgentCall = dll3Calls.find((c) => c.url.endsWith("/agent-chat"));
+    const agentDualMentionOk =
+      Boolean(dll3AgentCall)
+      && dll3AgentCall.body.message.includes(FALLBACK_DLL3_CD3.primary_protein_sequence)
+      && dll3AgentCall.body.message.includes(FALLBACK_DLL3_CD3.additional_protein_sequences[0]);
+    check("v252_dll3_dual_chain_and_clean_labels", dll3DetOk && chainSwitchOk && agentDualMentionOk);
   } finally {
     window.fetch = _prevFetchR3;
   }

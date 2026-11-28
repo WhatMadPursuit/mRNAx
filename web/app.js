@@ -6,6 +6,24 @@ const FALLBACK_EGFP =
   "MVSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPTLVTTLTYGVQCFSRYPDHMKQHDFFKSAMPEGYVQERTIFFKDDGNYKTRAEVKFEGDTLVNRIELKGIDFKEDGNILGHKLEYNYNSHNVYIMADKQKNGIKVNFKIRHNIEDGSVQLADHYQQNTPIGDGPVLLPDNHYLSTQSALSKDPNEKRDHMVLLEFVTAAGITLGMDELYK";
 const FALLBACK_HEPO =
   "MGVHECPAWLWLLLSLLSLPLGLPVLGAPPRLICDSRVLERYLLEAKEAENITTGCAEHCSLNENITVPDTKVNFYAWKRMEVGQQAVEVWQGLALLSEAVLRGQALLVNSSQPWEPLQLHVDKAVSGLRSLTTLLRALGAQKEAISPPDAASAAPLRTITADTFRKLFRVYSNFLRGKLKLYTGEACRTGDR";
+const FALLBACK_DLL3_CD3 = {
+  name: "DLL3×CD3 Dual-Chain Bispecific (Non-Proprietary Synthetic Igκ Scaffolds)",
+  primary_chain_id: "anti_dll3_vh_scaffold",
+  primary_protein_sequence:
+    "METDTLLLWVLLLWVPGSTGQVQLVQSGAEVKKPGASVKVSCKASGYTFTGYYMHWVRQAPGQGLEWMGWINPNSGGTNYAQKFQGRVTMTRDTSISTAYMELSRLRSDDTAVYYCAR",
+  additional_protein_sequences: [
+    "METDTLLLWVLLLWVPGSTGDIQMTQSPSSLSASVGDRVTITCRASQSISSYLNWYQQKPGKAPKLLIYAASSLQSGVPSRFSGSGSGTDFTLTISSLQPEDFATYYCQQSYSTPLTF",
+  ],
+  accession_or_source: "SYNTHETIC_NON_PROPRIETARY_DLL3_CD3_DUAL_CHAIN_DEMO_V1",
+};
+
+const PROVIDER_DISPLAY_NAMES = {
+  deepseek: "DeepSeek",
+  openai: "OpenAI",
+  kimi: "Kimi",
+  qwen: "Qwen",
+  gemini: "Gemini",
+};
 
 const DEFAULT_PROVIDER_MODELS = {
   deepseek: "deepseek-flash",
@@ -341,8 +359,8 @@ const FALLBACK_DATA_HUB = {
         chemistry_note: "支持 m¹Ψ / 5moU / Ψ / 未修饰 U",
       },
       circrna: {
-        label: "Circular RNA (Anabaena PIE)",
-        summary: "5′ 同源臂 + Anabaena Group I Intron 3′ 片段 · E2 外显子 · 绝缘间隔子 · HRV-B3 / CVB3 IRES · CDS · E1 + 5′ Intron",
+        label: "Circular RNA (T4 td / Anabaena PIE)",
+        summary: "5′ 同源臂 + T4 td PIE (IVT就绪) / Anabaena Group I Intron 片段 · E2/E1 外显子 · 绝缘间隔子 · HRV-B3 / CVB3 IRES · CDS",
         chemistry_note: "推荐未修饰 U (化学修饰常抑制 IRES 核糖体招募与环化剪接)",
       },
       sarna: {
@@ -408,6 +426,7 @@ const state = {
   activeTab: "studio",
   modality: "linear_mrna",
   gatewayOnline: false,
+  systemStatus: null,
   configGeneration: 0,
   statusRequestSeq: 0,
   sessionEpoch: 1,
@@ -437,6 +456,7 @@ const state = {
   projectId: `proj_${Math.random().toString(36).slice(2, 8)}`,
   projectKey: mintProjectKey(),
   entryMode: "protein_only",
+  additionalProteinSequences: [],
   presets: null,
   intentHistory: [],
   completedRevisions: [],
@@ -527,8 +547,7 @@ function extractSandboxedText(val) {
     raw = String(val.text_excerpt || val.wrapped_payload || val.title || "");
   }
   return raw
-    .replace(/<UNTRUSTED_EXTERNAL_DATA[^>]*>/gi, "")
-    .replace(/<\/UNTRUSTED_EXTERNAL_DATA>/gi, "")
+    .replace(/<\/?UNTRUSTED(?:_EXTERNAL)?_DATA[^>]*>/gi, "")
     .trim();
 }
 
@@ -569,10 +588,24 @@ function formatSafeMarkdown(rawText) {
   return out.join("");
 }
 
+function sanitizeCandidateDisplayLabel(rawLabel, cand) {
+  let label = String(rawLabel || "").trim();
+  if (!label) return "";
+  label = label.replace(/\s*\((?:[a-z_]*eto_0*(\d+)|pareto_0*(\d+)|bnd_[^)]+)\)\s*$/i, (_m, etoNum, parNum) => {
+    const num = etoNum || parNum;
+    if (!num) return "";
+    return label.includes(`#${num}`) ? "" : ` · 多目标 #${num}`;
+  });
+  label = label.replace(/\s*\(e\d+_ref\)\s*$/i, " · 参考变体");
+  label = label.replace(/\s*\(chisel\)\s*$/i, " · Chisel 变体");
+  label = label.replace(/\b(?:eto|pareto)_0*(\d+)\b/gi, (_m, num) => `多目标 #${num}`);
+  return label.trim() || (cand?.pareto_rank != null ? `Pareto #${cand.pareto_rank} · 多目标候选` : "优化候选");
+}
+
 function humanizeCandidateLabel(cand) {
   if (!cand) return "未命名方案";
   if (typeof cand.display_label === "string" && cand.display_label.trim()) {
-    return cand.display_label.trim();
+    return sanitizeCandidateDisplayLabel(cand.display_label, cand);
   }
   const bid = String(cand.bundle_id || "");
   const low = bid.toLowerCase();
@@ -585,14 +618,35 @@ function humanizeCandidateLabel(cand) {
   if (low.endsWith("_expb")) {
     return "探索重排方案 (高表达)";
   }
+  const rankPrefix = cand.pareto_rank != null ? `Pareto #${cand.pareto_rank}` : "";
+  const lamMatch = low.match(/lam([0-9]+(?:\.[0-9]+)?)/);
+  const lamTag = lamMatch ? `λ=${lamMatch[1]}` : "";
   if (Array.isArray(cand.molecules) && cand.molecules.length > 1) {
-    return `${cand.pareto_rank ? "Pareto #" + cand.pareto_rank + " · " : ""}多链共表达候选`;
+    const chainTag = `${cand.molecules.length}链共表达候选`;
+    return [rankPrefix, chainTag, lamTag].filter(Boolean).join(" · ");
   }
-  const tail = bid.replace(/^bnd_/, "").slice(-6) || "01";
-  if (cand.pareto_rank != null) {
-    return `Pareto #${cand.pareto_rank} 候选 (${tail})`;
+  const pieTag = low.includes("t4td") || low.includes("t4_td")
+    ? "T4 td PIE"
+    : low.includes("anabaena")
+    ? "Anabaena PIE"
+    : "";
+  const iresTag = low.includes("hrvb3") ? "HRV-B3" : low.includes("cvb3") ? "CVB3" : "";
+  if (pieTag || iresTag) {
+    return [rankPrefix, pieTag, iresTag, lamTag].filter(Boolean).join(" · ");
   }
-  return `候选方案 (${tail})`;
+  const paretoMatch = low.match(/(?:^|_)pareto_0*(\d+)/);
+  if (paretoMatch) {
+    return [rankPrefix || "多目标", `均衡方案 #${paretoMatch[1]}`, lamTag].filter(Boolean).join(" · ");
+  }
+  if (low.includes("ld") || low.includes("lineardesign")) {
+    return [rankPrefix, "LinearDesign 候选", lamTag].filter(Boolean).join(" · ");
+  }
+  const candIdx = Array.isArray(state.candidates) ? state.candidates.indexOf(cand) : -1;
+  const numSuffix = candIdx >= 0 ? ` #${candIdx + 1}` : "";
+  if (rankPrefix) {
+    return `${rankPrefix} · 多目标候选${numSuffix}`;
+  }
+  return `候选方案${numSuffix}`;
 }
 
 function humanizeStrategyTag(rawTag) {
@@ -708,7 +762,7 @@ function setModality(mod) {
   const scafEl = document.getElementById("sel-scaffold");
   if (scafEl) {
     if (next === "circrna" && !String(scafEl.value || "").startsWith("circ_")) {
-      scafEl.value = "circ_anabaena_hrvb3";
+      scafEl.value = "circ_t4td_hrvb3";
     } else if (next === "sarna" && !String(scafEl.value || "").startsWith("sarna_")) {
       scafEl.value = "sarna_veev_tc83";
     } else if (next === "linear_mrna" && !String(scafEl.value || "").startsWith("cap1_")) {
@@ -771,35 +825,91 @@ function setExecMode(mode, { userInitiated = false } = {}) {
   }
 }
 
-function syncModelOptions(provider, { skipOpenModal = false } = {}) {
-  const models =
+function getSupportedProviderList() {
+  const base = ["deepseek", "openai", "kimi", "qwen", "gemini"];
+  const extras = Object.keys(state.supportedModels || {}).filter((p) => !base.includes(p));
+  return [...base, ...extras];
+}
+
+function getModelsForProvider(provider) {
+  return (
     (state.supportedModels && state.supportedModels[provider]) ||
     SUPPORTED_PROVIDER_MODELS[provider] ||
-    [state.defaultModels[provider] || DEFAULT_PROVIDER_MODELS[provider] || "deepseek-flash"];
+    [state.defaultModels[provider] || DEFAULT_PROVIDER_MODELS[provider] || "deepseek-flash"]
+  );
+}
+
+function syncModelOptions(provider, { skipOpenModal = false } = {}) {
+  const providers = getSupportedProviderList();
+  const prov = providers.includes(provider) ? provider : "deepseek";
+  const models = getModelsForProvider(prov);
   const fallback =
-    (state.defaultModels && state.defaultModels[provider]) ||
-    DEFAULT_PROVIDER_MODELS[provider] ||
+    (state.defaultModels && state.defaultModels[prov]) ||
+    DEFAULT_PROVIDER_MODELS[prov] ||
     models[0];
   if (!models.includes(state.llmModel)) {
     state.llmModel = fallback;
   }
   const dlgSettings = document.getElementById("modal-settings");
   const modalOpen = Boolean(dlgSettings && dlgSettings.open);
-  for (const id of ["sel-llm-model", "cfg-llm-model"]) {
-    if (skipOpenModal && id === "cfg-llm-model" && modalOpen) continue;
-    const sel = document.getElementById(id);
-    if (!sel) continue;
-    if (typeof document.createElement === "function" && typeof sel.replaceChildren === "function") {
-      sel.replaceChildren();
-      for (const m of models) {
-        const opt = document.createElement("option");
-        opt.value = m;
-        opt.textContent = id === "sel-llm-model" ? (MODEL_LABELS[m] || m) : m;
-        sel.appendChild(opt);
+
+  const heroSel = document.getElementById("sel-llm-model");
+  if (heroSel) {
+    const compositeVal = `${prov}::${state.llmModel}`;
+    if (typeof document.createElement === "function" && typeof heroSel.replaceChildren === "function") {
+      const probeGrp = document.createElement("optgroup");
+      const supportsOptGroup = Boolean(probeGrp && typeof probeGrp.appendChild === "function");
+      heroSel.replaceChildren();
+      if (supportsOptGroup) {
+        for (const p of providers) {
+          const pModels = getModelsForProvider(p);
+          if (!pModels.length) continue;
+          const grp = document.createElement("optgroup");
+          grp.label = PROVIDER_DISPLAY_NAMES[p] || p;
+          for (const m of pModels) {
+            const opt = document.createElement("option");
+            opt.value = `${p}::${m}`;
+            opt.textContent = MODEL_LABELS[m] || m;
+            grp.appendChild(opt);
+          }
+          heroSel.appendChild(grp);
+        }
+        heroSel.value = compositeVal;
+      } else {
+        for (const m of models) {
+          const opt = document.createElement("option");
+          opt.value = m;
+          opt.textContent = MODEL_LABELS[m] || m;
+          heroSel.appendChild(opt);
+        }
+        heroSel.value = state.llmModel;
       }
+    } else if (Array.isArray(heroSel.options)) {
+      const hasComposite = heroSel.options.some((o) => o && o.value === compositeVal);
+      heroSel.value = hasComposite ? compositeVal : state.llmModel;
+    } else {
+      heroSel.value = state.llmModel;
     }
-    sel.value = state.llmModel;
   }
+
+  if (!(skipOpenModal && modalOpen)) {
+    const cfgProv = document.getElementById("cfg-llm-provider");
+    if (cfgProv && !modalOpen) cfgProv.value = prov;
+    const cfgSel = document.getElementById("cfg-llm-model");
+    if (cfgSel) {
+      if (typeof document.createElement === "function" && typeof cfgSel.replaceChildren === "function") {
+        cfgSel.replaceChildren();
+        for (const m of models) {
+          const opt = document.createElement("option");
+          opt.value = m;
+          opt.textContent = m;
+          cfgSel.appendChild(opt);
+        }
+      }
+      cfgSel.value = state.llmModel;
+    }
+  }
+
   const pill = document.getElementById("rail-model-pill");
   if (pill) {
     pill.textContent = state.llmProvider === "deepseek" ? state.llmModel : `${state.llmProvider}:${state.llmModel}`;
@@ -807,12 +917,28 @@ function syncModelOptions(provider, { skipOpenModal = false } = {}) {
 }
 
 function setModelPreference(modelName) {
-  const prov = state.llmProvider || "deepseek";
-  const allowed =
-    (state.supportedModels && state.supportedModels[prov]) ||
-    SUPPORTED_PROVIDER_MODELS[prov] ||
-    [DEFAULT_PROVIDER_MODELS[prov]];
-  const cleaned = (modelName || "").trim();
+  const raw = String(modelName || "").trim();
+  let prov = state.llmProvider || "deepseek";
+  let cleaned = raw;
+  if (raw.includes("::")) {
+    const [rawProv, rawModel] = raw.split("::", 2);
+    const nextProv = String(rawProv || "").trim().toLowerCase();
+    if (getSupportedProviderList().includes(nextProv)) {
+      prov = nextProv;
+      state.llmProvider = prov;
+      state.byoKey = (state.byoKeys && state.byoKeys[prov]) || "";
+      safeStorageSet("local", "mrnax_llm_provider", state.llmProvider);
+      const cfgProv = document.getElementById("cfg-llm-provider");
+      if (cfgProv) cfgProv.value = state.llmProvider;
+      const dlgSettings = document.getElementById("modal-settings");
+      const cfgByo = document.getElementById("cfg-byo-key");
+      if (cfgByo && !(dlgSettings && dlgSettings.open)) {
+        cfgByo.value = state.byoKey;
+      }
+    }
+    cleaned = String(rawModel || "").trim();
+  }
+  const allowed = getModelsForProvider(prov);
   state.llmModel = allowed.includes(cleaned)
     ? cleaned
     : (state.defaultModels[prov] || DEFAULT_PROVIDER_MODELS[prov] || allowed[0]);
@@ -850,8 +976,8 @@ function updateAgentAuthPill(statusPayload) {
     pill.className = "auth-pill mono ok";
     pill.textContent = `Agent: BYO ${activeModelName} ✓`;
   } else {
-    pill.className = "auth-pill mono warn";
-    pill.textContent = "Agent: 未解锁 · 点击配置";
+    pill.className = "auth-pill mono muted";
+    pill.textContent = "Agent: 配置密钥";
   }
 }
 
@@ -1167,9 +1293,22 @@ function setSelectedEnzymes(list) {
   updateSetupSummary();
 }
 
+function getExtraProteinChains() {
+  return Array.isArray(state.additionalProteinSequences)
+    ? state.additionalProteinSequences.map((s) => String(s || "").trim().toUpperCase()).filter(Boolean)
+    : [];
+}
+
+function formatAaLengthSummary(primarySeq, extraSeqs) {
+  if (!extraSeqs.length) return `${primarySeq.length} aa`;
+  const lengths = primarySeq ? [primarySeq.length, ...extraSeqs.map((s) => s.length)] : extraSeqs.map((s) => s.length);
+  return `${lengths.length} chains · ${lengths.join(" + ")} aa`;
+}
+
 function updateSetupSummary() {
   const inputProt = document.getElementById("input-protein");
   const raw = ((inputProt && inputProt.value) || "").trim().toUpperCase();
+  const extra = getExtraProteinChains();
   const chem = (document.getElementById("sel-chemistry") && document.getElementById("sel-chemistry").value) || "m1psi";
   const prof = (document.getElementById("sel-profile") && document.getElementById("sel-profile").value) || "research_max";
   const enz = getSelectedEnzymes();
@@ -1179,18 +1318,38 @@ function updateSetupSummary() {
   const summaryEl = document.getElementById("setup-collapsed-summary");
   if (summaryEl) {
     const enzLabel = enz.length ? `0-cut:${enz.join("+")}` : "无酶切禁区";
-    summaryEl.textContent = `${modPrefix}${raw.length} aa · ${chem} · ${prof} · ${enzLabel}${detarget ? " · miR-122" : ""}`;
+    const aaSummary = formatAaLengthSummary(raw, extra);
+    summaryEl.textContent = `${modPrefix}${aaSummary} · ${chem} · ${prof} · ${enzLabel}${detarget ? " · miR-122" : ""}`;
   }
 }
 
 function updateProteinBadge() {
   const inputProt = document.getElementById("input-protein");
   const raw = ((inputProt && inputProt.value) || "").trim().toUpperCase();
+  const extra = getExtraProteinChains();
+  const allChains = raw ? [raw, ...extra] : extra;
+  const allStartsM = allChains.length > 0 && allChains.every((s) => s.startsWith("M"));
   const badge = document.getElementById("badge-aa-len");
-  const startsM = raw.startsWith("M");
   if (badge) {
-    badge.textContent = `${raw.length} aa · ${startsM ? "M✓" : "缺起始M"}`;
-    badge.className = startsM ? "badge mono ok" : "badge mono warn";
+    if (extra.length > 0 && raw) {
+      const chainText = formatAaLengthSummary(raw, extra);
+      badge.textContent = allStartsM ? chainText : `${chainText} · 缺起始M`;
+    } else {
+      badge.textContent = `${raw.length} aa · ${raw.startsWith("M") ? "M✓" : "缺起始M"}`;
+    }
+    badge.className = allStartsM ? "badge mono ok" : "badge mono warn";
+  }
+  const boxExtra = document.getElementById("box-extra-chains");
+  if (boxExtra) {
+    if (extra.length > 0) {
+      boxExtra.hidden = false;
+      boxExtra.textContent = extra
+        .map((s, idx) => `CHAIN ${idx + 2}: ${s.length} aa (${s.slice(0, 20)}…)`)
+        .join(" · ");
+    } else {
+      boxExtra.hidden = true;
+      boxExtra.textContent = "";
+    }
   }
   updateSetupSummary();
 }
@@ -1495,22 +1654,83 @@ function renderParetoScatter() {
     return point;
   }
 
-  const circles = pts
-    .map((p, idx) => {
-      const x = mapX(p.x);
-      const y = mapY(p.y);
-      const marker = placeMarker(x, y);
+  const markers = pts.map((p, idx) => {
+    const x = mapX(p.x);
+    const y = mapY(p.y);
+    const marker = placeMarker(x, y);
+    return { p, idx, x, y, marker };
+  });
+
+  const placedTagBoxes = [];
+  function placePointTag(mx, my, tagText) {
+    const w = Math.max(12, tagText.length * 5.6 + 1);
+    const h = 9.5;
+    const offsets = [
+      { dx: 7, dy: -4, anchor: "start" },
+      { dx: -7, dy: -4, anchor: "end" },
+      { dx: 7, dy: 8, anchor: "start" },
+      { dx: -7, dy: 8, anchor: "end" },
+      { dx: 8, dy: 3, anchor: "start" },
+      { dx: -8, dy: 3, anchor: "end" },
+      { dx: 0, dy: -9, anchor: "middle" },
+      { dx: 0, dy: 13, anchor: "middle" },
+    ];
+    for (const off of offsets) {
+      const tx = mx + off.dx;
+      const ty = my + off.dy;
+      const left = off.anchor === "start" ? tx : off.anchor === "end" ? tx - w : tx - w / 2;
+      const right = left + w;
+      const top = ty - h + 2;
+      const bottom = ty + 2;
+      if (left < padL + 2 || right > W - padR - 2 || top < padT + 2 || bottom > H - padB - 2) {
+        continue;
+      }
+      const hitsMarker = placed.some((pt) => {
+        if (Math.hypot(pt.x - mx, pt.y - my) < 0.5) return false;
+        const nearestX = Math.max(left, Math.min(pt.x, right));
+        const nearestY = Math.max(top, Math.min(pt.y, bottom));
+        return Math.hypot(pt.x - nearestX, pt.y - nearestY) < 6.5;
+      });
+      if (hitsMarker) continue;
+      const hitsTag = placedTagBoxes.some(
+        (b) => !(right + 2 < b.left || left - 2 > b.right || bottom + 1 < b.top || top - 1 > b.bottom)
+      );
+      if (hitsTag) continue;
+      placedTagBoxes.push({ left, right, top, bottom });
+      return { x: tx, y: ty, anchor: off.anchor };
+    }
+    return null;
+  }
+
+  const tagByIdx = new Map();
+  const priorityOrder = [...markers].sort((a, b) => {
+    const aSel = a.p.cand.bundle_id === state.selectedBundleId ? 0 : 1;
+    const bSel = b.p.cand.bundle_id === state.selectedBundleId ? 0 : 1;
+    if (aSel !== bSel) return aSel - bSel;
+    const aP1 = a.p.cand.pareto_rank === 1 ? 0 : 1;
+    const bP1 = b.p.cand.pareto_rank === 1 ? 0 : 1;
+    if (aP1 !== bP1) return aP1 - bP1;
+    return a.idx - b.idx;
+  });
+  for (const item of priorityOrder) {
+    const tagText = `#${item.idx + 1}`;
+    const pos = placePointTag(item.marker.x, item.marker.y, tagText);
+    if (pos) tagByIdx.set(item.idx, { text: tagText, ...pos });
+  }
+
+  const circles = markers
+    .map(({ p, idx, x, y, marker }) => {
       const cx = marker.x.toFixed(1);
       const cy = marker.y.toFixed(1);
       const isP1 = p.cand.pareto_rank === 1;
       const isSel = p.cand.bundle_id === state.selectedBundleId;
       const cleanName = humanizeCandidateLabel(p.cand);
-      const alignLeft = Number(cx) > W * 0.58;
-      const lblX = (Number(cx) + (alignLeft ? -8 : 8)).toFixed(1);
-      const lblAnchor = alignLeft ? "end" : "start";
+      const rankLabel = p.cand.pareto_rank ? `P${p.cand.pareto_rank}` : "未排名";
+      const tooltipText = `${cleanName} · ${rankLabel} · ${axX.shortLabel}=${axX.fmt(p.x)}, ${axY.shortLabel}=${axY.fmt(p.y)}`;
+      const tag = tagByIdx.get(idx);
       return `
-        <g class="pareto-node" data-idx="${idx}" tabindex="0" role="button" aria-pressed="${isSel}" aria-label="${escapeHtml(p.cand.bundle_id)}" style="cursor:pointer;">
-          <title>${escapeHtml(cleanName)} · ${escapeHtml(p.cand.pareto_rank ? "P" + p.cand.pareto_rank : "未排名")} · ${escapeHtml(axX.shortLabel)}=${escapeHtml(axX.fmt(p.x))}, ${escapeHtml(axY.shortLabel)}=${escapeHtml(axY.fmt(p.y))}</title>
+        <g class="pareto-node" data-idx="${idx}" data-bundle-id="${escapeHtml(p.cand.bundle_id)}" tabindex="0" role="button" aria-pressed="${isSel}" aria-label="${escapeHtml(tooltipText)}" style="cursor:pointer;">
+          <title>${escapeHtml(tooltipText)}</title>
           ${marker.x !== x || marker.y !== y ? `<line x1="${x.toFixed(1)}" y1="${y.toFixed(1)}" x2="${cx}" y2="${cy}" stroke="var(--border-strong)" pointer-events="none" />` : ""}
           ${isSel ? `<circle pointer-events="none" cx="${cx}" cy="${cy}" r="9.5" fill="none" stroke="var(--ink)" stroke-width="1.6" />` : ""}
           <circle
@@ -1521,7 +1741,7 @@ function renderParetoScatter() {
             stroke="${isP1 ? "var(--accent)" : "var(--ink-muted)"}"
             stroke-width="1.8"
           />
-          <text pointer-events="none" x="${lblX}" y="${(Number(cy) - 5).toFixed(1)}" text-anchor="${lblAnchor}" fill="var(--ink-secondary)" font-family="var(--font-mono)" font-size="9.5">${escapeHtml(cleanName.length > 18 ? cleanName.slice(0, 16) + "…" : cleanName)}</text>
+          ${tag ? `<text class="pareto-point-tag" pointer-events="none" x="${tag.x.toFixed(1)}" y="${tag.y.toFixed(1)}" text-anchor="${tag.anchor}" fill="${isSel ? "var(--ink)" : "var(--ink-secondary)"}" font-family="var(--font-mono)" font-size="9.5">${escapeHtml(tag.text)}</text>` : ""}
         </g>
       `;
     })
@@ -1863,7 +2083,7 @@ function renderCandidates() {
         </td>
         <td><span class="badge mono">${escapeHtml(strategyText)}</span></td>
         ${metricCells || '<td class="num-col mono">N/A · 未测</td>'}
-        <td class="num-col mono">${escapeHtml(c.full_gc_pct)}% · ${escapeHtml(c.length_nt)}nt</td>
+        <td class="num-col mono">${escapeHtml(c.full_gc_pct)}% · ${escapeHtml(Array.isArray(c.molecules) && c.molecules.length > 1 ? `${c.molecules.length}链(${c.molecules.map((m) => m.length_nt).join("+")})` : `${c.length_nt}nt`)}</td>
       `;
 
       if (typeof tr.querySelector === "function") {
@@ -2433,12 +2653,23 @@ function renderStructureVisuals(profile, chain) {
   }
 }
 
+function resolveChainIndex(chains, rawVal) {
+  if (!Array.isArray(chains) || !chains.length) return 0;
+  const str = String(rawVal == null ? "" : rawVal).trim();
+  if (/^\d+$/.test(str)) {
+    const idx = Number(str);
+    if (idx >= 0 && idx < chains.length) return idx;
+  }
+  const byId = chains.findIndex((c) => c && c.molecule_id === str);
+  return byId >= 0 ? byId : 0;
+}
+
 function getActiveInspectedChain() {
   const cand = state.candidates.find((c) => c.bundle_id === state.selectedBundleId);
   if (!cand) return null;
   const chains = cand.molecules?.length ? cand.molecules : [cand];
   const sel = document.getElementById("inspect-chain");
-  const idx = sel && Number.isFinite(Number(sel.value)) ? Number(sel.value) : 0;
+  const idx = sel ? resolveChainIndex(chains, sel.value) : 0;
   return chains[idx] || chains[0];
 }
 
@@ -2617,17 +2848,22 @@ function selectCandidate(bundleId) {
     chains.forEach((chain, i) => {
       const option = document.createElement("option");
       option.value = String(i);
-      option.textContent = chain.molecule_id || `分子 ${i + 1}`;
+      option.textContent = chain.molecule_id || `chain_${String(i + 1).padStart(2, "0")}`;
       select.appendChild(option);
     });
+    select.value = "0";
   }
   const chainPicker = document.getElementById("chain-picker");
   if (chainPicker) chainPicker.hidden = chains.length < 2;
 
-  function inspectChain(index) {
-    const chain = chains[index] || chains[0];
+  function inspectChain(indexOrId) {
+    const idx = resolveChainIndex(chains, indexOrId);
+    const chain = chains[idx] || chains[0];
     if (!chain) return;
-    const label = chains.length > 1 ? ` · ${chain.molecule_id}` : "";
+    if (select && select.value !== String(idx) && chains[idx]) {
+      select.value = String(idx);
+    }
+    const label = chains.length > 1 ? ` · ${chain.molecule_id || `chain_${String(idx + 1).padStart(2, "0")}`}` : "";
     const txtSel = document.getElementById("txt-selected-bundle");
     const shortSha = String(cand.short_digest || (cand.version_digest || "").slice(0, 10) || "verified");
     if (txtSel) {
@@ -2650,7 +2886,7 @@ function selectCandidate(bundleId) {
       runStructureAnalysisForSelected();
     }
   }
-  if (select) select.onchange = () => inspectChain(Number(select.value));
+  if (select) select.onchange = () => inspectChain(select.value);
   inspectChain(0);
 }
 
@@ -2947,6 +3183,15 @@ function syncControlsFromIntent(intent) {
       );
     }
   }
+  if (Array.isArray(intent.protein_targets) && intent.protein_targets.length > 0) {
+    const seqs = intent.protein_targets.map((t) => String(t?.protein_sequence || "").trim()).filter(Boolean);
+    if (seqs.length >= 2 && seqs.every((s) => s.length >= 10)) {
+      const protEl = document.getElementById("input-protein");
+      if (protEl) protEl.value = seqs[0];
+      state.additionalProteinSequences = seqs.slice(1);
+      updateProteinBadge();
+    }
+  }
   if (intent.modality) {
     setModality(intent.modality);
   }
@@ -3176,6 +3421,7 @@ async function refreshSystemStatus() {
       return;
     }
     state.gatewayOnline = Boolean(st && st.hostname);
+    state.systemStatus = st;
     const now = typeof performance !== "undefined" ? performance.now() : Date.now();
     const ms = Math.round(now - t0);
     if (dot) dot.className = "dot ok";
@@ -3183,6 +3429,9 @@ async function refreshSystemStatus() {
     const pillEng = document.getElementById("pill-engine");
     if (pillEng) {
       pillEng.textContent = `Engine: ${st.default_profile} · ViennaRNA ${st.viennarna_version || "lazy"}`;
+    }
+    if (state.activeTab === "data-hub" && typeof renderComputeTierCards === "function") {
+      renderComputeTierCards(st);
     }
     if (st.default_llm_models && typeof st.default_llm_models === "object") {
       state.defaultModels = { ...DEFAULT_PROVIDER_MODELS, ...st.default_llm_models };
@@ -3439,16 +3688,21 @@ function parseDeterministicRefineFallback(utterance) {
     changed = true;
   }
 
-  if (/\bcircrna\b|环状\s*rna/i.test(raw)) {
+  const mentionsCirc = /\bcircrna\b|环状\s*rna|\banabaena\b|\bt4\s*_?\s*td\b|\b(?:hrv-?b3|cvb3)\b/i.test(raw);
+  if (mentionsCirc) {
     payload.modality = "circrna";
     payload.uridine_chemistry = "unmodified_u";
-    if (/\bcvb3\b/i.test(raw)) payload.scaffold_id = "circ_anabaena_cvb3";
-    else if (/\bhrv-?b3\b/i.test(raw)) payload.scaffold_id = "circ_anabaena_hrvb3";
+    const backbone = /\banabaena\b/i.test(raw) ? "anabaena" : "t4td";
+    if (/\bcvb3\b/i.test(raw)) {
+      payload.scaffold_id = `circ_${backbone}_cvb3`;
+    } else {
+      payload.scaffold_id = `circ_${backbone}_hrvb3`;
+    }
     changed = true;
-  } else if (/\bsarna\b|自扩增|veev/i.test(raw)) {
+  } else if (/\bsarna\b|自扩增|veev|\bsinv\b|sindbis/i.test(raw)) {
     payload.modality = "sarna";
     payload.uridine_chemistry = "unmodified_u";
-    payload.scaffold_id = "sarna_veev_tc83";
+    payload.scaffold_id = /\bsinv\b|sindbis/i.test(raw) ? "sarna_sinv" : "sarna_veev_tc83";
     changed = true;
   }
 
@@ -3646,6 +3900,7 @@ async function runInitialTurn(customUtterance = null, meta = {}) {
   const effInitChem =
     effModality === "circrna" || effModality === "sarna" ? "unmodified_u" : effChem;
   const defaultProt = (state.presets?.egfp_reporter?.protein_sequence) || FALLBACK_EGFP;
+  const extraChains = getExtraProteinChains();
   const namesEgfp = /\b(?:egfp|gfp|p42212|u55762)\b/i.test(draftText);
   const namesOtherTarget = /\b(?:mcherry|cas9|luciferase|fluc|spike|insulin|epo|dll3|fgf21|her2)\b/i.test(draftText);
   const usePrefilledDefaultForDet = Boolean(
@@ -3654,19 +3909,48 @@ async function runInitialTurn(customUtterance = null, meta = {}) {
       !draftText ||
       state.userEditedProtein ||
       prot !== defaultProt ||
+      extraChains.length > 0 ||
       (namesEgfp && !namesOtherTarget)
   );
-  const shouldAttachSeq = Boolean(prot && (meta.fromForm || prot !== defaultProt || state.userEditedProtein));
+  const shouldAttachSeq = Boolean(
+    prot && (meta.fromForm || prot !== defaultProt || state.userEditedProtein || extraChains.length > 0)
+  );
   const formBlock = meta.fromForm
     ? `\n[表单参数：modality=${state.modality}, compliance_track=${prof}${prof === "commercial_clean" ? " (use_commercial_surrogate=true)" : ""}, uridine_chemistry=${chem}, entry_mode=${useR ? "protein_with_reference_r" : "protein_only"}, restriction_enzymes=${JSON.stringify(enz)}, detarget_liver=${detarget}, prioritize_late_signal=${late}]`
     : "";
-  const seqBlock = shouldAttachSeq ? `\n（目标蛋白序列：${prot}）` : "";
+  const seqBlock = shouldAttachSeq
+    ? extraChains.length
+      ? `\n（多链共表达目标蛋白序列：\nChain 1 (主链): ${prot}\n${extraChains
+          .map((s, idx) => `Chain ${idx + 2} (附加链): ${s}`)
+          .join("\n")}\n请将 Chain 1 作为 protein_sequence，其余链作为 additional_protein_sequences 传给 design_constructs。）`
+      : `\n（目标蛋白序列：${prot}）`
+    : "";
   const fullPrompt = `${utterance}${formBlock}${seqBlock}`;
 
   const reqPath = isAgent ? `/v1/projects/${reqProjectId}/agent-chat` : `/v1/projects/${reqProjectId}/turn`;
   const reqProvider = isAgent ? state.llmProvider : null;
   const reqModel = isAgent ? state.llmModel : null;
   const reqHeaders = isAgent ? {} : { "X-MRNAX-Idempotency-Key": clientRequestId };
+  const turnBodyObj = {
+    mode: "initial",
+    user_utterance: utterance,
+    protein_sequence: usePrefilledDefaultForDet ? prot || null : null,
+    uridine_chemistry: effInitChem,
+    compliance_track: effProf,
+    use_commercial_surrogate: effSurrogate,
+    restriction_enzymes: effEnz,
+    detarget_liver: effDetarget,
+    prioritize_late_signal: late,
+    conflicting_single_pick: conflict,
+    use_preset_reference_r: Boolean(
+      useR && effModality === "linear_mrna" && usePrefilledDefaultForDet && !namesOtherTarget && !extraChains.length
+    ),
+    modality: effModality,
+    scaffold_id: effScaffold,
+  };
+  if (usePrefilledDefaultForDet && extraChains.length) {
+    turnBodyObj.additional_protein_sequences = extraChains;
+  }
   const bodyObj = isAgent
     ? {
         message: fullPrompt,
@@ -3674,23 +3958,7 @@ async function runInitialTurn(customUtterance = null, meta = {}) {
         model: reqModel,
         client_request_id: clientRequestId,
       }
-    : {
-        mode: "initial",
-        user_utterance: utterance,
-        protein_sequence: usePrefilledDefaultForDet ? prot || null : null,
-        uridine_chemistry: effInitChem,
-        compliance_track: effProf,
-        use_commercial_surrogate: effSurrogate,
-        restriction_enzymes: effEnz,
-        detarget_liver: effDetarget,
-        prioritize_late_signal: late,
-        conflicting_single_pick: conflict,
-        use_preset_reference_r: Boolean(
-          useR && effModality === "linear_mrna" && usePrefilledDefaultForDet && !namesOtherTarget
-        ),
-        modality: effModality,
-        scaffold_id: effScaffold,
-      };
+    : turnBodyObj;
   const replayRequest = {
     path: reqPath,
     method: "POST",
@@ -4273,7 +4541,152 @@ function renderLiteratureResults(lit, box) {
 /* ============================================================================
    TAB 3: Data Hub, OOD Scorecard, Modality/miRNA Atlas & Target Resolver
    ============================================================================ */
+const ENGINE_TITLE_MAP = {
+  stage0_random_and_bicodon_proposer: "Stage-0 同义基线",
+  dnachisel_cds: "DNA Chisel 约束编译",
+  pareto_nsga2: "Pareto NSGA-II 协同优化",
+  codontransformer_cds_baseline: "CodonTransformer (RC-005)",
+  codontransformer: "CodonTransformer (RC-005)",
+  surrogate_v1_clean: "Surrogate v1 (商用洁净代理)",
+  surrogate_v2: "Surrogate v2 (商用洁净代理)",
+  structrfm_rna_foundation: "StructRFM RNA 结构表征基座",
+  eternafold_v1_3_1: "EternaFold v1.3.1",
+  eternafold: "EternaFold v1.3.1",
+  viennarna_thermo: "ViennaRNA 2.8",
+  viennarna: "ViennaRNA 2.8",
+  lineardesign_academic: "LinearDesign 动态规划内核",
+  lineardesign: "LinearDesign C++ 内核",
+};
+
+const ENGINE_ROLE_MAP = {
+  cds_generator: "同义密码子序列生成器",
+  joint_construct_optimizer: "多目标帕累托联合优化器",
+  cds_generator_and_scorer: "序列生成与自然度评分",
+  evaluator: "纯序列多头代理评分器",
+  structure_evaluator: "热力学与配分函数结构评估",
+  structure_evaluator_research_only: "科研热力学折叠评估（限非商用）",
+  cds_generator_research_benchmark: "科研基准动态规划生成器",
+  blocked_or_research_reference: "隔离对比基准池",
+};
+
+const LICENSE_TRACK_LABELS = {
+  commercial_clean: "商用洁净",
+  research_max: "科研基准轨",
+  commercial_clearance_pending: "待商用放行",
+  needs_vendor_license: "需厂商授权",
+  quarantine_reference: "隔离参考",
+  research_only: "仅限科研",
+};
+
+const COLAB_ASSET_META = {
+  lineardesign_linux_x86_64: { title: "LinearDesign (Linux x86_64)", source: "Google Drive · SHA-256 钉扎校验" },
+  eternafold_v131_linux_x86_64: { title: "EternaFold v1.3.1 (Linux x86_64)", source: "Google Drive · SHA-256 钉扎校验" },
+  surrogate_v2_folder: { title: "Surrogate v2 代理模型目录", source: "Google Drive · 商用洁净目录" },
+  codontransformer_rc005: { title: "CodonTransformer (RC-005)", source: "HuggingFace / Drive 镜像" },
+};
+
+function renderComputeTierCards(statusObj = state.systemStatus) {
+  const grid = document.getElementById("dh-compute-tier-grid");
+  const badge = document.getElementById("dh-compute-tier-badge");
+  const st = statusObj && typeof statusObj === "object" ? statusObj : null;
+  const ct = st && st.compute_tier && typeof st.compute_tier === "object" ? st.compute_tier : null;
+
+  if (badge) {
+    if (ct) {
+      badge.textContent = ct.vps_heavy_binaries_disabled_by_policy !== false
+        ? "控制面在线 · 重算按需调度"
+        : "双层算力拓扑已同步";
+      badge.className = "badge mono ok";
+    } else if (state.gatewayOnline && st) {
+      badge.textContent = `${st.hostname || "网关"} · 标准轻量架构`;
+      badge.className = "badge mono teal";
+    } else {
+      badge.textContent = "离线参考拓扑";
+      badge.className = "badge mono";
+    }
+  }
+  if (!grid) return;
+
+  const heavyDisabled = ct ? ct.vps_heavy_binaries_disabled_by_policy !== false : true;
+  const keepaliveCount =
+    ct && Array.isArray(ct.lease_keepalive_endpoints) && ct.lease_keepalive_endpoints.length
+      ? ct.lease_keepalive_endpoints.length
+      : 3;
+  const hostText = (st && st.hostname) || "Vultr 7×24 节点";
+  const colabBridgeText = st && st.colab_bridge_present ? "Colab CLI 桥接就绪" : "按需脚本触发 (0 闲置 VM)";
+  const driveBridgeText = st && st.drive_bridge_present ? "Drive 产物回传就绪" : "Drive 校验与 CAS 落盘";
+
+  const rawAssets =
+    ct && ct.colab_drive_sota_assets && typeof ct.colab_drive_sota_assets === "object"
+      ? ct.colab_drive_sota_assets
+      : {
+          lineardesign_linux_x86_64: { license_track: "research_max", sha256: "pinned" },
+          eternafold_v131_linux_x86_64: { license_track: "commercial_clearance_pending", sha256: "pinned" },
+          surrogate_v2_folder: { license_track: "commercial_clean" },
+          codontransformer_rc005: { license_track: "commercial_clean" },
+        };
+
+  const assetCardsHtml = Object.entries(rawAssets)
+    .map(([key, info]) => {
+      const meta = COLAB_ASSET_META[key] || {
+        title: key.replace(/_/g, " "),
+        source: "Colab / Drive 资产",
+      };
+      const trk = (info && info.license_track) || "research_max";
+      const trkCls = trk === "commercial_clean" ? "ok" : trk === "research_max" ? "teal" : "";
+      const trkLabel = LICENSE_TRACK_LABELS[trk] || "待核验";
+      const shaHint = info && info.sha256 ? " · 摘要钉扎" : "";
+      return `
+        <div class="tier-asset-item">
+          <div class="tier-asset-top">
+            <span>${escapeHtml(meta.title)}</span>
+            <span class="badge mono ${trkCls}">${escapeHtml(trkLabel)}</span>
+          </div>
+          <div class="tier-asset-sub mono">${escapeHtml(meta.source)}${escapeHtml(shaHint)}</div>
+        </div>
+      `;
+    })
+    .join("");
+
+  grid.innerHTML = `
+    <div class="compute-tier-grid">
+      <article class="tier-card">
+        <div class="tier-card-head">
+          <span class="tier-card-title">Vultr 7×24 轻量控制面与保活中转</span>
+          <span class="badge mono ${heavyDisabled ? "teal" : ""}">
+            ${heavyDisabled ? "物理禁用重型二进制" : "轻量中转模式"}
+          </span>
+        </div>
+        <div class="tier-card-desc">
+          常驻运行代理模型评分、确定性状态机、CAS 任务租约续期保活（防长时任务失联）与多模型 Copilot；物理禁用重型 C++/GPU 二进制。
+        </div>
+        <div class="tier-meta-row mono">
+          <span class="kpi-pill">节点 <strong>${escapeHtml(hostText)}</strong></span>
+          <span class="kpi-pill">CAS 租约保活 <strong>${escapeHtml(keepaliveCount)} 类端点</strong></span>
+          <span class="kpi-pill">重型二进制 <strong>${heavyDisabled ? "策略禁用" : "隔离"}</strong></span>
+        </div>
+      </article>
+
+      <article class="tier-card tier-pool">
+        <div class="tier-card-head">
+          <span class="tier-card-title">Colab + Drive 重算引擎池</span>
+          <span class="badge mono ok">跑完即毁 · 0 闲置 VM</span>
+        </div>
+        <div class="tier-card-desc">
+          按需拉起执行 LinearDesign、EternaFold v1.3.1（待商用放行）与 CodonTransformer / GPU 折叠任务，结果写回 Google Drive 与 Vultr CAS 回执，跑完自动销毁（0 闲置 VM）。
+        </div>
+        <div class="tier-meta-row mono">
+          <span class="kpi-pill">调度 <strong>${escapeHtml(colabBridgeText)}</strong></span>
+          <span class="kpi-pill">回传 <strong>${escapeHtml(driveBridgeText)}</strong></span>
+        </div>
+        <div class="tier-asset-list">${assetCardsHtml}</div>
+      </article>
+    </div>
+  `;
+}
+
 function renderDataHub(hub) {
+  renderComputeTierCards(state.systemStatus);
   const sumEl = document.getElementById("dh-summary-strip");
   const sc = (hub && hub.summary_counts) || FALLBACK_DATA_HUB.summary_counts;
   if (sumEl) {
@@ -4297,15 +4710,22 @@ function renderDataHub(hub) {
         ${engines
           .slice(0, 6)
           .map((e) => {
+            const rawId = String(e.engine_id || e.id || "").trim();
+            const title = ENGINE_TITLE_MAP[rawId] || e.display_name || e.name || rawId || "序列工程内核";
+            const rawRole = String(e.role || e.primary_purpose || "").trim();
+            const roleText =
+              ENGINE_ROLE_MAP[rawRole] ||
+              (rawRole && !/^[a-z0-9_]+$/.test(rawRole) ? rawRole : e.description || "已编译就绪");
             const trk = e.license_track || (e.license && e.license.license_track) || "commercial_clean";
-            const cls = trk === "commercial_clean" ? "ok" : trk === "research_max" ? "teal" : "warn";
+            const trkLabel = LICENSE_TRACK_LABELS[trk] || "受控轨道";
+            const cls = trk === "commercial_clean" ? "ok" : trk === "research_max" ? "teal" : "";
             return `
               <div class="mini-card">
                 <div class="mini-card-head">
-                  <strong style="font-size:12.5px;">${escapeHtml(e.name || e.engine_id || e.id)}</strong>
-                  <span class="badge mono ${cls}">${escapeHtml(trk)}</span>
+                  <strong style="font-size:12.5px;">${escapeHtml(title)}</strong>
+                  <span class="badge mono ${cls}">${escapeHtml(trkLabel)}</span>
                 </div>
-                <div class="meta-muted" style="font-size:11.5px;">${escapeHtml(e.role || e.primary_purpose || e.description || "已编译就绪")}</div>
+                <div class="meta-muted" style="font-size:11.5px;">${escapeHtml(roleText)}</div>
               </div>
             `;
           })
@@ -4595,6 +5015,7 @@ async function resolveTargetProteinInHub(customQuery = null) {
       const protField = document.getElementById("input-protein");
       if (protField) {
         protField.value = state.resolvedTarget.protein_sequence;
+        state.additionalProteinSequences = [];
         state.userEditedProtein = true;
         updateProteinBadge();
       }
@@ -5106,6 +5527,7 @@ function resetProjectWorkspaceState({ silent = false } = {}) {
   state.activeVersion = 0;
   state.activeIntentStatus = "";
   state.activeEnzymes = null;
+  state.additionalProteinSequences = [];
   state.userEditedProtein = false;
   state.appliedTurnSequence = 0;
   state.paretoAxisPairKey = "";
@@ -5254,6 +5676,7 @@ function saveSettingsFromModal() {
   syncCurrentOriginCredentialsToMap(newOrigin);
 
   if (originChanged) {
+    state.systemStatus = null;
     state.rulesCache = null;
     state.dataHubCache = null;
     state.structureCache = {};
@@ -5467,9 +5890,23 @@ function wireEvents() {
   document.getElementById("cfg-api-base")?.addEventListener("input", onModalApiBaseInput);
   document.getElementById("cfg-api-base")?.addEventListener("change", onModalApiBaseInput);
 
-  document.getElementById("input-protein")?.addEventListener("input", () => {
+  document.getElementById("input-protein")?.addEventListener("input", (e) => {
     state.userEditedProtein = true;
+    if (!e?.detail?.keepAdditionalChains) {
+      const rawVal = String(e?.target?.value ?? document.getElementById("input-protein")?.value ?? "");
+      const fastaMatches = rawVal.match(/^\s*>/gm);
+      if (!fastaMatches || fastaMatches.length < 2) {
+        state.additionalProteinSequences = [];
+      }
+    }
     updateProteinBadge();
+  });
+  document.getElementById("sel-scaffold")?.addEventListener("change", (e) => {
+    const val = String(e.target.value || "");
+    if (val.startsWith("circ_")) setModality("circrna");
+    else if (val.startsWith("sarna_")) setModality("sarna");
+    else if (val.startsWith("cap1_")) setModality("linear_mrna");
+    else updateSetupSummary();
   });
   document.getElementById("sel-chemistry")?.addEventListener("change", updateSetupSummary);
   document.getElementById("sel-profile")?.addEventListener("change", (e) => {
@@ -5525,6 +5962,7 @@ function wireEvents() {
     const seq = (state.presets?.egfp_reporter?.protein_sequence) || FALLBACK_EGFP;
     const protEl = document.getElementById("input-protein");
     if (protEl) protEl.value = seq;
+    state.additionalProteinSequences = [];
     setSelectedEnzymes(["BsaI"]);
     updateProteinBadge();
   });
@@ -5535,6 +5973,7 @@ function wireEvents() {
     const seq = (state.presets?.egfp_reporter?.protein_sequence) || FALLBACK_EGFP;
     const protEl = document.getElementById("input-protein");
     if (protEl) protEl.value = seq.slice(1);
+    state.additionalProteinSequences = [];
     updateProteinBadge();
     setExecMode("deterministic");
     runInitialTurn("测试缺起始 M 蛋白护栏拦截", { bypassReadOnlyClassifier: true });
@@ -5546,6 +5985,7 @@ function wireEvents() {
     const seq = (state.presets?.egfp_reporter?.protein_sequence) || FALLBACK_EGFP;
     const protEl = document.getElementById("input-protein");
     if (protEl) protEl.value = seq;
+    state.additionalProteinSequences = [];
     updateProteinBadge();
     setExecMode("deterministic");
     state.forceConflictOnce = true;
@@ -5559,10 +5999,13 @@ function wireEvents() {
     setModality("linear_mrna");
     setEntryMode("protein_only");
     document.getElementById("input-protein").value = seq;
+    state.additionalProteinSequences = [];
     state.userEditedProtein = false;
     syncTrackButtons("research_max");
     document.getElementById("sel-chemistry").value = "m1psi";
     document.getElementById("chk-detarget-liver").checked = true;
+    const detTissue = document.getElementById("sel-detarget-tissue");
+    if (detTissue) detTissue.value = "liver_mir122";
     document.getElementById("chk-late-signal").checked = false;
     setSelectedEnzymes(["BsaI"]);
     updateProteinBadge();
@@ -5577,10 +6020,13 @@ function wireEvents() {
     setModality("linear_mrna");
     setEntryMode("protein_only");
     document.getElementById("input-protein").value = FALLBACK_HEPO;
+    state.additionalProteinSequences = [];
     state.userEditedProtein = true;
     syncTrackButtons("commercial_clean");
     document.getElementById("sel-chemistry").value = "m1psi";
     document.getElementById("chk-detarget-liver").checked = false;
+    const detTissue = document.getElementById("sel-detarget-tissue");
+    if (detTissue) detTissue.value = "none";
     document.getElementById("chk-late-signal").checked = true;
     setSelectedEnzymes(["BspQI"]);
     updateProteinBadge();
@@ -5592,17 +6038,27 @@ function wireEvents() {
 
   document.getElementById("starter-dll3")?.addEventListener("click", () => {
     if (state.inFlight) return;
+    const dll3 = state.presets?.dll3_cd3_bispecific || FALLBACK_DLL3_CD3;
+    const primarySeq =
+      dll3.primary_protein_sequence || dll3.protein_sequence || FALLBACK_DLL3_CD3.primary_protein_sequence;
+    const extraSeqs = Array.isArray(dll3.additional_protein_sequences)
+      ? dll3.additional_protein_sequences.map((s) => String(s || "").trim()).filter(Boolean)
+      : [...FALLBACK_DLL3_CD3.additional_protein_sequences];
     setModality("linear_mrna");
     setEntryMode("protein_only");
-    document.getElementById("input-protein").value = FALLBACK_HEPO;
+    document.getElementById("input-protein").value = primarySeq;
+    state.additionalProteinSequences = extraSeqs;
     state.userEditedProtein = true;
     syncTrackButtons("commercial_clean");
     document.getElementById("sel-chemistry").value = "m1psi";
     document.getElementById("chk-detarget-liver").checked = true;
+    const detTissue = document.getElementById("sel-detarget-tissue");
+    if (detTissue) detTissue.value = "liver_mir122";
     document.getElementById("chk-late-signal").checked = true;
     setSelectedEnzymes(["BsaI", "BspQI"]);
     updateProteinBadge();
-    const prompt = "设计 DLL3×CD3 T 细胞衔接器 mRNA 构建（m1Psi 修饰，3′UTR 串联 hsa-miR-122 肝脏去靶向盒，避开 BsaI/BspQI，commercial_clean 洁净轨）。";
+    const prompt =
+      "设计 DLL3×CD3 双链双抗 mRNA 共表达构建（合成非专利 Igκ VH + VL 双链骨架，m1Psi 修饰，3′UTR 串联 hsa-miR-122 肝脏去靶向盒，避开 BsaI/BspQI，commercial_clean 洁净轨）。";
     const mainInput = document.getElementById("input-utterance");
     mainInput.value = prompt;
     runInitialTurn(prompt, { sourceEl: mainInput, fromForm: true });
@@ -5612,16 +6068,21 @@ function wireEvents() {
     if (state.inFlight) return;
     const seq = (state.presets?.egfp_reporter?.protein_sequence) || FALLBACK_EGFP;
     setModality("circrna");
+    const scafEl = document.getElementById("sel-scaffold");
+    if (scafEl) scafEl.value = "circ_t4td_hrvb3";
     setEntryMode("protein_only");
     document.getElementById("input-protein").value = seq;
+    state.additionalProteinSequences = [];
     state.userEditedProtein = false;
     syncTrackButtons("research_max");
     document.getElementById("sel-chemistry").value = "unmodified_u";
     document.getElementById("chk-detarget-liver").checked = false;
+    const detTissue = document.getElementById("sel-detarget-tissue");
+    if (detTissue) detTissue.value = "none";
     document.getElementById("chk-late-signal").checked = true;
     setSelectedEnzymes(["BspQI"]);
     updateProteinBadge();
-    const prompt = "采用 Anabaena PIE 环化骨架与 HRV-B3 IRES 设计环状 circRNA 构建（未修饰 U，保护 IRES 二级结构折叠，避开 BspQI）。";
+    const prompt = "采用 T4 td PIE 环化骨架（IVT 就绪）与 HRV-B3 IRES 设计环状 circRNA 构建（未修饰 U，保护 IRES 二级结构折叠，避开 BspQI）。";
     const mainInput = document.getElementById("input-utterance");
     mainInput.value = prompt;
     runInitialTurn(prompt, { sourceEl: mainInput, fromForm: true });
@@ -5631,12 +6092,17 @@ function wireEvents() {
     if (state.inFlight) return;
     const seq = (state.presets?.egfp_reporter?.protein_sequence) || FALLBACK_EGFP;
     setModality("sarna");
+    const scafEl = document.getElementById("sel-scaffold");
+    if (scafEl) scafEl.value = "sarna_veev_tc83";
     setEntryMode("protein_only");
     document.getElementById("input-protein").value = seq;
+    state.additionalProteinSequences = [];
     state.userEditedProtein = false;
     syncTrackButtons("research_max");
     document.getElementById("sel-chemistry").value = "unmodified_u";
     document.getElementById("chk-detarget-liver").checked = false;
+    const detTissue = document.getElementById("sel-detarget-tissue");
+    if (detTissue) detTissue.value = "none";
     document.getElementById("chk-late-signal").checked = true;
     setSelectedEnzymes(["BspQI"]);
     updateProteinBadge();
@@ -5652,10 +6118,13 @@ function wireEvents() {
     setModality("linear_mrna");
     setEntryMode("with_r");
     document.getElementById("input-protein").value = seq;
+    state.additionalProteinSequences = [];
     state.userEditedProtein = false;
     syncTrackButtons("research_max");
     document.getElementById("sel-chemistry").value = "m1psi";
     document.getElementById("chk-detarget-liver").checked = false;
+    const detTissue = document.getElementById("sel-detarget-tissue");
+    if (detTissue) detTissue.value = "none";
     document.getElementById("chk-late-signal").checked = true;
     setSelectedEnzymes(["BsaI"]);
     updateProteinBadge();
@@ -5673,9 +6142,12 @@ function wireEvents() {
       const seq = (state.presets?.egfp_reporter?.protein_sequence) || FALLBACK_EGFP;
       setEntryMode("protein_only");
       document.getElementById("input-protein").value = seq;
+      state.additionalProteinSequences = [];
       state.userEditedProtein = false;
       document.getElementById("sel-chemistry").value = "m1psi";
       document.getElementById("chk-detarget-liver").checked = false;
+      const detTissue = document.getElementById("sel-detarget-tissue");
+      if (detTissue) detTissue.value = "none";
       document.getElementById("chk-late-signal").checked = false;
       setSelectedEnzymes(["BsaI"]);
       updateProteinBadge();
@@ -5713,10 +6185,13 @@ function wireEvents() {
       const seq = (state.presets?.egfp_reporter?.protein_sequence) || FALLBACK_EGFP;
       setEntryMode("protein_only");
       document.getElementById("input-protein").value = seq;
+      state.additionalProteinSequences = [];
       state.userEditedProtein = false;
       syncTrackButtons("research_max");
       document.getElementById("sel-chemistry").value = "m1psi";
       document.getElementById("chk-detarget-liver").checked = false;
+      const detTissue = document.getElementById("sel-detarget-tissue");
+      if (detTissue) detTissue.value = "none";
       document.getElementById("chk-late-signal").checked = false;
       setSelectedEnzymes(["BsaI"]);
       updateProteinBadge();

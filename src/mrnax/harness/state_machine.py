@@ -19,7 +19,7 @@ from functools import wraps
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, ValidationError, field_validator, model_validator
 
 from mrnax.constraints.frameshift_m1psi import remediate_m1psi_slippery_runs
 from mrnax.constraints.fto_guard import COMMERCIAL_ZERO_GPL_REQUIREMENT
@@ -99,6 +99,43 @@ def _parse_json_schema_seed(v: Any) -> int:
     return parse_bounded_json_int(v, field_name="random_seed", min_val=0, max_val=2_147_483_647)
 
 
+_STANDARD_AA_OPT_STOP_RE = re.compile(r"^[ACDEFGHIKLMNPQRSTVWY]+[*]?$")
+
+
+def _normalize_additional_protein_sequences(
+    seqs: list[str] | None,
+    *,
+    require_primary: str | None = None,
+    check_primary: bool = False,
+) -> list[str] | None:
+    """Validate and normalize 1..3 additional protein chains (canonical AA, 10..5000 residues)."""
+    if seqs is None:
+        return None
+    if check_primary and not (require_primary or "").strip():
+        raise ValueError("additional_protein_sequences requires primary protein_sequence to be supplied.")
+    if not isinstance(seqs, list) or len(seqs) < 1 or len(seqs) > 3:
+        raise ValueError(
+            "additional_protein_sequences must be a non-empty list of 1 to 3 sequences (max 4 total chains)."
+        )
+    normalized: list[str] = []
+    for idx, raw in enumerate(seqs, start=2):
+        if not isinstance(raw, str):
+            raise ValueError(f"Additional chain #{idx} must be a string.")
+        cleaned = raw.strip().upper()
+        if not cleaned or not _STANDARD_AA_OPT_STOP_RE.fullmatch(cleaned):
+            raise ValueError(
+                f"Additional chain #{idx} must contain only canonical 20 standard amino acids (optional trailing '*')."
+            )
+        if cleaned.endswith("*"):
+            cleaned = cleaned[:-1]
+        if len(cleaned) < 10 or len(cleaned) > 5000:
+            raise ValueError(
+                f"Additional chain #{idx} length ({len(cleaned)} AA) must be within [10, 5000]."
+            )
+        normalized.append(cleaned)
+    return normalized
+
+
 class InitialTurnInput(BaseModel):
     """Strict initial-turn wire contract shared 1:1 between HTTP `mode='initial'` and MCP `design_constructs`."""
 
@@ -106,6 +143,7 @@ class InitialTurnInput(BaseModel):
 
     user_utterance: StrictStr = Field(min_length=1, max_length=4000)
     protein_sequence: StrictStr | None = None
+    additional_protein_sequences: list[StrictStr] | None = None
     accession_or_source: StrictStr = "GenBank:U55762.1"
     entry_version: StrictStr | None = None
     compliance_track: ComplianceProfile | None = None
@@ -126,6 +164,17 @@ class InitialTurnInput(BaseModel):
     @classmethod
     def _validate_seed_before(cls, v: Any) -> int:
         return _parse_json_schema_seed(v)
+
+    @field_validator("additional_protein_sequences")
+    @classmethod
+    def _validate_additional_chains(cls, v: list[str] | None) -> list[str] | None:
+        return _normalize_additional_protein_sequences(v, check_primary=False)
+
+    @model_validator(mode="after")
+    def _require_primary_for_additional_chains(self) -> InitialTurnInput:
+        if self.additional_protein_sequences is not None and not (self.protein_sequence or "").strip():
+            raise ValueError("additional_protein_sequences requires primary protein_sequence to be supplied.")
+        return self
 
 
 class RefineTurnInput(BaseModel):
@@ -931,6 +980,7 @@ class ProjectHarnessSession:
         turn_id: str,
         user_utterance: str,
         protein_sequence: str,
+        additional_protein_sequences: list[str] | None = None,
         accession_or_source: str = "user_supplied",
         entry_version: str | None = None,
         is_secreted_without_sp: bool = False,
@@ -976,6 +1026,23 @@ class ProjectHarnessSession:
             else None
         )
         prot_clean = protein_sequence.strip().upper()
+        norm_additional = _normalize_additional_protein_sequences(
+            additional_protein_sequences,
+            require_primary=prot_clean,
+            check_primary=True,
+        )
+        if norm_additional is not None:
+            if eff_modality != "linear_mrna":
+                raise ValueError(
+                    f"Multi-chain additional_protein_sequences is only supported for 'linear_mrna' modality, got '{eff_modality}'."
+                )
+            if reference_bundle is not None and len(reference_bundle.molecules) != 1 + len(norm_additional):
+                raise ValueError(
+                    f"additional_protein_sequences chain count ({1 + len(norm_additional)}) does not match "
+                    f"reference_bundle molecules ({len(reference_bundle.molecules)})."
+                )
+            if prot_clean.endswith("*"):
+                prot_clean = prot_clean[:-1]
         chem: UridineChemistry = (
             "unmodified_u"
             if eff_modality in ("circrna", "sarna")
@@ -1002,7 +1069,27 @@ class ProjectHarnessSession:
             )
 
         ref_id = reference_bundle.bundle_id if reference_bundle else None
-        if reference_bundle is not None and len(reference_bundle.molecules) > 1:
+        if norm_additional is not None:
+            targets_init = [
+                ProteinTargetSpec(
+                    protein_sequence=prot_clean,
+                    transl_table=1,
+                    accession_or_source=accession_or_source,
+                    entry_version=entry_version,
+                    confirmation_status=prot_status,  # type: ignore[arg-type]
+                ),
+                *[
+                    ProteinTargetSpec(
+                        protein_sequence=extra_aa,
+                        transl_table=1,
+                        accession_or_source=f"{accession_or_source}:chain_{idx}",
+                        confirmation_status="confirmed",
+                    )
+                    for idx, extra_aa in enumerate(norm_additional, start=2)
+                ],
+            ]
+            prot_lock_val = "|".join(t.protein_sequence for t in targets_init)
+        elif reference_bundle is not None and len(reference_bundle.molecules) > 1:
             targets_init = [
                 ProteinTargetSpec(
                     protein_sequence=(
@@ -1179,6 +1266,7 @@ class ProjectHarnessSession:
         *,
         user_utterance: str,
         protein_sequence: str | None = None,
+        additional_protein_sequences: list[str] | None = None,
         accession_or_source: str = "GenBank:U55762.1",
         entry_version: str | None = None,
         compliance_track: ComplianceProfile | None = None,
@@ -1202,6 +1290,7 @@ class ProjectHarnessSession:
             {
                 "user_utterance": user_utterance,
                 "protein_sequence": protein_sequence,
+                "additional_protein_sequences": additional_protein_sequences,
                 "accession_or_source": accession_or_source,
                 "entry_version": entry_version,
                 "compliance_track": compliance_track,
@@ -1294,6 +1383,7 @@ class ProjectHarnessSession:
             turn_id=turn_id or f"turn_{len(self._intents) + 1:02d}",
             user_utterance=user_utterance,
             protein_sequence=prot_seq,
+            additional_protein_sequences=validated.additional_protein_sequences,
             accession_or_source=accession_or_source,
             entry_version=effective_entry_version,
             reference_bundle=ref_bundle,

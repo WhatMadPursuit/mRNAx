@@ -1236,3 +1236,263 @@ test("Gate B C1/C2/I6/I7: fail-closed authorized exports, track-safe structure c
   assert.equal(run("state.resolvedTarget.gene_symbol"), "EPO");
   assert.doesNotMatch(document.getElementById("dh-target-result").innerHTML, /id="btn-import-resolved-protein" disabled/);
 });
+
+test("v2.5.2 WebUI upgrades: dual-chain DLL3, circRNA T4 td default, unified optgroup model selector, calm auth pill, and clean Pareto/candidate labels", async () => {
+  const fields = new Map();
+  const makeNode = (tag) => ({
+    tagName: String(tag || "DIV").toUpperCase(),
+    value: "",
+    label: "",
+    textContent: "",
+    innerHTML: "",
+    className: "",
+    hidden: false,
+    open: false,
+    checked: false,
+    disabled: false,
+    dataset: {},
+    style: {},
+    children: [],
+    options: [],
+    listeners: {},
+    classList: {
+      _set: new Set(),
+      toggle(cls, force) {
+        if (force === undefined) {
+          if (this._set.has(cls)) this._set.delete(cls);
+          else this._set.add(cls);
+        } else if (force) this._set.add(cls);
+        else this._set.delete(cls);
+      },
+      add(cls) { this._set.add(cls); },
+      remove(cls) { this._set.delete(cls); },
+      contains(cls) { return this._set.has(cls); },
+    },
+    setAttribute(k, v) { this[k] = v; },
+    getAttribute(k) { return this[k]; },
+    addEventListener(ev, fn) { this.listeners[ev] = fn; },
+    querySelector() { return null; },
+    querySelectorAll() { return []; },
+    remove() {},
+    insertBefore(child, _ref) {
+      this.children.push(child);
+    },
+    replaceChildren() {
+      this.children = [];
+      if (this.tagName === "SELECT") this.options = [];
+    },
+    appendChild(child) {
+      this.children.push(child);
+      if (this.tagName === "SELECT") {
+        if (child.tagName === "OPTGROUP") {
+          for (const opt of child.children || []) this.options.push(opt);
+        } else {
+          this.options.push(child);
+        }
+      }
+    },
+    focus() {},
+    close() { this.open = false; },
+  });
+
+  for (const id of ["sel-llm-model", "cfg-llm-model", "cfg-llm-provider", "sel-scaffold", "inspect-chain", "sel-chemistry", "sel-profile"]) {
+    fields.set(id, makeNode("select"));
+  }
+  fields.get("cfg-llm-provider").options = ["deepseek", "openai", "kimi", "qwen", "gemini"].map((value) => ({ value }));
+
+  const requests = [];
+  const fetchMock = async (url, init = {}) => {
+    requests.push({ url: String(url), body: init.body ? JSON.parse(init.body) : null });
+    return response(200, {
+      status: "COMPLETED",
+      intent: {
+        intent_id: "i_dll3_1",
+        intent_version: 1,
+        status: "ready",
+        compliance_track: "commercial_clean",
+        uridine_chemistry: "m1psi",
+        locked_scopes: {},
+      },
+      report: { outcome_status: "COMPLETED_WITH_CANDIDATES", recommended_bundle_ids: ["bnd_pareto_06"] },
+      candidates: [],
+    });
+  };
+
+  const document = {
+    addEventListener() {},
+    documentElement: { dataset: {} },
+    querySelectorAll() { return []; },
+    createElement(tag) { return makeNode(tag); },
+    getElementById(id) {
+      if (!fields.has(id)) fields.set(id, makeNode("div"));
+      return fields.get(id);
+    },
+  };
+  const context = vm.createContext({
+    window: { location: new URL("http://localhost"), crypto: require("node:crypto").webcrypto },
+    document,
+    URL,
+    fetch: fetchMock,
+  });
+  vm.runInContext(source, context);
+  const run = (code) => vm.runInContext(code, context);
+
+  // 1. Unified optgroup model selector & calm auth pill
+  run("wireEvents(); initConfig();");
+  const authPill = document.getElementById("pill-agent-auth");
+  assert.equal(authPill.textContent, "Agent: 配置密钥");
+  assert.match(authPill.className, /\bmuted\b/);
+  assert.doesNotMatch(authPill.className, /\bwarn\b/);
+
+  const heroSel = document.getElementById("sel-llm-model");
+  assert.equal(heroSel.children.length, 5);
+  assert.deepEqual(heroSel.children.map((g) => g.label), ["DeepSeek", "OpenAI", "Kimi", "Qwen", "Gemini"]);
+  assert.equal(heroSel.value, "deepseek::deepseek-flash");
+
+  run('state.byoKeys.openai = "sk-openai-123";');
+  heroSel.value = "openai::gpt-5.4";
+  heroSel.listeners.change({ target: heroSel });
+  assert.equal(run("state.llmProvider"), "openai");
+  assert.equal(run("state.llmModel"), "gpt-5.4");
+  assert.equal(document.getElementById("cfg-llm-provider").value, "openai");
+  assert.equal(document.getElementById("cfg-llm-model").value, "gpt-5.4");
+  assert.equal(document.getElementById("rail-model-pill").textContent, "openai:gpt-5.4");
+  assert.equal(authPill.textContent, "Agent: BYO gpt-5.4 ✓");
+  assert.match(authPill.className, /\bok\b/);
+
+  // 2. circRNA default & NL scaffold parser
+  run('setModality("circrna")');
+  assert.equal(document.getElementById("sel-scaffold").value, "circ_t4td_hrvb3");
+  assert.equal(JSON.parse(run('JSON.stringify(parseDeterministicRefineFallback("Switch to circRNA"))')).scaffold_id, "circ_t4td_hrvb3");
+  assert.equal(JSON.parse(run('JSON.stringify(parseDeterministicRefineFallback("Use T4 td PIE with CVB3"))')).scaffold_id, "circ_t4td_cvb3");
+  assert.equal(JSON.parse(run('JSON.stringify(parseDeterministicRefineFallback("Switch to Anabaena HRV-B3"))')).scaffold_id, "circ_anabaena_hrvb3");
+  assert.equal(JSON.parse(run('JSON.stringify(parseDeterministicRefineFallback("Switch to Anabaena CVB3"))')).scaffold_id, "circ_anabaena_cvb3");
+  assert.equal(JSON.parse(run('JSON.stringify(parseDeterministicRefineFallback("Use SINV saRNA"))')).scaffold_id, "sarna_sinv");
+
+  // 3. Real dual-chain starter-dll3, payload forwarding, agent prompt, chain picker, and resets
+  document.getElementById("sel-exec-mode").value = "deterministic";
+  document.getElementById("starter-dll3").listeners.click();
+  await new Promise((r) => setTimeout(r, 10));
+  const vhExpected = run("FALLBACK_DLL3_CD3.primary_protein_sequence");
+  const vlExpected = run("FALLBACK_DLL3_CD3.additional_protein_sequences[0]");
+  assert.equal(document.getElementById("input-protein").value, vhExpected);
+  assert.equal(document.getElementById("badge-aa-len").textContent, `2 chains · ${vhExpected.length} + ${vlExpected.length} aa`);
+  assert.ok(document.getElementById("setup-collapsed-summary").textContent.includes(`2 chains · ${vhExpected.length} + ${vlExpected.length} aa`));
+  const dll3Turn = requests.find((r) => r.url.endsWith("/turn"));
+  assert.equal(dll3Turn.body.protein_sequence, vhExpected);
+  assert.deepEqual(dll3Turn.body.additional_protein_sequences, [vlExpected]);
+
+  // llm_agent mode mentions both chains
+  document.getElementById("sel-exec-mode").value = "llm_agent";
+  await run('runInitialTurn("Design DLL3xCD3", { fromForm: true })');
+  const dll3Agent = requests.find((r) => r.url.endsWith("/agent-chat"));
+  assert.ok(dll3Agent.body.message.includes(vhExpected));
+  assert.ok(dll3Agent.body.message.includes(vlExpected));
+
+  // Chain picker switches between chain_01 and chain_02
+  run(`
+    state.candidates = [{
+      bundle_id: "bnd_pareto_06",
+      version_digest: "d".repeat(64),
+      pareto_rank: 1,
+      length_nt: 36,
+      full_gc_pct: 55,
+      full_sequence: "GGGAAAUCCGCCACCAUGGUGAGCAAGGGCGAGUAA",
+      molecules: [
+        {
+          molecule_id: "chain_01",
+          length_nt: 18,
+          full_gc_pct: 50,
+          full_sequence: "GCCACCAUGGUGAGCUAA",
+          segments: [{ segment_type: "cds", start: 6, end: 18, length_nt: 12, gc_pct: 50 }],
+        },
+        {
+          molecule_id: "chain_02",
+          length_nt: 18,
+          full_gc_pct: 61,
+          full_sequence: "GCCACCAUGGACAUCUAA",
+          segments: [{ segment_type: "cds", start: 6, end: 18, length_nt: 12, gc_pct: 61 }],
+        },
+      ],
+      metric_details: [
+        { metric_id: "kozak_unpaired_prob", value: 0.72, unit: "prob", direction: "maximize" },
+        { metric_id: "cds_mean_window_mfe", value: -34.2, unit: "kcal/mol", direction: "minimize" },
+      ],
+    }];
+    selectCandidate("bnd_pareto_06");
+  `);
+  assert.equal(document.getElementById("chain-picker").hidden, false);
+  assert.deepEqual(document.getElementById("inspect-chain").options.map((o) => o.textContent), ["chain_01", "chain_02"]);
+  assert.match(document.getElementById("txt-selected-bundle").textContent, / · chain_01 · /);
+  document.getElementById("inspect-chain").value = "1";
+  document.getElementById("inspect-chain").onchange();
+  assert.match(document.getElementById("txt-selected-bundle").textContent, / · chain_02 · /);
+  assert.match(document.getElementById("seg-inspector").textContent, /AUG GAC AUC UAA/);
+
+  // Manual single-chain edit resets additionalProteinSequences
+  document.getElementById("input-protein").value = "MCUSTOMSINGLECHAINSEQUENCE";
+  document.getElementById("input-protein").listeners.input({ target: document.getElementById("input-protein") });
+  assert.equal(run("JSON.stringify(state.additionalProteinSequences)"), "[]");
+
+  // 4. humanizeCandidateLabel strips eto_xx & renderParetoScatter emits compact #1 tags
+  assert.doesNotMatch(run('humanizeCandidateLabel({ bundle_id: "bnd_pareto_06", pareto_rank: 2 })'), /eto_06|bnd_/i);
+  assert.doesNotMatch(run('humanizeCandidateLabel({ bundle_id: "bnd_pareto_06", display_label: "Pareto #2 Candidate (eto_06)" })'), /eto_06/i);
+
+  run("renderParetoScatter()");
+  const scatterHtml = document.getElementById("pareto-svg-wrap").innerHTML;
+  assert.match(scatterHtml, /data-bundle-id="bnd_pareto_06"/);
+  assert.match(scatterHtml, />#1<\/text>/);
+  assert.doesNotMatch(scatterHtml, /Line…/);
+  assert.match(scatterHtml, /<title>.*0\.7200.*-34\.20<\/title>/);
+
+  // 5. Data Hub compute_tier cards (live status + omitted fallback) and human-readable engine titles
+  run(`
+    state.systemStatus = {
+      hostname: "vultr-relay-01",
+      colab_bridge_present: false,
+      drive_bridge_present: true,
+      compute_tier: {
+        gateway_role: "lightweight_relay_and_keepalive_control_plane",
+        heavy_compute_backend: "google_colab_and_drive",
+        vps_heavy_binaries_disabled_by_policy: true,
+        lease_keepalive_endpoints: ["/v1/executions", "/v1/executions/{execution_id}/leases", "/v1/executions/{execution_id}/attempts/{attempt_id}:commit"],
+        colab_drive_sota_assets: {
+          lineardesign_linux_x86_64: { drive_file_id: "1ZHp", sha256: "9498", license_track: "research_max" },
+          eternafold_v131_linux_x86_64: { drive_file_id: "1Aio", sha256: "84fe", license_track: "commercial_clearance_pending" },
+          surrogate_v2_folder: { drive_folder_id: "1rIE", license_track: "commercial_clean" },
+          codontransformer_rc005: { hf_repo: "adibvafa/CodonTransformer", license_track: "commercial_clean" }
+        }
+      }
+    };
+    renderDataHub({
+      summary_counts: { datasets_count: 34 },
+      engines_and_models: [
+        { engine_id: "stage0_random_and_bicodon_proposer", role: "cds_generator", license_track: "commercial_clean" },
+        { engine_id: "dnachisel_cds", role: "cds_generator", license_track: "commercial_clean" },
+        { engine_id: "pareto_nsga2", role: "joint_construct_optimizer", license_track: "commercial_clean" },
+        { engine_id: "codontransformer_cds_baseline", role: "cds_generator_and_scorer", license_track: "commercial_clean" },
+        { engine_id: "surrogate_v2", role: "evaluator", license_track: "commercial_clean" }
+      ],
+      datasets: []
+    });
+  `);
+  const ctHtml = document.getElementById("dh-compute-tier-grid").innerHTML;
+  assert.match(ctHtml, /Vultr 7×24 轻量控制面与保活中转/);
+  assert.match(ctHtml, /Colab \+ Drive 重算引擎池/);
+  assert.match(ctHtml, /vultr-relay-01/);
+  assert.doesNotMatch(ctHtml, /gateway_role|vps_heavy_binaries_disabled_by_policy|lineardesign_linux_x86_64/);
+  const engHtml = document.getElementById("dh-engines-grid").innerHTML;
+  assert.match(engHtml, /Stage-0 同义基线/);
+  assert.match(engHtml, /DNA Chisel 约束编译/);
+  assert.match(engHtml, /Pareto NSGA-II 协同优化/);
+  assert.match(engHtml, /CodonTransformer \(RC-005\)/);
+  assert.match(engHtml, /Surrogate v2 \(商用洁净代理\)/);
+  assert.doesNotMatch(engHtml, /stage0_random_and_bicodon_proposer|cds_generator/);
+
+  // Fallback when st.compute_tier is omitted
+  run("state.systemStatus = null; renderComputeTierCards(null);");
+  const fallbackCtHtml = document.getElementById("dh-compute-tier-grid").innerHTML;
+  assert.match(fallbackCtHtml, /Vultr 7×24 轻量控制面与保活中转/);
+  assert.match(fallbackCtHtml, /Colab \+ Drive 重算引擎池/);
+  assert.equal(document.getElementById("dh-compute-tier-badge").textContent, "离线参考拓扑");
+});

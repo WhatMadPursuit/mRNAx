@@ -7,7 +7,9 @@ Track Isolation Contract:
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import dataclass
 import functools
 import math
@@ -17,6 +19,8 @@ import random
 import re
 import shutil
 import subprocess
+import sys
+import threading
 import time
 from typing import Any
 
@@ -215,6 +219,65 @@ def _validate_timeout_sec(timeout_sec: float) -> float:
     return min(max(0.1, val), _MAX_LD_TIMEOUT_SEC)
 
 
+_LD_SEMAPHORE_LOCK = threading.Lock()
+_LD_SEMAPHORES: dict[int, threading.BoundedSemaphore] = {}
+_LD_SEM_STATE = threading.local()
+
+
+def resolve_lineardesign_max_workers() -> int:
+    """Resolve bounded LinearDesign worker concurrency from `MRNAX_LINEARDESIGN_MAX_WORKERS` (clamped `[1, 8]`)."""
+    raw = os.environ.get("MRNAX_LINEARDESIGN_MAX_WORKERS", "").strip()
+    if raw:
+        try:
+            return min(8, max(1, int(raw)))
+        except ValueError:
+            pass
+    return min(5, max(1, os.cpu_count() or 1))
+
+
+def _get_lineardesign_semaphore(limit: int) -> threading.BoundedSemaphore:
+    with _LD_SEMAPHORE_LOCK:
+        sem = _LD_SEMAPHORES.get(limit)
+        if sem is None:
+            sem = threading.BoundedSemaphore(limit)
+            _LD_SEMAPHORES[limit] = sem
+        return sem
+
+
+@contextmanager
+def _lineardesign_concurrency_slot() -> Iterator[None]:
+    depth = int(getattr(_LD_SEM_STATE, "depth", 0))
+    if depth > 0:
+        _LD_SEM_STATE.depth = depth + 1
+        try:
+            yield
+        finally:
+            _LD_SEM_STATE.depth = depth
+        return
+    sem = _get_lineardesign_semaphore(resolve_lineardesign_max_workers())
+    sem.acquire()
+    _LD_SEM_STATE.depth = 1
+    try:
+        yield
+    finally:
+        _LD_SEM_STATE.depth = 0
+        sem.release()
+
+
+def _build_lineardesign_subprocess_env(argv: list[str]) -> dict[str, str]:
+    """Construct a minimal secret-free environment; prepend binary dir to `LD_LIBRARY_PATH` on Linux."""
+    env: dict[str, str] = {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "LC_ALL": "C",
+        "LANG": "C",
+    }
+    if sys.platform.startswith("linux") and argv:
+        bin_dir = str(Path(argv[0]).resolve().parent)
+        existing_ld = os.environ.get("LD_LIBRARY_PATH", "").strip()
+        env["LD_LIBRARY_PATH"] = f"{bin_dir}:{existing_ld}" if existing_ld else bin_dir
+    return env
+
+
 def _run_bounded_subprocess(
     argv: list[str],
     *,
@@ -226,79 +289,81 @@ def _run_bounded_subprocess(
 ) -> str:
     import selectors
 
-    deadline = time.monotonic() + timeout_sec
-    proc = subprocess.Popen(
-        argv,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        cwd=cwd_str,
-    )
-    out_chunks: list[bytes] = []
-    err_chunks: list[bytes] = []
-    out_len = 0
-    err_len = 0
-    in_buf = memoryview(stdin_text.encode("ascii"))
-    in_written = 0
-    try:
-        assert proc.stdin is not None and proc.stdout is not None and proc.stderr is not None
-        os.set_blocking(proc.stdin.fileno(), False)
-        os.set_blocking(proc.stdout.fileno(), False)
-        os.set_blocking(proc.stderr.fileno(), False)
-        with selectors.DefaultSelector() as sel:
-            sel.register(proc.stdin, selectors.EVENT_WRITE, data="in")
-            sel.register(proc.stdout, selectors.EVENT_READ, data="out")
-            sel.register(proc.stderr, selectors.EVENT_READ, data="err")
-            while sel.get_map():
-                rem = deadline - time.monotonic()
-                if rem <= 0.0:
-                    raise subprocess.TimeoutExpired(argv, timeout_sec)
-                events = sel.select(timeout=rem)
-                if not events:
-                    raise subprocess.TimeoutExpired(argv, timeout_sec)
-                for key, _ in events:
-                    stream = key.fileobj
-                    if key.data == "in":
+    with _lineardesign_concurrency_slot():
+        deadline = time.monotonic() + timeout_sec
+        proc = subprocess.Popen(
+            argv,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=cwd_str,
+            env=_build_lineardesign_subprocess_env(argv),
+        )
+        out_chunks: list[bytes] = []
+        err_chunks: list[bytes] = []
+        out_len = 0
+        err_len = 0
+        in_buf = memoryview(stdin_text.encode("ascii"))
+        in_written = 0
+        try:
+            assert proc.stdin is not None and proc.stdout is not None and proc.stderr is not None
+            os.set_blocking(proc.stdin.fileno(), False)
+            os.set_blocking(proc.stdout.fileno(), False)
+            os.set_blocking(proc.stderr.fileno(), False)
+            with selectors.DefaultSelector() as sel:
+                sel.register(proc.stdin, selectors.EVENT_WRITE, data="in")
+                sel.register(proc.stdout, selectors.EVENT_READ, data="out")
+                sel.register(proc.stderr, selectors.EVENT_READ, data="err")
+                while sel.get_map():
+                    rem = deadline - time.monotonic()
+                    if rem <= 0.0:
+                        raise subprocess.TimeoutExpired(argv, timeout_sec)
+                    events = sel.select(timeout=rem)
+                    if not events:
+                        raise subprocess.TimeoutExpired(argv, timeout_sec)
+                    for key, _ in events:
+                        stream = key.fileobj
+                        if key.data == "in":
+                            try:
+                                nw = os.write(stream.fileno(), in_buf[in_written : min(len(in_buf), in_written + 16384)])  # type: ignore[union-attr]
+                                in_written += nw
+                            except BlockingIOError:
+                                continue
+                            if in_written >= len(in_buf):
+                                sel.unregister(stream)
+                                proc.stdin.close()
+                            continue
                         try:
-                            nw = os.write(stream.fileno(), in_buf[in_written : min(len(in_buf), in_written + 16384)])  # type: ignore[union-attr]
-                            in_written += nw
+                            chunk = os.read(stream.fileno(), 16384)  # type: ignore[union-attr]
                         except BlockingIOError:
                             continue
-                        if in_written >= len(in_buf):
+                        if not chunk:
                             sel.unregister(stream)
-                            proc.stdin.close()
-                        continue
-                    try:
-                        chunk = os.read(stream.fileno(), 16384)  # type: ignore[union-attr]
-                    except BlockingIOError:
-                        continue
-                    if not chunk:
-                        sel.unregister(stream)
-                        continue
-                    if key.data == "out":
-                        out_len += len(chunk)
-                        if out_len > max_stdout_bytes:
-                            raise RuntimeError("LinearDesign stdout exceeded byte cap")
-                        out_chunks.append(chunk)
-                    else:
-                        err_len += len(chunk)
-                        if err_len > max_stderr_bytes:
-                            raise RuntimeError("LinearDesign stderr exceeded byte cap")
-                        err_chunks.append(chunk)
-        rem_wait = max(0.05, deadline - time.monotonic())
-        rc = proc.wait(timeout=rem_wait)
-    except Exception:
-        try:
-            proc.kill()
-            proc.wait(timeout=1.0)
+                            continue
+                        if key.data == "out":
+                            out_len += len(chunk)
+                            if out_len > max_stdout_bytes:
+                                raise RuntimeError("LinearDesign stdout exceeded byte cap")
+                            out_chunks.append(chunk)
+                        else:
+                            err_len += len(chunk)
+                            if err_len > max_stderr_bytes:
+                                raise RuntimeError("LinearDesign stderr exceeded byte cap")
+                            err_chunks.append(chunk)
+            rem_wait = max(0.05, deadline - time.monotonic())
+            rc = proc.wait(timeout=rem_wait)
         except Exception:
-            pass
-        raise
-    stdout_text = b"".join(out_chunks).decode("utf-8", errors="replace")
-    stderr_text = b"".join(err_chunks).decode("utf-8", errors="replace")
-    if rc != 0:
-        raise subprocess.CalledProcessError(rc, argv, output=stdout_text, stderr=stderr_text)
-    return stdout_text
+            try:
+                proc.kill()
+                proc.wait(timeout=1.0)
+            except Exception:
+                pass
+            raise
+        stdout_text = b"".join(out_chunks).decode("utf-8", errors="replace")
+        stderr_text = b"".join(err_chunks).decode("utf-8", errors="replace")
+        if rc != 0:
+            raise subprocess.CalledProcessError(rc, argv, output=stdout_text, stderr=stderr_text)
+        return stdout_text
 
 
 @functools.lru_cache(maxsize=256)
@@ -309,12 +374,13 @@ def _cached_cpp_lineardesign_call(
     lam_rounded: float,
     timeout_sec: float,
 ) -> tuple[str, float, float]:
-    stdout_text = _run_bounded_subprocess(
-        [bin_path_str, "-l", f"{lam_rounded:g}"],
-        stdin_text=f"{sense_aa}\n",
-        cwd_str=cwd_str,
-        timeout_sec=timeout_sec,
-    )
+    with _lineardesign_concurrency_slot():
+        stdout_text = _run_bounded_subprocess(
+            [bin_path_str, "-l", f"{lam_rounded:g}"],
+            stdin_text=f"{sense_aa}\n",
+            cwd_str=cwd_str,
+            timeout_sec=timeout_sec,
+        )
     seq_m = _SEQ_LINE_RE.search(stdout_text)
     ec_m = _ENERGY_CAI_RE.search(stdout_text)
     if seq_m is None:
@@ -891,9 +957,10 @@ def sweep_lineardesign_candidates(
             wall_seconds=round(time.perf_counter() - t0, 4),
         )
 
-    if len(lam_tuple) == 1:
-        return [_run_one(lam_tuple[0])]
-    with ThreadPoolExecutor(max_workers=min(5, len(lam_tuple))) as pool:
+    max_w = min(resolve_lineardesign_max_workers(), len(lam_tuple))
+    if max_w <= 1:
+        return [_run_one(lam) for lam in lam_tuple]
+    with ThreadPoolExecutor(max_workers=max_w) as pool:
         return list(pool.map(_run_one, lam_tuple))
 
 
@@ -910,6 +977,7 @@ __all__ = [
     "discover_lineardesign_binary",
     "is_lineardesign_available",
     "polish_cds_5prime_and_constraints",
+    "resolve_lineardesign_max_workers",
     "run_lineardesign_single",
     "sweep_lineardesign_candidates",
     "verify_exact_aa_translation",

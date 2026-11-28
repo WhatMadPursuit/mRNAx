@@ -1189,6 +1189,7 @@ class AtomicToolbox:
         *,
         user_utterance: str,
         protein_sequence: str | None = None,
+        additional_protein_sequences: list[str] | None = None,
         accession_or_source: str = "GenBank:U55762.1",
         entry_version: str | None = None,
         compliance_track: str | None = None,
@@ -1208,6 +1209,7 @@ class AtomicToolbox:
         intent = self.session.create_turn_intent_canonical(
             user_utterance=user_utterance,
             protein_sequence=protein_sequence,
+            additional_protein_sequences=additional_protein_sequences,
             accession_or_source=accession_or_source,
             entry_version=entry_version,
             compliance_track=compliance_track,  # type: ignore[arg-type]

@@ -199,6 +199,30 @@ _METRIC_DISPLAY_LABELS: dict[str, str] = {
 }
 
 
+_LAMBDA_TOKEN_RE = re.compile(r"lam([0-9]+(?:\.[0-9]+)?)")
+_PARETO_IDX_RE = re.compile(r"(?:^|_)pareto_0*(\d+)(?:$|_)")
+
+
+def _format_lambda_badge(raw_num: str) -> str:
+    val = float(raw_num)
+    return f"λ={val:.1f}" if abs(val - round(val, 1)) < 1e-6 else f"λ={val:g}"
+
+
+def _extract_ires_label(text: str) -> str | None:
+    low = text.lower()
+    if "hrvb3" in low or "hrv-b3" in low or "hrv_b3" in low:
+        return "HRV-B3"
+    if "cvb3" in low:
+        return "CVB3"
+    if "evb107" in low or "ev-b107" in low:
+        return "EV-B107"
+    if "eva71" in low or "ev-a71" in low:
+        return "EV-A71"
+    if "emcv" in low:
+        return "EMCV"
+    return None
+
+
 def _derive_candidate_display_meta(
     bundle: ConstructBundle,
     pareto_rank: int | None,
@@ -207,21 +231,122 @@ def _derive_candidate_display_meta(
     low = bid.lower()
     if bundle.derivation_action == "reference_import" or low.endswith("_ref_r"):
         return "Reference Construct (R)", "reference_baseline"
-    if low.endswith("_mina") or bundle.derivation_action == "locked_refinement":
+    if low.endswith("_mina") or (
+        bundle.derivation_action == "locked_refinement"
+        and "_pareto_" not in low
+        and "_lineardesign_" not in low
+        and "_circ_" not in low
+        and "_sarna_" not in low
+    ):
         return "Conservative Refinement (Minimal Edit)", "conservative_refinement"
     if low.endswith("_expb"):
         return "Exploratory Re-Optimized Variant", "exploratory_reoptimization"
+
+    mol0 = bundle.molecules[0] if bundle.molecules else None
+    mod = mol0.modality if mol0 is not None else "linear_mrna"
+    cds_seg = mol0.get_segment("cds") if mol0 is not None else None
+    u5_seg = mol0.get_segment("five_prime_utr") if mol0 is not None else None
+    cds_src = (cds_seg.origin_source if cds_seg is not None else "").lower()
+    u5_src = (u5_seg.origin_source if u5_seg is not None else "").lower()
+    u5_cid = (u5_seg.component_id if u5_seg is not None and u5_seg.component_id else "").lower()
+    combined_meta = f"{low} {cds_src} {u5_src} {u5_cid}"
+
+    lam_match = _LAMBDA_TOKEN_RE.search(f"{low} {cds_src}")
+    lam_tag = _format_lambda_badge(lam_match.group(1)) if lam_match else None
+    rank_prefix = f"Pareto #{pareto_rank} · " if pareto_rank is not None else ""
+    pareto_m = _PARETO_IDX_RE.search(low)
+
+    is_lineardesign = (
+        "lineardesign" in low
+        or "_ld" in low
+        or (not pareto_m and ("lineardesign" in cds_src or "guided_bicodon" in cds_src))
+    )
+    is_codontransformer = "codontransformer" in low or "codontransformer" in cds_src
+    is_dnachisel = "dnachisel" in low or "dnachisel" in cds_src or "v20_dnachisel" in cds_src
+    is_clean_bicodon = "clean_bicodon" in cds_src
+    is_stage0 = "stage0" in low or "stage0" in cds_src
+
+    if mod == "circrna" or "_circ_" in low:
+        if "anabaena" in combined_meta:
+            pie_label = "Anabaena PIE"
+        elif "t4-td" in combined_meta or "t4_td" in combined_meta or "t4td" in combined_meta:
+            pie_label = "T4 td PIE"
+        else:
+            pie_label = "PIE"
+        ires_label = _extract_ires_label(combined_meta)
+        parts = [pie_label]
+        if ires_label:
+            parts.append(ires_label)
+        if lam_tag:
+            parts.append(lam_tag)
+        elif is_dnachisel:
+            parts.append("DNA Chisel")
+        elif is_clean_bicodon:
+            parts.append("Clean Bicodon")
+        strat = (
+            "lineardesign_5prime_polished"
+            if is_lineardesign
+            else ("pareto_frontier_top" if pareto_rank == 1 else ("pareto_balanced" if pareto_rank is not None else "de_novo_candidate"))
+        )
+        return f"{rank_prefix}circRNA ({' · '.join(parts)})", strat
+
+    if mod == "sarna" or "_sarna_" in low:
+        if "veev" in combined_meta:
+            rep_label = "VEEV TC-83"
+        elif "sinv" in combined_meta:
+            rep_label = "SINV"
+        else:
+            rep_label = "Alphavirus Replicon"
+        parts = [rep_label]
+        if lam_tag:
+            parts.append(lam_tag)
+        elif is_dnachisel:
+            parts.append("DNA Chisel")
+        elif is_clean_bicodon:
+            parts.append("Clean Bicodon")
+        strat = (
+            "lineardesign_5prime_polished"
+            if is_lineardesign
+            else ("pareto_frontier_top" if pareto_rank == 1 else ("pareto_balanced" if pareto_rank is not None else "de_novo_candidate"))
+        )
+        return f"{rank_prefix}saRNA ({' · '.join(parts)})", strat
+
     if len(bundle.molecules) > 1:
-        rank_prefix = f"Pareto #{pareto_rank} · " if pareto_rank is not None else ""
-        return f"{rank_prefix}Multi-Chain Co-Expression Candidate", "multi_chain_coexpression"
-    if "ld" in low or "lineardesign" in low:
-        rank_prefix = f"Pareto #{pareto_rank} · " if pareto_rank is not None else ""
-        return f"{rank_prefix}LinearDesign + 5' Polished Candidate", "lineardesign_5prime_polished"
-    if pareto_rank == 1:
-        return f"Pareto #1 Candidate ({bid[-6:]})", "pareto_frontier_top"
+        chain_tag = f"{len(bundle.molecules)}-Chain"
+        if is_lineardesign:
+            detail = f"LinearDesign ({lam_tag})" if lam_tag else "LinearDesign"
+        elif is_codontransformer:
+            detail = "CodonTransformer"
+        elif is_dnachisel:
+            detail = "DNA Chisel"
+        elif is_stage0:
+            detail = "Stage-0 Baseline"
+        elif pareto_m:
+            detail = f"Multi-Objective #{int(pareto_m.group(1))}"
+        else:
+            detail = "Co-Expression Candidate"
+        return f"{rank_prefix}{chain_tag} {detail}", "multi_chain_coexpression"
+
+    if is_lineardesign:
+        suffix = f" ({lam_tag})" if lam_tag else ""
+        return f"{rank_prefix}LinearDesign + 5' Polish{suffix}", "lineardesign_5prime_polished"
+
+    strat = (
+        "pareto_frontier_top"
+        if pareto_rank == 1
+        else ("pareto_balanced" if pareto_rank is not None else "de_novo_candidate")
+    )
+    if pareto_m:
+        return f"{rank_prefix}Multi-Objective #{int(pareto_m.group(1))}", strat
+    if is_codontransformer:
+        return f"{rank_prefix}CodonTransformer", strat
+    if is_dnachisel:
+        return f"{rank_prefix}DNA Chisel", strat
+    if is_stage0:
+        return f"{rank_prefix}Stage-0 Baseline", strat
     if pareto_rank is not None:
-        return f"Pareto #{pareto_rank} Candidate ({bid[-6:]})", "pareto_balanced"
-    return f"Candidate ({bid[-8:]})", "de_novo_candidate"
+        return f"Pareto #{pareto_rank} · Multi-Objective Candidate", strat
+    return "De Novo Candidate", "de_novo_candidate"
 
 
 def _serialize_candidate_card(
@@ -388,6 +513,17 @@ def _serialize_report_with_candidates(
             )
             if card["pareto_rank"] is not None:
                 cards.append(card)
+    label_counts: dict[str, int] = {}
+    for card in cards:
+        lbl = str(card["display_label"])
+        label_counts[lbl] = label_counts.get(lbl, 0) + 1
+    seen_ordinals: dict[str, int] = {}
+    for card in cards:
+        lbl = str(card["display_label"])
+        if label_counts[lbl] > 1:
+            ord_idx = seen_ordinals.get(lbl, 0) + 1
+            seen_ordinals[lbl] = ord_idx
+            card["display_label"] = f"{lbl} · #{ord_idx}"
     return projected.model_dump(mode="json"), cards
 
 
@@ -1467,6 +1603,36 @@ def create_control_plane_app(
             "colab_bridge_present": Path("/opt/vps-connect/colab-run").is_file()
             or Path("/Users/alex/.local/bin/colab").is_file(),
             "drive_bridge_present": Path("/opt/vps-connect/batch2-drive").is_file(),
+            "compute_tier": {
+                "gateway_role": "lightweight_relay_and_keepalive_control_plane",
+                "heavy_compute_backend": "google_colab_and_drive",
+                "vps_heavy_binaries_disabled_by_policy": True,
+                "lease_keepalive_endpoints": [
+                    "/v1/executions",
+                    "/v1/executions/{execution_id}/leases",
+                    "/v1/executions/{execution_id}/attempts/{attempt_id}:commit",
+                ],
+                "colab_drive_sota_assets": {
+                    "lineardesign_linux_x86_64": {
+                        "drive_file_id": "1ZHpUFjRylZ2pju0w-tOBa5SOgmmNomvQ",
+                        "sha256": "949802af5f0833bc2ec69dfe27a0dcaf01e4f8450d9242bd13672b3221a9fff3",
+                        "license_track": "research_max",
+                    },
+                    "eternafold_v131_linux_x86_64": {
+                        "drive_file_id": "1Aio8lOmikCCMuA4KhbJhwnvlc4EDA_jn",
+                        "sha256": "84fe61a28c4a4fc4b5bc1be7736cd888fd59e57c875efd81f8e1f0911187e1db",
+                        "license_track": "commercial_clearance_pending",
+                    },
+                    "surrogate_v2_folder": {
+                        "drive_folder_id": "1rIEgLRuJg10ZJPpHSo_rC-IDK2XQFzW6",
+                        "license_track": "commercial_clean",
+                    },
+                    "codontransformer_rc005": {
+                        "hf_repo": "adibvafa/CodonTransformer",
+                        "license_track": "commercial_clean",
+                    },
+                },
+            },
             "server_llm_providers_ready": configured_providers,
             "default_llm_provider": "deepseek",
             "default_llm_models": dict(DEFAULT_PROVIDER_MODELS),
@@ -1489,6 +1655,22 @@ def create_control_plane_app(
                 "length_nt": len(ref_r.molecules[0].sequence),
                 "segments": [s.model_dump(mode="json") for s in ref_r.molecules[0].segments],
                 "sequence_preview": ref_r.molecules[0].sequence[:120] + "...",
+            },
+            "dll3_cd3_bispecific": {
+                "name": "DLL3×CD3 Dual-Chain Bispecific (Non-Proprietary Synthetic Igκ Scaffolds)",
+                "sequence_provenance_honesty_notice": (
+                    "Synthetic non-proprietary antibody framework scaffolds with canonical human Ig-kappa signal peptide "
+                    "are used for deterministic software & RNA engineering validation. Proprietary clinical CDRs "
+                    "(e.g. Tarlatamab) are NEVER fabricated; users paste their own proprietary AA sequences in production."
+                ),
+                "primary_chain_id": "anti_dll3_vh_scaffold",
+                "primary_protein_sequence": (
+                    "METDTLLLWVLLLWVPGSTGQVQLVQSGAEVKKPGASVKVSCKASGYTFTGYYMHWVRQAPGQGLEWMGWINPNSGGTNYAQKFQGRVTMTRDTSISTAYMELSRLRSDDTAVYYCAR"
+                ),
+                "additional_protein_sequences": [
+                    "METDTLLLWVLLLWVPGSTGDIQMTQSPSSLSASVGDRVTITCRASQSISSYLNWYQQKPGKAPKLLIYAASSLQSGVPSRFSGSGSGTDFTLTISSLQPEDFATYYCQQSYSTPLTF"
+                ],
+                "accession_or_source": "SYNTHETIC_NON_PROPRIETARY_DLL3_CD3_DUAL_CHAIN_DEMO_V1",
             },
             "verified_empirical_rule": {
                 "rule_id": "RUL-5UTR-UAUG-MRL-001",
@@ -1755,6 +1937,7 @@ def create_control_plane_app(
                         intent = session.create_turn_intent_canonical(
                             user_utterance=clean_turn_utterance,
                             protein_sequence=req.protein_sequence,
+                            additional_protein_sequences=req.additional_protein_sequences,
                             accession_or_source=req.accession_or_source,
                             entry_version=req.entry_version,
                             compliance_track=req.compliance_track,
