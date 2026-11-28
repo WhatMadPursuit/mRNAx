@@ -1339,7 +1339,9 @@ def test_gate_b_r2_audit_remediations(tmp_path: Path, monkeypatch: pytest.Monkey
     ).hexdigest()
     turn_journal = tmp_path / "projects_r2" / "proj_r2_replay" / "turn_requests.json"
     j_doc = json.loads(turn_journal.read_text(encoding="utf-8"))
-    for rec in j_doc.get("requests", {}).values():
+    j_entries = j_doc.get("entries", {})
+    assert len(j_entries) == 1
+    for rec in j_entries.values():
         assert rec["request_digest"] == legacy_digest
     r_replay = client.post(
         "/v1/projects/proj_r2_replay/turn",
@@ -2033,16 +2035,31 @@ def test_gate_b_r2_round5_remaining_fixes(
     bnds_no_v2, rep_no_v2 = pipe_out[0], pipe_out[1]
     assert rep_no_v2 is not None and len(bnds_no_v2) >= 1
 
-    # Round-6 Item 6: direct design_constructs & direct /turn with custom sequence (no defaults) yield user_supplied, NEVER GenBank:U55762.1 / AAB02572.1
+    # Round-6 Item 6 + Round-7 Item 5: explicit non-eGFP (incl. 10-aa eGFP prefix & entry_version override) yield user_supplied
     tb_nodflt = AtomicToolbox(sess_b)
     with enforce_local_heavy_binaries_policy(True):
         des_nodflt = tb_nodflt.design_constructs(
             user_utterance="Design custom human protein",
             protein_sequence=alt_prot,
         )
+        des_prefix10 = tb_nodflt.design_constructs(
+            user_utterance="Design 10aa reporter tag fragment",
+            protein_sequence="MVSKGEELFT",
+        )
+        des_entver = tb_nodflt.design_constructs(
+            user_utterance="Design custom protein with caller entry_version",
+            protein_sequence=alt_prot,
+            entry_version="CUSTOM_V2",
+        )
     intent_nodflt = sess_b.intent_for_bundle(des_nodflt["recommended_bundle_ids"][0])
     assert intent_nodflt.protein_targets[0].accession_or_source == "user_supplied"
     assert intent_nodflt.protein_targets[0].entry_version != "AAB02572.1"
+    intent_pref10 = sess_b.intent_for_bundle(des_prefix10["recommended_bundle_ids"][0])
+    assert intent_pref10.protein_targets[0].accession_or_source == "user_supplied"
+    assert intent_pref10.protein_targets[0].entry_version is None
+    intent_entver = sess_b.intent_for_bundle(des_entver["recommended_bundle_ids"][0])
+    assert intent_entver.protein_targets[0].accession_or_source == "user_supplied"
+    assert intent_entver.protein_targets[0].entry_version == "CUSTOM_V2"
 
     # Additional Finding C + Round-6 Item 7: retrying a PermissionError-rejected agent tool keeps returning 422
     # EVEN IF the LLM switches to a normal 200 reply on retry, and clears trailing queued batch calls
@@ -2079,7 +2096,53 @@ def test_gate_b_r2_round5_remaining_fixes(
         },
     )
     assert r_tarna.status_code == 422
-    assert not (projects_root / "proj_r6_tarna" / "intents.json").is_file()
+    assert list((projects_root / "proj_r6_tarna" / "intents").glob("intent_v*.json")) == []
+
+    # Round-7 Addl: initial circular + use_preset_reference_r conflicts -> 422 & zero intents; refine two-chain -> circular rejects 422 without saving revision
+    r_circ_ref = client_p.post(
+        "/v1/projects/proj_r7_circ_ref/turn",
+        json={
+            "mode": "initial",
+            "user_utterance": "Design circular eGFP using preset reference R",
+            "use_preset_reference_r": True,
+            "modality": "circrna",
+        },
+    )
+    assert r_circ_ref.status_code == 422
+    assert list((projects_root / "proj_r7_circ_ref" / "intents").glob("intent_v*.json")) == []
+
+    r_mc_init = client_p.post(
+        "/v1/projects/proj_r7_mc_ref_circ/turn",
+        json={
+            "mode": "initial",
+            "user_utterance": "Design two-chain linear construct",
+            "protein_sequence": alt_prot,
+            "additional_protein_sequences": [alt_prot],
+            "compliance_track": "commercial_clean",
+        },
+    )
+    assert r_mc_init.status_code == 200
+    r_mc_refine_circ = client_p.post(
+        "/v1/projects/proj_r7_mc_ref_circ/turn",
+        json={
+            "mode": "refine",
+            "user_utterance": "Switch multi-chain to circRNA",
+            "modality": "circrna",
+            "scaffold_id": "circ_t4td_hrvb3",
+        },
+    )
+    assert r_mc_refine_circ.status_code == 422
+    assert len(list((projects_root / "proj_r7_mc_ref_circ" / "intents").glob("intent_v*.json"))) == 1
+    r_mc_refine_tarna = client_p.post(
+        "/v1/projects/proj_r7_mc_ref_circ/turn",
+        json={
+            "mode": "refine",
+            "user_utterance": "Switch to tarna",
+            "modality": "tarna",
+        },
+    )
+    assert r_mc_refine_tarna.status_code == 422
+    assert len(list((projects_root / "proj_r7_mc_ref_circ" / "intents").glob("intent_v*.json"))) == 1
 
     perm_calls = 0
 
@@ -2142,7 +2205,81 @@ def test_gate_b_r2_round5_remaining_fixes(
             },
         )
         assert r_perm2.status_code == 422
+        assert r_perm2.json()["detail"] == r_perm1.json()["detail"]
+        assert "commercial_clean" in r_perm2.json()["detail"]
         assert perm_calls == 1
+
+    # Round-7 Addl: BYO user on brand-new project hitting 422 receives project_key + cookie so subsequent corrected turn succeeds (never 403 lockout)
+    with monkeypatch.context() as mp:
+        byo_step = 0
+
+        def _mock_byo_422_then_ok(self: httpx.Client, url: str, headers: dict[str, str], json: dict[str, Any]) -> Any:
+            nonlocal byo_step
+            byo_step += 1
+            if byo_step == 1:
+                return httpx.Response(
+                    200,
+                    headers={"Content-Type": "application/json"},
+                    json={
+                        "choices": [
+                            {
+                                "finish_reason": "tool_calls",
+                                "message": {
+                                    "role": "assistant",
+                                    "content": None,
+                                    "tool_calls": [
+                                        {
+                                            "id": "tc_byo_bad",
+                                            "type": "function",
+                                            "function": {
+                                                "name": "design_constructs",
+                                                "arguments": '{"user_utterance":"bad","compliance_track":"research_max"}',
+                                            },
+                                        }
+                                    ],
+                                },
+                            }
+                        ]
+                    },
+                    request=httpx.Request("POST", url),
+                )
+            return httpx.Response(
+                200,
+                headers={"Content-Type": "application/json"},
+                json={"choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "ok_recovered"}}]},
+                request=httpx.Request("POST", url),
+            )
+
+        mp.setattr(httpx.Client, "post", _mock_byo_422_then_ok)
+        client_byo_1 = TestClient(app_p)
+        byo_headers = {"X-MRNAX-LLM-Key": "sk-byo-test-key-1234567890"}
+        r_byo_1 = client_byo_1.post(
+            "/v1/projects/proj_r7_byo_nolock/agent-chat",
+            headers=byo_headers,
+            json={
+                "message": "first",
+                "compliance_track": "commercial_clean",
+                "protein_sequence": alt_prot,
+                "client_request_id": "req_byo_1",
+            },
+        )
+        assert r_byo_1.status_code == 422
+        returned_pk = r_byo_1.json().get("project_key")
+        assert isinstance(returned_pk, str) and returned_pk.startswith("pk_")
+        # Even a fresh client (no cookies) using the returned project_key is not locked out
+        client_byo_3 = TestClient(app_p)
+        r_byo_3 = client_byo_3.post(
+            "/v1/projects/proj_r7_byo_nolock/agent-chat",
+            headers={**byo_headers, "X-MRNAX-Project-Key": returned_pk},
+            json={
+                "message": "corrected request",
+                "compliance_track": "commercial_clean",
+                "protein_sequence": alt_prot,
+                "client_request_id": "req_byo_2",
+            },
+        )
+        assert r_byo_3.status_code == 200
+        assert r_byo_3.json()["assistant_reply"] == "ok_recovered"
 
     # Round-6 Item 7 crash-recovery batch clearing: [read, forbidden, trailing] clears trailing on PermissionError
     rec_payload = {
@@ -2211,8 +2348,9 @@ def test_gate_b_r2_round5_remaining_fixes(
     assert r_rec1.status_code == 422
     r_rec2 = client_p.post("/v1/projects/proj_r6_perm_rec/agent-chat", json=rec_payload)
     assert r_rec2.status_code == 422
+    assert r_rec2.json()["detail"] == r_rec1.json()["detail"]
     assert rec_llm_calls == 1
-    assert not (rec_proj_dir / "intents.json").is_file()
+    assert list((rec_proj_dir / "intents").glob("intent_v*.json")) == []
 
     # Round-5 Item 9 + Round-6 Item 4: HTTP 503 past 90s budget (even when payload prep crosses deadline) raises ReadTimeout
     fake_now = [3000.0]
@@ -2303,6 +2441,44 @@ def test_gate_b_r2_round5_remaining_fixes(
     monkeypatch.setattr(ag_503_p, "_build_completion_payload", _slow_build)
     with pytest.raises(httpx.ReadTimeout, match="overall"):
         ag_503_p.send_user_message("late 503 after payload prep", max_tool_rounds=1)
+
+    # Round-7 Item 3: (a) _PinnedHostHTTPTransport honors fixed abs_deadline across serialization overrun with zero socket attempts;
+    # (b) stacked Content-Encoding arriving past overall_deadline raises ReadTimeout rather than UpstreamProviderProtocolError
+    import socket as _socket
+
+    fake_now_t = [5000.0]
+    monkeypatch.setattr(dlg_mod._time, "monotonic", lambda: fake_now_t[0])
+    pinned_tr = dlg_mod._PinnedHostHTTPTransport(
+        expected_host="api.example.test",
+        pinned_ip="93.184.216.34",
+        pinned_port=443,
+        timeout_sec=0.05,
+        abs_deadline=5000.05,
+    )
+    sock_called = False
+    def _no_sock(*_args: Any, **_kwargs: Any) -> Any:
+        nonlocal sock_called
+        sock_called = True
+        raise AssertionError("socket connection must not start past abs_deadline")
+    monkeypatch.setattr(_socket, "create_connection", _no_sock)
+    fake_now_t[0] = 5000.06  # 60ms serialization overrun past 50ms budget
+    with pytest.raises(httpx.ReadTimeout, match="deadline"):
+        pinned_tr.handle_request(httpx.Request("POST", "https://api.example.test/v1/chat/completions"))
+    assert sock_called is False
+
+    fake_now_st = [6000.0]
+    monkeypatch.setattr(dlg_mod._time, "monotonic", lambda: fake_now_st[0])
+    def _mock_stacked_late(_req: httpx.Request) -> httpx.Response:
+        fake_now_st[0] += 90.05
+        return httpx.Response(200, headers={"Content-Encoding": "gzip, br"}, stream=httpx.ByteStream(b"bad"))
+    ag_stacked = LiveDialogueAgent(
+        tb_dlg,
+        provider="deepseek",
+        transport=httpx.MockTransport(_mock_stacked_late),
+        overall_timeout_sec=90.0,
+    )
+    with pytest.raises(httpx.ReadTimeout, match="overall"):
+        ag_stacked.send_user_message("late stacked encoding", allow_tools=False)
 
 
 

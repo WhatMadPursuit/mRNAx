@@ -1071,6 +1071,16 @@ class ProjectHarnessSession:
             protected_tissues = [
                 redact_secrets_in_text(x, extra_secrets=redact_extra_secrets) for x in protected_tissues
             ]
+        if (
+            reference_bundle is not None
+            and reference_bundle.molecules
+            and modality is not None
+            and modality != reference_bundle.molecules[0].modality
+        ):
+            raise ValueError(
+                f"Requested modality '{modality}' conflicts with reference bundle modality "
+                f"'{reference_bundle.molecules[0].modality}'."
+            )
         eff_modality: Modality = (
             reference_bundle.molecules[0].modality
             if (reference_bundle is not None and reference_bundle.molecules)
@@ -1400,13 +1410,9 @@ class ProjectHarnessSession:
         raw_prot = (protein_sequence or "").strip()
         if raw_prot:
             prot_seq = raw_prot
-            is_seeded_egfp = (
-                raw_prot.upper() == egfp_seq_upper
-                or (len(raw_prot) >= 10 and egfp_seq_upper.startswith(raw_prot.upper()))
-            )
+            is_seeded_egfp = raw_prot.upper() == egfp_seq_upper
             if (
                 accession_or_source == "GenBank:U55762.1"
-                and entry_version is None
                 and (validated.additional_protein_sequences is not None or not is_seeded_egfp)
             ):
                 accession_or_source = "user_supplied"
@@ -1785,6 +1791,10 @@ class ProjectHarnessSession:
             for q in prev.blocking_questions
         ]
         eff_next_mod = updated_modality or prev.modality
+        if len(new_targets) > 1 and eff_next_mod != "linear_mrna":
+            raise ValueError(
+                f"Multi-chain additional_protein_sequences is only supported for 'linear_mrna' modality, got '{eff_next_mod}'."
+            )
         eff_next_scaf = updated_scaffold_id if updated_scaffold_id is not None else (
             prev.scaffold_id if eff_next_mod == prev.modality else None
         )

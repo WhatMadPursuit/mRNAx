@@ -315,11 +315,20 @@ MAX_LLM_ERROR_WIRE_BYTES = MAX_LLM_ERROR_BODY_BYTES * 2
 class _PinnedHostHTTPTransport(httpx.BaseTransport):
     """Connects directly to a verified public IP while preserving TLS SNI & certificate hostname check."""
 
-    def __init__(self, *, expected_host: str, pinned_ip: str, pinned_port: int, timeout_sec: float = 90.0) -> None:
+    def __init__(
+        self,
+        *,
+        expected_host: str,
+        pinned_ip: str,
+        pinned_port: int,
+        timeout_sec: float = 90.0,
+        abs_deadline: float | None = None,
+    ) -> None:
         self._expected_host = expected_host.lower()
         self._pinned_ip = pinned_ip
         self._pinned_port = pinned_port
         self._timeout_sec = max(0.001, float(timeout_sec))
+        self._abs_deadline = float(abs_deadline) if abs_deadline is not None else None
 
     def handle_request(self, request: httpx.Request) -> httpx.Response:
         import http.client
@@ -331,13 +340,19 @@ class _PinnedHostHTTPTransport(httpx.BaseTransport):
         if request.url.scheme != "https" or req_host != self._expected_host or req_port != self._pinned_port:
             raise UpstreamProviderProtocolError("LLM request escaped pinned verified origin")
 
-        deadline = _time.monotonic() + self._timeout_sec
+        deadline = (
+            float(self._abs_deadline)
+            if self._abs_deadline is not None
+            else (_time.monotonic() + self._timeout_sec)
+        )
 
         def _rem_timeout() -> float:
             rem = deadline - _time.monotonic()
             if rem <= 0.0:
                 raise httpx.ReadTimeout("Upstream LLM response exceeded overall deadline", request=request)
             return max(1e-4, rem)
+
+        init_rem = _rem_timeout()
 
         conn: http.client.HTTPSConnection | None = None
         raw_sock: socket.socket | None = None
@@ -359,7 +374,7 @@ class _PinnedHostHTTPTransport(httpx.BaseTransport):
                         pass
 
         try:
-            timer = threading.Timer(self._timeout_sec, _abort_on_deadline)
+            timer = threading.Timer(init_rem, _abort_on_deadline)
             timer.daemon = True
             timer.start()
             ctx = ssl.create_default_context()
@@ -487,6 +502,11 @@ def _post_json_bounded(
             )
         return resp
     with client.stream("POST", url, headers=req_headers, json=json_body) as stream_resp:
+        if _time.monotonic() > deadline:
+            raise httpx.ReadTimeout(
+                "Upstream LLM response exceeded overall deadline",
+                request=stream_resp.request,
+            )
         enc = stream_resp.headers.get("content-encoding")
         clean_headers = _strip_encoding_and_length_headers(stream_resp.headers.items())
         if stream_resp.status_code >= 400:
@@ -889,6 +909,7 @@ class LiveDialogueAgent:
                 pinned_ip=pinned_ip,
                 pinned_port=exp_port,
                 timeout_sec=rem_budget,
+                abs_deadline=overall_deadline,
             )
 
         rem_overall = overall_deadline - _time.monotonic()

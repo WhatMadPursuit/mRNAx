@@ -1235,6 +1235,18 @@ test("Gate B C1/C2/I6/I7: fail-closed authorized exports, track-safe structure c
   await run('resolveTargetProteinInHub("P01588")');
   assert.equal(run("state.resolvedTarget.gene_symbol"), "EPO");
   assert.doesNotMatch(document.getElementById("dh-target-result").innerHTML, /id="btn-import-resolved-protein" disabled/);
+
+  // Round-7: P42212 resolves WT 238-aa Aequorea victoria GFP cleanly, distinct from GenBank:U55762.1 239-aa eGFP
+  await run('resolveTargetProteinInHub("P42212")');
+  assert.equal(run("state.resolvedTarget.gene_symbol"), "GFP");
+  assert.equal(run("state.resolvedTarget.uniprot_accession"), "P42212");
+  assert.equal(run("state.resolvedTarget.aa_length"), 238);
+  assert.ok(run("state.resolvedTarget.protein_sequence").startsWith("MSKGEELFT"));
+  await run('resolveTargetProteinInHub("eGFP")');
+  assert.equal(run("state.resolvedTarget.gene_symbol"), "EGFP");
+  assert.equal(run("state.resolvedTarget.accession_source"), "GenBank:U55762.1");
+  assert.equal(run("state.resolvedTarget.aa_length"), 239);
+  assert.ok(run("state.resolvedTarget.protein_sequence").startsWith("MVSKGEELFT"));
 });
 
 test("v2.5.2 WebUI upgrades: dual-chain DLL3, circRNA T4 td default, unified optgroup model selector, calm auth pill, and clean Pareto/candidate labels", async () => {
@@ -1754,7 +1766,7 @@ test("Gate B-R2 Round 3 (#10): syncControlsFromIntent resets linear modality/sca
   assert.equal(run("state.proteinAccession"), "user_supplied");
   assert.equal(JSON.stringify(run("state.additionalProteinSequences")), '["MHLTPEEKSAVTALWGKV"]');
 
-  // Round-6 Item 5: subsequent single-chain intent resets additionalProteinSequences, updates input-protein, and submits cleanly
+  // Round-6 Item 5 + Round-7 Item 4: subsequent short (<10 aa) single-chain intent resets additionalProteinSequences, updates input-protein, and submits cleanly
   run(`
     syncControlsFromIntent({
       intent_id: "i_sc_r6",
@@ -1762,20 +1774,20 @@ test("Gate B-R2 Round 3 (#10): syncControlsFromIntent resets linear modality/sca
       status: "ready",
       compliance_track: "commercial_clean",
       protein_targets: [
-        { protein_sequence: "MKTLLLLLAVVVAAVVAA", accession_or_source: "UniProt:P00001" }
+        { protein_sequence: "MKTLLL", accession_or_source: "UniProt:P00001" }
       ],
       locked_scopes: {}
     });
   `);
   assert.equal(run("state.proteinAccession"), "UniProt:P00001");
-  assert.equal(run("document.getElementById('input-protein').value"), "MKTLLLLLAVVVAAVVAA");
+  assert.equal(run("document.getElementById('input-protein').value"), "MKTLLL");
   assert.equal(JSON.stringify(run("state.additionalProteinSequences")), "[]");
   calls.length = 0;
   await run(`runInitialTurn("Design single chain construct", { fromForm: true })`);
   const scTurn = calls.find((c) => c.url.includes("/turn"));
   assert.ok(scTurn);
   const scBody = JSON.parse(scTurn.init.body);
-  assert.equal(scBody.protein_sequence, "MKTLLLLLAVVVAAVVAA");
+  assert.equal(scBody.protein_sequence, "MKTLLL");
   assert.equal(scBody.accession_or_source, "UniProt:P00001");
   assert.equal(scBody.additional_protein_sequences, undefined);
 });

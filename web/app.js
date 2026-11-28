@@ -4,6 +4,8 @@ const TRUSTED_PRODUCTION_ORIGINS = new Set([
 ]);
 const FALLBACK_EGFP =
   "MVSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPTLVTTLTYGVQCFSRYPDHMKQHDFFKSAMPEGYVQERTIFFKDDGNYKTRAEVKFEGDTLVNRIELKGIDFKEDGNILGHKLEYNYNSHNVYIMADKQKNGIKVNFKIRHNIEDGSVQLADHYQQNTPIGDGPVLLPDNHYLSTQSALSKDPNEKRDHMVLLEFVTAAGITLGMDELYK";
+const FALLBACK_WT_GFP_P42212 =
+  "MSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPTLVTTFSYGVQCFSRYPDHMKQHDFFKSAMPEGYVQERTIFFKDDGNYKTRAEVKFEGDTLVNRIELKGIDFKEDGNILGHKLEYNYNSHNVYIMADKQKNGIKVNFKIRHNIEDGSVQLADHYQQNTPIGDGPVLLPDNHYLSTQSALSKDPNEKRDHMVLLEFVTAAGITHGMDELYK";
 const FALLBACK_HEPO =
   "MGVHECPAWLWLLLSLLSLPLGLPVLGAPPRLICDSRVLERYLLEAKEAENITTGCAEHCSLNENITVPDTKVNFYAWKRMEVGQQAVEVWQGLALLSEAVLRGQALLVNSSQPWEPLQLHVDKAVSGLRSLTTLLRALGAQKEAISPPDAASAAPLRTITADTFRKLFRVYSNFLRGKLKLYTGEACRTGDR";
 const FALLBACK_DLL3_CD3 = {
@@ -3213,12 +3215,12 @@ function syncControlsFromIntent(intent) {
         ? primaryTarget.accession_or_source.trim()
         : null;
     const seqs = intent.protein_targets.map((t) => String(t?.protein_sequence || "").trim()).filter(Boolean);
-    if (seqs.length >= 2 && seqs.every((s) => s.length >= 10)) {
+    if (seqs.length >= 2) {
       const protEl = document.getElementById("input-protein");
       if (protEl) protEl.value = seqs[0];
       state.additionalProteinSequences = seqs.slice(1);
       updateProteinBadge();
-    } else if (seqs.length === 1 && seqs[0].length >= 10) {
+    } else if (seqs.length === 1) {
       const protEl = document.getElementById("input-protein");
       if (protEl) protEl.value = seqs[0];
       state.additionalProteinSequences = [];
@@ -5030,13 +5032,29 @@ async function resolveTargetProteinInHub(customQuery = null) {
 
   if (!prot || !prot.matched) {
     const normQ = q.trim();
-    const exactEgfp = /^(?:egfp|gfp|p42212|u55762(?:\.1)?|aab02572(?:\.1)?)$/i.test(normQ);
+    const exactWtP42212 = /^p42212$/i.test(normQ);
+    const exactEgfp = /^(?:egfp|gfp|u55762(?:\.1)?|aab02572(?:\.1)?)$/i.test(normQ);
     const exactHepo = /^(?:epo|hepo|p01588|erythropoietin)$/i.test(normQ);
-    if (exactEgfp || exactHepo) {
+    if (exactWtP42212) {
+      prot = {
+        matched: true,
+        gene_symbol: "GFP",
+        uniprot_accession: "P42212",
+        accession_source: "UniProt:P42212",
+        resolution_mode: "offline_verified_snapshot",
+        protein_name_sandboxed: "Green fluorescent protein (Aequorea victoria WT)",
+        protein_sequence: FALLBACK_WT_GFP_P42212,
+        aa_length: FALLBACK_WT_GFP_P42212.length,
+        starts_with_met: true,
+        has_signal_peptide: false,
+        signal_peptide_hint: "胞质野生型维多利亚水母 GFP（238 aa，无分泌信号肽）",
+      };
+    } else if (exactEgfp || exactHepo) {
       prot = {
         matched: true,
         gene_symbol: exactEgfp ? "EGFP" : "EPO",
-        uniprot_accession: exactEgfp ? "P42212" : "P01588",
+        uniprot_accession: exactEgfp ? null : "P01588",
+        accession_source: exactEgfp ? "GenBank:U55762.1" : "UniProt:P01588",
         resolution_mode: "offline_verified_snapshot",
         protein_name_sandboxed: exactEgfp ? "Enhanced Green Fluorescent Protein" : "Erythropoietin precursor (hEPO)",
         protein_sequence: exactEgfp ? FALLBACK_EGFP : FALLBACK_HEPO,
@@ -5044,7 +5062,7 @@ async function resolveTargetProteinInHub(customQuery = null) {
         starts_with_met: true,
         has_signal_peptide: !exactEgfp,
         signal_peptide_hint: exactEgfp
-          ? "胞质报告蛋白（无分泌信号肽）"
+          ? "胞质报告蛋白（239 aa，GenBank:U55762.1 / AAB02572.1，无分泌信号肽）"
           : "含天然 N 端分泌信号肽 [1..27 aa]，建议保留天然信号肽用于体内分泌蛋白替代",
       };
     } else {
@@ -5061,7 +5079,7 @@ async function resolveTargetProteinInHub(customQuery = null) {
             </button>
           </div>
           <div class="mono meta-muted" style="margin-top:6px;">
-            网关未匹配到该基因/登录号（离线核验快照仅支持精确别名 eGFP/P42212 与 EPO/P01588），请检查基因名或直接在设计台粘贴氨基酸序列。
+            网关未匹配到该基因/登录号（离线核验快照仅支持精确别名 eGFP/U55762.1、P42212 与 EPO/P01588），请检查基因名或直接在设计台粘贴氨基酸序列。
           </div>
         `;
       }
@@ -5073,11 +5091,12 @@ async function resolveTargetProteinInHub(customQuery = null) {
   if (!box) return;
   const pName = extractSandboxedText(prot.protein_name_sandboxed || prot.protein_name_quarantined || prot.gene_symbol);
   const afMean = prot.alphafold_summary?.mean_plddt;
+  const resolvedAccBadge = prot.accession_source || (prot.uniprot_accession ? `UniProt:${prot.uniprot_accession}` : "verified");
   box.innerHTML = `
     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
       <div>
         <strong style="font-size:14px;">${escapeHtml(prot.gene_symbol || q)} · ${escapeHtml(pName)}</strong>
-        <span class="badge ok mono" style="margin-inline-start:6px;">UniProt:${escapeHtml(prot.uniprot_accession || "verified")}</span>
+        <span class="badge ok mono" style="margin-inline-start:6px;">${escapeHtml(resolvedAccBadge)}</span>
         <span class="badge mono">${escapeHtml(prot.aa_length)} aa · ${prot.starts_with_met ? "M✓" : "缺M"}</span>
       </div>
       <button type="button" class="btn-primary btn-compact" id="btn-import-resolved-protein">
@@ -5101,9 +5120,9 @@ async function resolveTargetProteinInHub(customQuery = null) {
       if (protField) {
         protField.value = state.resolvedTarget.protein_sequence;
         state.additionalProteinSequences = [];
-        state.proteinAccession = state.resolvedTarget.uniprot_accession
-          ? `UniProt:${state.resolvedTarget.uniprot_accession}`
-          : "user_supplied";
+        state.proteinAccession =
+          state.resolvedTarget.accession_source ||
+          (state.resolvedTarget.uniprot_accession ? `UniProt:${state.resolvedTarget.uniprot_accession}` : "user_supplied");
         state.userEditedProtein = true;
         updateProteinBadge();
       }

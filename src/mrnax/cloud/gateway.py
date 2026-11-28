@@ -886,6 +886,10 @@ def _sanitize_journal_entry(entry: dict[str, Any], *, extra_secrets: tuple[str, 
     for k in protected_top:
         if k in entry:
             out[k] = entry[k]
+    if entry.get("error_detail") is not None:
+        out["error_detail"] = redact_secrets_in_text(
+            str(entry["error_detail"]), extra_secrets=extra_secrets
+        )[:240]
 
     if "pending_batch_tool_calls" in entry and isinstance(entry["pending_batch_tool_calls"], list):
         clean_batch: list[dict[str, Any]] = []
@@ -1814,6 +1818,22 @@ def create_control_plane_app(
         proj_dir = resolved_projects / safe_pid
         cookie_cap = request.cookies.get(f"mrnax_pk_{safe_pid}")
         turn_secrets = _collect_active_secrets(x_mrnax_access_token, x_mrnax_project_key, cookie_cap, minted_key)
+        turn_https_req = _is_https_request(request)
+
+        def _turn_error_response(status_code: int, detail: str) -> JSONResponse:
+            payload: dict[str, Any] = {"detail": detail}
+            if minted_key is not None:
+                payload["project_key"] = minted_key
+            err_resp = JSONResponse(status_code=status_code, content=payload)
+            if minted_key is not None:
+                err_resp.set_cookie(
+                    key=f"mrnax_pk_{safe_pid}",
+                    value=minted_key,
+                    httponly=True,
+                    secure=turn_https_req,
+                    samesite="lax",
+                )
+            return err_resp
 
         with project_lock(proj_dir), enforce_local_heavy_binaries_policy(disable_local_heavy_binaries):
             turn_journal_path = proj_dir / "turn_requests.json"
@@ -2046,15 +2066,9 @@ def create_control_plane_app(
             try:
                 existing_rep = session.latest_report(intent.intent_id)
             except UnsupportedModalityError as exc:
-                raise HTTPException(
-                    status_code=422,
-                    detail=redact_secrets_in_text(str(exc), extra_secrets=turn_secrets),
-                ) from exc
+                return _turn_error_response(422, redact_secrets_in_text(str(exc), extra_secrets=turn_secrets))
             except ValueError as exc:
-                raise HTTPException(
-                    status_code=409,
-                    detail=redact_secrets_in_text(str(exc), extra_secrets=turn_secrets),
-                ) from exc
+                return _turn_error_response(409, redact_secrets_in_text(str(exc), extra_secrets=turn_secrets))
             try:
                 if existing_rep is None:
                     with enforce_local_heavy_binaries_policy(disable_local_heavy_binaries):
@@ -2064,15 +2078,9 @@ def create_control_plane_app(
                     latest_rep = existing_rep
                     bundles = list(session._bundles.values())
             except UnsupportedModalityError as exc:
-                raise HTTPException(
-                    status_code=422,
-                    detail=redact_secrets_in_text(str(exc), extra_secrets=turn_secrets),
-                ) from exc
+                return _turn_error_response(422, redact_secrets_in_text(str(exc), extra_secrets=turn_secrets))
             except ValueError as exc:
-                raise HTTPException(
-                    status_code=409,
-                    detail=redact_secrets_in_text(str(exc), extra_secrets=turn_secrets),
-                ) from exc
+                return _turn_error_response(409, redact_secrets_in_text(str(exc), extra_secrets=turn_secrets))
             assert latest_rep is not None
             report_view, cards = _serialize_report_with_candidates(
                 latest_rep,
@@ -2206,6 +2214,21 @@ def create_control_plane_app(
         )
         https_req = _is_https_request(request)
 
+        def _agent_error_response(status_code: int, detail: str) -> JSONResponse:
+            payload: dict[str, Any] = {"detail": detail}
+            if minted_key is not None:
+                payload["project_key"] = minted_key
+            err_resp = JSONResponse(status_code=status_code, content=payload)
+            if minted_key is not None:
+                err_resp.set_cookie(
+                    key=f"mrnax_pk_{safe_pid}",
+                    value=minted_key,
+                    httponly=True,
+                    secure=https_req,
+                    samesite="lax",
+                )
+            return err_resp
+
         def _ensure_ready_intent_evaluated(
             session: ProjectHarnessSession, target_intent: DesignIntent | None
         ) -> None:
@@ -2316,7 +2339,7 @@ def create_control_plane_app(
                     str(prior_req_record.get("error_detail") or "Rejected operation for active project."),
                     extra_secrets=active_secrets,
                 )[:240]
-                raise HTTPException(status_code=422, detail=prior_err)
+                return _agent_error_response(422, prior_err)
             if prior_req_record and prior_req_record.get("status") == "completed":
                 if req_migrated:
                     _save_agent_chat_requests(
@@ -2614,7 +2637,7 @@ def create_control_plane_app(
                                 legacy_hex=legacy_hex_map,
                                 extra_secrets=active_secrets,
                             )
-                        raise HTTPException(status_code=422, detail=detail_422) from exc
+                        return _agent_error_response(422, detail_422)
                     except (json.JSONDecodeError, ValueError, KeyError, TypeError) as exc:
                         err_msg = redact_secrets_in_text(str(exc), extra_secrets=active_secrets)
                         if "Concurrent revision conflict" in err_msg:
@@ -2935,7 +2958,7 @@ def create_control_plane_app(
                             legacy_hex=legacy_hex_map,
                             extra_secrets=active_secrets,
                         )
-                    raise HTTPException(status_code=422, detail=detail_422) from exc
+                    return _agent_error_response(422, detail_422)
                 return _handle_agent_failure(f"Upstream LLM network error ({type(exc).__name__}).")
             except RuntimeError as exc:
                 return _handle_agent_failure(redact_secrets_in_text(str(exc), extra_secrets=active_secrets)[:240])

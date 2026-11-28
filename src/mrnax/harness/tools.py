@@ -1265,8 +1265,8 @@ class AtomicToolbox:
             eff_acc = "user_supplied"
         elif eff_extra:
             eff_acc = "user_supplied"
-        elif eff_prot is not None and entry_version is None:
-            # Explicit custom protein sequence without form defaults must not fall back to pEGFP-N1 GenBank:U55762.1 unless it matches seeded eGFP.
+        elif eff_prot is not None:
+            # Explicit custom protein sequence without form defaults must not fall back to pEGFP-N1 GenBank:U55762.1 unless it is the exact full seeded eGFP reporter.
             snap_path = self.session.seed_dir / "egfp_reporter_snapshot.json"
             raw_eff = eff_prot.strip().upper()
             is_seeded_egfp = False
@@ -1276,9 +1276,7 @@ class AtomicToolbox:
                     .strip()
                     .upper()
                 )
-                is_seeded_egfp = raw_eff == egfp_seq_upper or (
-                    len(raw_eff) >= 10 and egfp_seq_upper.startswith(raw_eff)
-                )
+                is_seeded_egfp = raw_eff == egfp_seq_upper
             eff_acc = accession_or_source if is_seeded_egfp else "user_supplied"
         else:
             eff_acc = accession_or_source

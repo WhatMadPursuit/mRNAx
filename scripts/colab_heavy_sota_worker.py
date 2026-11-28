@@ -581,6 +581,19 @@ class _StdlibDriveRestClient:
         attempts_dir = self.create_folder(exec_dir, "attempts")
         return self.create_folder(attempts_dir, attempt_id)
 
+    def download_bytes(self, file_id: str) -> bytes:
+        url = f"{self.FILES_API}/{urllib.parse.quote(file_id, safe='')}?alt=media&supportsAllDrives=true"
+        req = urllib.request.Request(
+            url,
+            headers={"Authorization": f"Bearer {self._token}"},
+            method="GET",
+        )
+        with self._opener.open(req, timeout=self.timeout_sec) as resp:
+            raw = resp.read(_MAX_HTTP_RESPONSE_BYTES + 1)
+            if len(raw) > _MAX_HTTP_RESPONSE_BYTES:
+                raise RuntimeError("Drive download exceeded byte cap")
+            return raw
+
     def upload_verified_bytes(
         self, parent_folder_id: str, name: str, payload: bytes, mime_type: str = "application/json"
     ) -> dict[str, Any]:
@@ -944,6 +957,46 @@ def _seal_to_drive(
     return str(seal_receipt.file_id), str(seal_receipt.sha256)
 
 
+def _verify_supplied_drive_seal(
+    drive_client: Any,
+    *,
+    sealed_file_id: str,
+    expected_sealed_sha256: str,
+    execution_id: str,
+    attempt_id: str,
+    lease_epoch: int,
+    expected_result_sha256: str,
+) -> tuple[str, str]:
+    """Ensure a caller-supplied SEALED.json binds the exact current attempt and computed result digest."""
+    if hasattr(drive_client, "transport") and hasattr(drive_client.transport, "download_bytes"):
+        raw_seal = drive_client.transport.download_bytes(sealed_file_id)
+    elif hasattr(drive_client, "download_bytes"):
+        raw_seal = drive_client.download_bytes(sealed_file_id)
+    else:
+        raise ValueError("Supplied Drive client cannot download SEALED.json to verify result_sha256 binding")
+    actual_seal_sha = hashlib.sha256(raw_seal).hexdigest()
+    if not hmac.compare_digest(actual_seal_sha, expected_sealed_sha256):
+        raise ValueError(
+            f"Supplied SEALED.json digest mismatch: expected {expected_sealed_sha256}, got {actual_seal_sha}"
+        )
+    doc = json.loads(raw_seal.decode("utf-8"))
+    if (
+        doc.get("execution_id") != execution_id
+        or doc.get("attempt_id") != attempt_id
+        or int(doc.get("lease_epoch", -1)) != lease_epoch
+    ):
+        raise ValueError("Supplied SEALED.json metadata does not match active execution/attempt/epoch")
+    arts = doc.get("artifacts")
+    if not isinstance(arts, list) or not any(
+        isinstance(a, dict) and str(a.get("sha256") or "").lower() == expected_result_sha256
+        for a in arts
+    ):
+        raise ValueError(
+            "Supplied SEALED.json does not bind the current worker output result_sha256"
+        )
+    return sealed_file_id, actual_seal_sha
+
+
 def run_worker(
     *,
     protein_seq: str,
@@ -1025,14 +1078,23 @@ def run_worker(
     if defer_commit and output_json is None:
         raise ValueError("--defer-commit requires --output-json so the computed artifact is persisted for external sealing")
 
-    if cas_client is not None and not defer_commit and not cas_client.is_loopback:
+    if cas_client is not None and not defer_commit:
         has_drive_dest = eff_drive_client is not None and eff_drive_runs_root is not None
         has_explicit_seal = bool(clean_sealed_file_id and clean_sealed_sha256)
-        if not (has_drive_dest or has_explicit_seal):
+        if has_explicit_seal and eff_drive_client is None:
+            raise ValueError(
+                "Caller-supplied --sealed-file-id requires a Drive client (or MRNAX_DRIVE_ACCESS_TOKEN) so the worker "
+                "can verify SEALED.json binds the newly computed result_sha256; omit --sealed-file-id or use --defer-commit."
+            )
+        if not cas_client.is_loopback and not (has_drive_dest or has_explicit_seal):
             raise ValueError(
                 "Remote HTTPS gateway commit requires Drive sealing (--drive-runs-root-id + MRNAX_DRIVE_ACCESS_TOKEN "
-                "or both drive_client and drive_runs_root_id) or explicit (--sealed-file-id + --sealed-sha256); "
+                "or both drive_client and drive_runs_root_id) or verified explicit (--sealed-file-id + --sealed-sha256 + drive_client); "
                 "pass --defer-commit for compute-only."
+            )
+        if cas_client.is_loopback and not (has_drive_dest or has_explicit_seal) and output_json is None:
+            raise ValueError(
+                "Loopback CAS commit without Drive sealing requires --output-json so computed result bytes are persisted on disk."
             )
 
     eff_exec_id = (execution_id or "").strip() or None
@@ -1239,7 +1301,17 @@ def run_worker(
         result_out: dict[str, Any] = {**result_core, "result_sha256": result_sha256}
 
         if cas_client is not None and eff_exec_id is not None and grant_snapshot is not None and not defer_commit:
-            if eff_drive_client is not None and eff_drive_runs_root is not None:
+            if clean_sealed_file_id and clean_sealed_sha256 and eff_drive_client is not None:
+                eff_sealed_id, eff_sealed_sha256 = _verify_supplied_drive_seal(
+                    eff_drive_client,
+                    sealed_file_id=clean_sealed_file_id,
+                    expected_sealed_sha256=clean_sealed_sha256,
+                    execution_id=eff_exec_id,
+                    attempt_id=eff_attempt_id,
+                    lease_epoch=int(grant_snapshot["lease_epoch"]),
+                    expected_result_sha256=result_sha256,
+                )
+            elif eff_drive_client is not None and eff_drive_runs_root is not None:
                 eff_sealed_id, eff_sealed_sha256 = _seal_to_drive(
                     eff_drive_client,
                     drive_runs_root_id=eff_drive_runs_root,
@@ -1249,18 +1321,11 @@ def run_worker(
                     artifact_name=output_json.name if output_json is not None else "colab_sota_result.json",
                     artifact_bytes=immutable_bytes,
                 )
-            elif sealed_file_id and sealed_sha256:
-                eff_sealed_id = sealed_file_id.strip()
-                eff_sealed_sha256 = sealed_sha256.strip().lower()
-            elif cas_client.is_loopback:
-                eff_sealed_id = (
-                    str(output_json.resolve())
-                    if output_json is not None
-                    else f"local://result/{eff_exec_id}/{eff_attempt_id}"
-                )
+            elif cas_client.is_loopback and output_json is not None:
+                eff_sealed_id = str(output_json.resolve())
                 eff_sealed_sha256 = result_sha256
             else:
-                raise ValueError("Cannot commit to remote gateway without Drive SEALED.json or explicit sealed digest")
+                raise ValueError("Cannot commit without verified Drive SEALED.json or loopback --output-json")
 
             with renewal_lock:
                 if lease_superseded:

@@ -366,6 +366,7 @@ def test_colab_worker_full_cas_lifecycle_heartbeat_and_zero_secret_leakage(
         import urllib.request
 
         monkeypatch.delenv("MRNAX_GATEWAY_ACCESS_TOKEN", raising=False)
+        unauth_out = tmp_path / "unauth_fail_out.json"
         with pytest.raises(urllib.error.HTTPError) as auth_exc:
             worker_mod.run_worker(
                 protein_seq=egfp_prot,
@@ -373,8 +374,10 @@ def test_colab_worker_full_cas_lifecycle_heartbeat_and_zero_secret_leakage(
                 lineardesign_bin_sha256=cli_bin_sha,
                 gateway_url=base_url,
                 submission_id="sub_unauth_fail",
+                output_json=unauth_out,
             )
         assert auth_exc.value.code == 401
+        assert not unauth_out.exists()
 
         # Redirects are strictly rejected by _NoRedirectHandler
         dummy_req = urllib.request.Request(f"{base_url}/v1/executions", method="POST")
@@ -1257,6 +1260,73 @@ def test_gate_b_r2_round4_worker_fixes(
                 work_dir=tmp_path / "w_r6_ws_exec_mismatch",
             )
         assert cas_store.get_execution(eid_ws_pend).lease_epoch == 0
+
+        # Round-7 Addl: loopback CAS without Drive sealing or --output-json rejects zero-byte commit BEFORE CAS submit
+        with cas_store._connect() as conn:
+            before_loop_count = conn.execute("SELECT COUNT(*) FROM executions").fetchone()[0]
+        with pytest.raises(ValueError, match="requires --output-json"):
+            worker_mod.run_worker(
+                protein_seq=egfp_prot,
+                lineardesign_tar=ld_tar,
+                gateway_url=f"http://127.0.0.1:{port}",
+                output_json=None,
+                work_dir=tmp_path / "w_loop_nopath",
+            )
+        with cas_store._connect() as conn:
+            assert conn.execute("SELECT COUNT(*) FROM executions").fetchone()[0] == before_loop_count
+
+        # Round-7 Addl: caller-supplied --sealed-file-id without Drive client OR pointing to different output bytes rejects BEFORE commit
+        with pytest.raises(ValueError, match="requires a Drive client"):
+            worker_mod.run_worker(
+                protein_seq=egfp_prot,
+                lineardesign_tar=ld_tar,
+                gateway_url=f"http://127.0.0.1:{port}",
+                sealed_file_id="fake_seal_id",
+                sealed_sha256="b" * 64,
+                work_dir=tmp_path / "w_seal_nodrive",
+            )
+        with httpx.Client(trust_env=False, timeout=5.0) as hc:
+            sub_s = hc.post(
+                f"http://127.0.0.1:{port}/v1/executions",
+                headers={"X-MRNAX-Access-Token": secret_tok},
+                json={"submission_id": "sub_r7_stale_seal", "request_digest": "dig_r7_stale_seal", "intent_id": "int_r7_seal"},
+            )
+            eid_seal = sub_s.json()["execution_id"]
+            lease_s = hc.post(
+                f"http://127.0.0.1:{port}/v1/executions/{eid_seal}/leases",
+                headers={"X-MRNAX-Access-Token": secret_tok},
+                json={"worker_id": "pre_w", "ttl_seconds": 120},
+            ).json()
+        stale_art_dir = drive_client.ensure_attempt_dir(runs_root_id, eid_seal, lease_s["attempt_id"])
+        stale_art = drive_client.upload_verified_bytes(stale_art_dir, "stale.json", b'{"stale": true}')
+        stale_seal = drive_client.write_attempt_seal(
+            stale_art_dir,
+            execution_id=eid_seal,
+            attempt_id=lease_s["attempt_id"],
+            lease_epoch=int(lease_s["lease_epoch"]),
+            receipts=[stale_art],
+        )
+        with monkeypatch.context() as mp_seal:
+            mp_seal.setattr(
+                worker_mod.VultrCASClient,
+                "acquire_or_renew_lease",
+                lambda self, *args, **kwargs: dict(lease_s),
+            )
+            with pytest.raises(ValueError, match="does not bind the current worker output result_sha256"):
+                worker_mod.run_worker(
+                    protein_seq=egfp_prot,
+                    lineardesign_tar=ld_tar,
+                    gateway_url=f"http://127.0.0.1:{port}",
+                    execution_id=eid_seal,
+                    attempt_id=lease_s["attempt_id"],
+                    worker_id="pre_w",
+                    sealed_file_id=stale_seal.file_id,
+                    sealed_sha256=stale_seal.sha256,
+                    drive_client=drive_client,
+                    output_json=tmp_path / "r7_stale_seal_out.json",
+                    work_dir=tmp_path / "w_r7_stale_seal",
+                )
+        assert cas_store.get_execution(eid_seal).status == "RUNNING"
     finally:
         server.should_exit = True
         srv_thread.join(timeout=5.0)
