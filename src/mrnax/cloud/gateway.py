@@ -839,6 +839,16 @@ def _project_has_existing_state(proj_dir: Path) -> bool:
     return False
 
 
+def _resolve_default_llm_provider(configured_providers: list[str]) -> str:
+    """Resolve the default LLM provider consistently for both /v1/system/status and /agent-chat."""
+    valid_configured = [p for p in configured_providers if p in DEFAULT_PROVIDER_MODELS]
+    raw_default_provider = str(os.environ.get("MRNAX_DEFAULT_LLM_PROVIDER", "")).strip().lower()
+    preferred = raw_default_provider if raw_default_provider in DEFAULT_PROVIDER_MODELS else "deepseek"
+    if valid_configured and preferred not in valid_configured:
+        return "deepseek" if "deepseek" in valid_configured else valid_configured[0]
+    return preferred
+
+
 def _load_agent_chat_history(
     proj_dir: Path,
     max_turns: int = 20,
@@ -858,16 +868,16 @@ def _load_agent_chat_history(
     for item in raw:
         if not isinstance(item, dict):
             continue
-        clean_item = redact_secrets_in_obj(item, extra_secrets=extra_secrets)
-        if isinstance(clean_item, dict) and isinstance(clean_item.get("assistant_reply"), str):
-            stripped_hist = _strip_leaked_tool_markup(clean_item["assistant_reply"])
-            if not stripped_hist and isinstance(clean_item.get("tool_calls"), list) and clean_item["tool_calls"]:
+        transformed = dict(item)
+        if isinstance(transformed.get("assistant_reply"), str):
+            stripped_hist = _strip_leaked_tool_markup(transformed["assistant_reply"])
+            if not stripped_hist and isinstance(transformed.get("tool_calls"), list) and transformed["tool_calls"]:
                 stripped_hist = _build_tool_trace_fallback_reply(
-                    clean_item["tool_calls"],
-                    str(clean_item.get("user_message") or ""),
+                    transformed["tool_calls"],
+                    str(transformed.get("user_message") or ""),
                 )
-            clean_item["assistant_reply"] = stripped_hist
-        entries.append(clean_item)
+            transformed["assistant_reply"] = stripped_hist
+        entries.append(redact_secrets_in_obj(transformed, extra_secrets=extra_secrets))
     return entries[-max_turns:]
 
 
@@ -1625,14 +1635,8 @@ def create_control_plane_app(
 
         vault = SecretVault()
         prov = vault.provider_status()
-        configured_providers = [k for k, v in prov.items() if v.get("configured")]
-        raw_default_provider = str(os.environ.get("MRNAX_DEFAULT_LLM_PROVIDER", "")).strip().lower()
-        if raw_default_provider not in DEFAULT_PROVIDER_MODELS:
-            default_llm_provider = "deepseek"
-        elif configured_providers and raw_default_provider not in configured_providers:
-            default_llm_provider = "deepseek" if "deepseek" in configured_providers else configured_providers[0]
-        else:
-            default_llm_provider = raw_default_provider
+        configured_providers = [k for k, v in prov.items() if v.get("configured") and k in DEFAULT_PROVIDER_MODELS]
+        default_llm_provider = _resolve_default_llm_provider(configured_providers)
         token_valid = _is_valid_admin_token(x_mrnax_access_token)
         with enforce_local_heavy_binaries_policy(disable_local_heavy_binaries):
             engines_status = detect_available_engines(resolved_seed)
@@ -2180,7 +2184,17 @@ def create_control_plane_app(
                 status_code=400,
                 detail="Provider mismatch between X-MRNAX-LLM-Provider header and request body provider.",
             )
-        effective_provider = header_provider or req.provider or "deepseek"
+        byo_clean = (x_mrnax_llm_key or "").strip()
+        if header_provider or req.provider:
+            effective_provider = header_provider or req.provider or "deepseek"
+        elif byo_clean:
+            effective_provider = "gemini" if byo_clean.startswith("AIza") else "deepseek"
+        else:
+            vault_prov_status = SecretVault().provider_status()
+            ready_srv_provs = [
+                k for k, v in vault_prov_status.items() if v.get("configured") and k in DEFAULT_PROVIDER_MODELS
+            ]
+            effective_provider = _resolve_default_llm_provider(ready_srv_provs)
 
         cookie_cap = request.cookies.get(f"mrnax_pk_{project_id}")
         pre_secrets = _collect_active_secrets(x_mrnax_llm_key, x_mrnax_access_token, x_mrnax_project_key, cookie_cap)
@@ -2207,7 +2221,6 @@ def create_control_plane_app(
         req_digest = hashlib.sha256(
             json.dumps(digest_payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
         ).hexdigest()
-        byo_clean = (x_mrnax_llm_key or "").strip()
         claim_proof = (
             hashlib.sha256(
                 f"{req_key or 'no_id'}:{req_digest}:{hashlib.sha256(byo_clean.encode('utf-8')).hexdigest()}".encode("utf-8")
@@ -2384,8 +2397,26 @@ def create_control_plane_app(
                     )
                 cached_resp = prior_req_record.get("response")
                 if isinstance(cached_resp, dict):
+                    sanitized_cached = dict(cached_resp)
+                    if isinstance(sanitized_cached.get("assistant_reply"), str):
+                        clean_cached_reply = _strip_leaked_tool_markup(sanitized_cached["assistant_reply"])
+                        if not clean_cached_reply and (
+                            sanitized_cached.get("tool_calls")
+                            or sanitized_cached.get("candidates")
+                            or sanitized_cached.get("blocking_questions")
+                        ):
+                            c_trace: list[dict[str, Any]] = []
+                            if sanitized_cached.get("candidates"):
+                                c_trace.append({"name": "design_constructs", "result": {"candidates": sanitized_cached["candidates"]}})
+                            if sanitized_cached.get("blocking_questions"):
+                                c_trace.append({"name": "clarify", "result": {"blocking_questions": list(sanitized_cached["blocking_questions"])}})
+                            clean_cached_reply = _build_tool_trace_fallback_reply(
+                                c_trace or list(sanitized_cached.get("tool_calls") or []),
+                                str(req.message or ""),
+                            )
+                        sanitized_cached["assistant_reply"] = clean_cached_reply
                     out_cached = redact_secrets_in_obj(
-                        dict(cached_resp), extra_secrets=active_secrets, redact_keys=False
+                        sanitized_cached, extra_secrets=active_secrets, redact_keys=False
                     )
                     for pkey in ("status", "provider", "model"):
                         if pkey in cached_resp:

@@ -2070,7 +2070,7 @@ test("v2.5.3 upgrades: rich markdown tables/headings, DSML strip, target import 
             default_llm_provider: "openai",
             server_llm_providers_ready: ["openai", "deepseek"],
             default_llm_models: { openai: "gpt-5.4", deepseek: "deepseek-flash" },
-            supported_llm_models: { openai: ["gpt-5.4", "gpt-6.2-astra"], deepseek: ["deepseek-flash"] },
+            supported_llm_models: { openai: ["gpt-5.4", "gpt-6.2-astra"], deepseek: ["deepseek-flash", "deepseek-v4-pro"] },
           }),
         };
       }
@@ -2094,4 +2094,109 @@ test("v2.5.3 upgrades: rich markdown tables/headings, DSML strip, target import 
   await run("refreshSystemStatus()");
   assert.equal(run("state.llmProvider"), "deepseek");
   assert.equal(run("state.llmModel"), "deepseek-flash");
+
+  // 5. Legacy v2.5.2 explicit non-default choice (e.g. deepseek-v4-pro without mrnax_user_chose_model) is preserved
+  storageMap.clear();
+  storageMap.set("mrnax_llm_provider", "deepseek");
+  storageMap.set("mrnax_llm_model", "deepseek-v4-pro");
+  run("initConfig(); state.activeVersion = 0;");
+  assert.equal(run("state.userChoseModel"), true);
+  await run("refreshSystemStatus()");
+  assert.equal(run("state.llmProvider"), "deepseek");
+  assert.equal(run("state.llmModel"), "deepseek-v4-pro");
+
+  // 6. Linear/circRNA copilot action chip preserves existing target protein & compliance track
+  run(`
+    state.modality = "circrna";
+    state.intentHistory = [{ intent_id: "i_custom", intent_version: 1, status: "ready" }];
+    document.getElementById("sel-profile").value = "commercial_clean";
+    document.getElementById("input-protein").value = "MCUSTOMTARGET";
+    state.proteinAccession = "UniProt:Q88888";
+    window.__capturedChipCalls = [];
+    runRefineTurn = (overridePayload, utt) => {
+      window.__capturedChipCalls.push({ overridePayload, utt, prot: document.getElementById("input-protein").value, prof: document.getElementById("sel-profile").value });
+    };
+  `);
+  document.getElementById("chat-stream").listeners.click({
+    target: { closest: () => ({ dataset: { copilotAct: "linear" } }) },
+  });
+  assert.equal(run("window.__capturedChipCalls.length"), 1);
+  assert.equal(run("window.__capturedChipCalls[0].overridePayload.modality"), "linear_mrna");
+  assert.equal(run("window.__capturedChipCalls[0].prot"), "MCUSTOMTARGET");
+  assert.equal(run("window.__capturedChipCalls[0].prof"), "commercial_clean");
+
+  // 7. Pending turn before Target Resolver import cannot overwrite imported target; gateway change invalidates pending rules
+  run(`
+    state.configGeneration = 1;
+    window.__rulesGwResolvers = [];
+    window.fetch = (url) => new Promise((resolve) => {
+      window.__rulesGwResolvers.push({ url: String(url), resolve });
+    });
+    window.__gwRulesPending = loadScientificRules();
+    state.configGeneration = 2;
+    state.rulesCache = null;
+  `);
+  await run(`(async () => {
+    window.__rulesGwResolvers[0].resolve({
+      ok: true,
+      status: 200,
+      headers: { get: () => "application/json" },
+      text: async () => JSON.stringify({ rules: [{ rule_id: "STALE_GW" }] }),
+    });
+    await window.__gwRulesPending;
+  })()`);
+  assert.equal(run("state.rulesCache"), null);
+
+  // Also verify pending runInitialTurn cannot overwrite imported target after btn-import-resolved-protein click
+  run(`
+    setExecMode("deterministic");
+    document.getElementById("input-protein").value = "MORIGINALTARGET";
+    window.__turnResolve = null;
+    window.fetch = (url) => {
+      if (String(url).includes("/turn")) {
+        return new Promise((resolve) => { window.__turnResolve = resolve; });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        headers: { get: () => "application/json" },
+        text: async () => JSON.stringify({ protein: { matched: true, gene_symbol: "EPO", uniprot_accession: "P01588", protein_sequence: "MIMPORTEDNEW", aa_length: 12, starts_with_met: true } }),
+      });
+    };
+    window.__pendingRaceTurn = runInitialTurn("Compile old", { fromForm: true });
+  `);
+  await run('resolveTargetProteinInHub("EPO")');
+  listenerMap.get("btn-import-resolved-protein").click();
+  assert.equal(document.getElementById("input-protein").value, "MIMPORTEDNEW");
+  await run(`(async () => {
+    window.__turnResolve({
+      ok: true,
+      status: 200,
+      headers: { get: () => "application/json" },
+      text: async () => JSON.stringify({ status: "COMPLETED", intent: { intent_id: "prior-race", intent_version: 1, status: "ready", protein_targets: [{ protein_sequence: "MORIGINALTARGET" }], locked_scopes: {} }, candidates: [] }),
+    });
+    await window.__pendingRaceTurn;
+  })()`);
+  assert.equal(document.getElementById("input-protein").value, "MIMPORTEDNEW");
+
+  // 8. Markdown cell caps bound pathological tables & research_max pure_seq_gc_approx badge avoids misleading commercial claim
+  const hugeHeader = Array.from({ length: 24 }, (_, i) => `C${i}`).join("|");
+  const hugeDiv = Array.from({ length: 24 }, () => "---").join("|");
+  const hugeTableHtml = run(`formatSafeMarkdown("${hugeHeader}\\n${hugeDiv}\\n${hugeHeader}")`);
+  assert.match(hugeTableHtml, /表格已按安全上限截断/);
+
+  run(`
+    document.getElementById("sel-profile").value = "research_max";
+    renderStructureVisuals({ mfe_method: "pure_seq_gc_approx", engines_used: ["mRNAxPureSeqApprox"], initiation_window: { sequence: "AUGCCC", arcs: [] } }, { segments: [] });
+  `);
+  assert.doesNotMatch(document.getElementById("structure-source-badge").textContent, /商业洁净轨/);
+
+  // 9. Benchmark chemistry for custom pasted sequence is NOT overwritten on tab switch
+  run(`
+    document.getElementById("bench-custom-seq").value = "AUGCCCCCCCC";
+    document.getElementById("bench-chemistry").value = "pseudouridine";
+    state.modality = "circrna";
+    switchWorkspaceTab("benchmarks");
+  `);
+  assert.equal(document.getElementById("bench-chemistry").value, "pseudouridine");
 });

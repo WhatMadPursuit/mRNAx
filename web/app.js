@@ -470,6 +470,7 @@ const state = {
   callerTokenAuthenticated: false,
   userChoseExecMode: false,
   userChoseModel: false,
+  userChoseBenchChem: false,
   activeRequestCount: 0,
   inFlight: false,
   lastFailedTurn: null,
@@ -573,13 +574,54 @@ function extractSandboxedText(val) {
 }
 
 function stripLeakedMarkupClient(rawText) {
-  let s = rawText == null ? "" : String(rawText);
-  s = s.replace(/<\s*[｜|]+\s*\/?\s*DSML\s*[｜|]+\s*calls\b[^>]*>[\s\S]*?<\s*\/\s*[｜|]+\s*DSML\s*[｜|]+\s*calls\s*>/gi, "");
-  s = s.replace(/<\s*[｜|]+\s*DSML\s*[｜|]+[^>]*>[\s\S]*?<\s*\/\s*[｜|]+\s*DSML\s*[｜|]+[^>]*>/gi, "");
-  s = s.replace(/<\s*\/?\s*[｜|]+\s*DSML\s*[｜|]+.*?(?:>|$)/gis, "");
-  s = s.replace(/<\s*tool_call\b[^>]*>[\s\S]*?<\s*\/\s*tool_call\s*>/gi, "");
-  s = s.replace(/<\s*\/?\s*tool_call\b[^>]*>/gi, "");
-  return s.trim();
+  const raw = rawText == null ? "" : String(rawText);
+  if (!raw || !raw.includes("<")) return raw.trim();
+  const startRe = /<\s*(\/?)\s*(?:([｜|]+)\s*DSML\s*[｜|]+\s*([A-Za-z_][A-Za-z0-9_-]*)?|(tool_call)\b)/gi;
+  let out = "";
+  let pos = 0;
+  while (pos < raw.length) {
+    startRe.lastIndex = pos;
+    const m = startRe.exec(raw);
+    if (!m) {
+      out += raw.slice(pos);
+      break;
+    }
+    out += raw.slice(pos, m.index);
+    const isClose = m[1] === "/";
+    const isToolCall = Boolean(m[4]);
+    const dsmlTag = (m[3] || "").toLowerCase();
+    const gtIdx = raw.indexOf(">", startRe.lastIndex);
+    if (isClose) {
+      if (gtIdx === -1) break;
+      pos = gtIdx + 1;
+      continue;
+    }
+    if (isToolCall) {
+      const endRe = /<\s*\/\s*tool_call\s*>/gi;
+      endRe.lastIndex = startRe.lastIndex;
+      const endM = endRe.exec(raw);
+      if (endM) {
+        pos = endRe.lastIndex;
+        continue;
+      }
+      break;
+    }
+    if (gtIdx !== -1 && gtIdx >= 2 && raw[gtIdx - 1] === "/") {
+      pos = gtIdx + 1;
+      continue;
+    }
+    const endRe = dsmlTag
+      ? new RegExp(`<\\s*/\\s*[｜|]+\\s*DSML\\s*[｜|]+\\s*${dsmlTag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*>`, "gi")
+      : /<\s*\/\s*[｜|]+\s*DSML\s*[｜|]+[^>]*>/gi;
+    endRe.lastIndex = gtIdx !== -1 ? gtIdx + 1 : startRe.lastIndex;
+    const endM = endRe.exec(raw);
+    if (endM) {
+      pos = endRe.lastIndex;
+      continue;
+    }
+    break;
+  }
+  return out.trim();
 }
 
 function formatSafeMarkdown(rawText) {
@@ -616,11 +658,23 @@ function formatSafeMarkdown(rawText) {
 
     if (isTableRowLine(line) && i + 1 < lines.length && isTableDividerLine(lines[i + 1])) {
       closeList();
-      const headers = splitTableCells(line);
+      const MAX_TABLE_COLS = 16;
+      const MAX_TABLE_ROWS = 120;
+      const MAX_TABLE_CELLS = 1000;
+      const allHeaders = splitTableCells(line);
+      const headers = allHeaders.slice(0, MAX_TABLE_COLS);
+      const colTruncated = allHeaders.length > headers.length;
+      const maxRowsByCells = Math.max(1, Math.floor(MAX_TABLE_CELLS / Math.max(1, headers.length)));
+      const rowCap = Math.min(MAX_TABLE_ROWS, maxRowsByCells);
       i += 2;
       const bodyRows = [];
+      let rowTruncated = false;
       while (i < lines.length && isTableRowLine(lines[i]) && !isTableDividerLine(lines[i])) {
-        bodyRows.push(splitTableCells(lines[i]));
+        if (bodyRows.length < rowCap) {
+          bodyRows.push(splitTableCells(lines[i]).slice(0, headers.length));
+        } else {
+          rowTruncated = true;
+        }
         i += 1;
       }
       i -= 1;
@@ -631,7 +685,11 @@ function formatSafeMarkdown(rawText) {
           return `<tr>${padded.map((c) => `<td>${c}</td>`).join("")}</tr>`;
         })
         .join("");
-      out.push(`<div class="md-table-wrap"><table class="md-table"><thead><tr>${thHtml}</tr></thead><tbody>${tbHtml}</tbody></table></div>`);
+      const capNote =
+        colTruncated || rowTruncated
+          ? `<div class="mono meta-muted" style="font-size:10.5px;margin-top:3px;">（表格已按安全上限截断显示 ${headers.length} 列 × ${bodyRows.length} 行）</div>`
+          : "";
+      out.push(`<div class="md-table-wrap"><table class="md-table"><thead><tr>${thHtml}</tr></thead><tbody>${tbHtml}</tbody></table>${capNote}</div>`);
       continue;
     }
 
@@ -1221,10 +1279,14 @@ function initConfig() {
 
   const storedProv = safeStorageGet("local", "mrnax_llm_provider");
   const storedModel = safeStorageGet("local", "mrnax_llm_model");
+  const cleanStoredProv = storedProv ? storedProv.trim().toLowerCase() : "";
+  const isKnownStoredProv = Boolean(cleanStoredProv && getSupportedProviderList().includes(cleanStoredProv));
+  const isUntouchedLegacyDefault =
+    (!cleanStoredProv || cleanStoredProv === "deepseek") &&
+    (!storedModel || storedModel === "deepseek-flash");
   state.userChoseModel =
-    safeStorageGet("local", "mrnax_user_chose_model") === "1" &&
-    Boolean(storedProv) &&
-    Boolean(storedModel);
+    safeStorageGet("local", "mrnax_user_chose_model") === "1" ||
+    Boolean((isKnownStoredProv && !isUntouchedLegacyDefault) || (storedModel && storedModel !== "deepseek-flash"));
   setProviderPreference(storedProv);
   setModelPreference(storedModel || DEFAULT_PROVIDER_MODELS[state.llmProvider]);
 
@@ -2637,8 +2699,12 @@ function renderStructureArcSvg(profile) {
   const enginesRaw = Array.isArray(profile.engines_used) ? profile.engines_used.join(" + ") : "";
   const isPureSeqApprox =
     profile.mfe_method === "pure_seq_gc_approx" || enginesRaw.toLowerCase().includes("pureseqapprox");
+  const profTrack = document.getElementById("sel-profile")?.value || "";
+  const isCommercialTrack = profTrack === "commercial_clean";
   const emptyArcText = isPureSeqApprox
-    ? "商业洁净轨已屏蔽非商用 ViennaRNA（仅展示纯序列滑窗）；切至 SOTA Open 可看配分函数弧图"
+    ? isCommercialTrack
+      ? "商业洁净轨已屏蔽非商用 ViennaRNA（仅展示纯序列滑窗）；切至 SOTA Open 可看配分函数弧图"
+      : "当前网关未启用 ViennaRNA，暂无碱基配分函数弧图（仅展示纯序列滑窗扫描）"
     : "起始窗口高度开放（零强配对茎环 p≥0.15）";
 
   box.innerHTML = `
@@ -2755,11 +2821,16 @@ function renderStructureVisuals(profile, chain) {
     const isVienna = engines.toLowerCase().includes("viennarna");
     const isPureSeqApprox =
       profile.mfe_method === "pure_seq_gc_approx" || engines.toLowerCase().includes("pureseqapprox");
+    const profTrack = document.getElementById("sel-profile")?.value || "";
+    const isCommercialTrack = profTrack === "commercial_clean";
     if (isVienna) {
       srcBadge.textContent = "ViennaRNA 精确配分函数";
       srcBadge.className = "badge mono ok";
-    } else if (isPureSeqApprox) {
+    } else if (isPureSeqApprox && isCommercialTrack) {
       srcBadge.textContent = "商业洁净轨 · 纯序列滑窗扫描（已屏蔽非商用 ViennaRNA）";
+      srcBadge.className = "badge mono teal";
+    } else if (isPureSeqApprox) {
+      srcBadge.textContent = "纯序列滑窗近似扫描（当前网关未启用 ViennaRNA）";
       srcBadge.className = "badge mono teal";
     } else {
       srcBadge.textContent = "快速序列热力学扫描";
@@ -3769,10 +3840,11 @@ function beginBusyIndicator(modeLabel, reqEpoch) {
     stopped = true;
     if (timerId !== null && typeof clearInterval === "function") clearInterval(timerId);
     if (pendingCard && typeof pendingCard.remove === "function") pendingCard.remove();
-    if (reqEpoch === state.sessionEpoch) {
-      state.activeRequestCount = Math.max(0, state.activeRequestCount - 1);
-      state.inFlight = state.activeRequestCount > 0;
+    if (reqEpoch !== state.sessionEpoch) {
+      return;
     }
+    state.activeRequestCount = Math.max(0, state.activeRequestCount - 1);
+    state.inFlight = state.activeRequestCount > 0;
     if (!state.inFlight) {
       if (btnSend) {
         btnSend.textContent = getSelectedExecMode() === "llm_agent" ? "发送给 Agent ↵" : "编译生成 ↵";
@@ -4739,6 +4811,8 @@ async function loadScientificRules() {
   const incDeb = Boolean(document.getElementById("rules-chk-debunked")?.checked ?? true);
 
   const reqSeq = (state.rulesRequestSeq = (state.rulesRequestSeq || 0) + 1);
+  const reqGen = state.configGeneration;
+  const reqOrigin = normalizeOrigin(state.apiBase);
   const listEl = document.getElementById("rules-list");
   if (listEl && !state.rulesCache) {
     listEl.innerHTML = `<div class="panel-surface empty-hint mono" style="grid-column: 1 / -1;">正在检索定量规律…</div>`;
@@ -4752,19 +4826,37 @@ async function loadScientificRules() {
   params.set("include_debunked", String(incDeb));
 
   try {
-    const res = await apiFetch(`/api/v1/rules?${params.toString()}`, { includeAuth: false });
-    if (reqSeq !== state.rulesRequestSeq) return null;
+    const res = await apiFetch(`/api/v1/rules?${params.toString()}`, { includeAuth: false, explicitApiBase: reqOrigin });
+    if (
+      reqSeq !== state.rulesRequestSeq ||
+      reqGen !== state.configGeneration ||
+      reqOrigin !== normalizeOrigin(state.apiBase)
+    ) {
+      return null;
+    }
     if (res && Array.isArray(res.rules)) {
       state.rulesCache = res;
       renderRulesAtlas(res);
       return res;
     }
   } catch {
-    if (reqSeq !== state.rulesRequestSeq) return null;
+    if (
+      reqSeq !== state.rulesRequestSeq ||
+      reqGen !== state.configGeneration ||
+      reqOrigin !== normalizeOrigin(state.apiBase)
+    ) {
+      return null;
+    }
     // Offline fallback filtering
   }
 
-  if (reqSeq !== state.rulesRequestSeq) return null;
+  if (
+    reqSeq !== state.rulesRequestSeq ||
+    reqGen !== state.configGeneration ||
+    reqOrigin !== normalizeOrigin(state.apiBase)
+  ) {
+    return null;
+  }
   const filtered = FALLBACK_SCIENTIFIC_RULES.filter((r) => {
     if (!incDeb && r.evidence_grade === "debunked_myth") return false;
     if (grd && r.evidence_grade !== grd) return false;
@@ -5386,8 +5478,40 @@ async function resolveTargetProteinInHub(customQuery = null) {
   if (impBtn && typeof impBtn.addEventListener === "function") {
     impBtn.addEventListener("click", () => {
       if (!state.resolvedTarget || !state.resolvedTarget.protein_sequence) return;
-      const geneLbl = state.resolvedTarget.gene_symbol || state.resolvedTarget.uniprot_accession || "目标蛋白";
-      const aaLen = String(state.resolvedTarget.protein_sequence).length;
+      const importedTarget = { ...state.resolvedTarget };
+      const geneLbl = importedTarget.gene_symbol || importedTarget.uniprot_accession || "目标蛋白";
+      const aaLen = String(importedTarget.protein_sequence).length;
+      state.sessionEpoch += 1;
+      state.turnSequence += 1;
+      state.appliedTurnSequence = state.turnSequence;
+      state.activeRequestCount = 0;
+      state.inFlight = false;
+      state.projectId = `proj_${Math.random().toString(36).slice(2, 8)}`;
+      state.projectKey = mintProjectKey();
+      state.intentHistory = [];
+      state.completedRevisions = [];
+      state.activeVersion = 0;
+      state.activeIntentStatus = "";
+      state.lastFailedTurn = null;
+      state.latestReport = null;
+      state.candidates = [];
+      state.selectedBundleId = null;
+      state.lastCliCommand = "";
+      state.cachedExports = {};
+      state.userChoseBenchChem = false;
+
+      const txtProj = document.getElementById("txt-project-id");
+      if (txtProj) txtProj.textContent = state.projectId;
+      const ledger = document.getElementById("revision-ledger");
+      if (ledger) ledger.hidden = true;
+      const badgeOut = document.getElementById("badge-outcome");
+      if (badgeOut) {
+        badgeOut.textContent = "IDLE";
+        badgeOut.className = "badge mono";
+      }
+      updateActiveRevBadge();
+      renderIntentLineage();
+
       setModality("linear_mrna");
       setEntryMode("protein_only");
       const chemEl = document.getElementById("sel-chemistry");
@@ -5395,31 +5519,33 @@ async function resolveTargetProteinInHub(customQuery = null) {
       setSelectedEnzymes(["BsaI"]);
       const protField = document.getElementById("input-protein");
       if (protField) {
-        protField.value = state.resolvedTarget.protein_sequence;
+        protField.value = importedTarget.protein_sequence;
         state.additionalProteinSequences = [];
         state.proteinAccession =
-          state.resolvedTarget.accession_or_source ||
-          state.resolvedTarget.accession_source ||
-          (state.resolvedTarget.uniprot_accession ? `UniProt:${state.resolvedTarget.uniprot_accession}` : "user_supplied");
+          importedTarget.accession_or_source ||
+          importedTarget.accession_source ||
+          (importedTarget.uniprot_accession ? `UniProt:${importedTarget.uniprot_accession}` : "user_supplied");
         state.userEditedProtein = true;
         updateProteinBadge();
       }
       const utt = document.getElementById("input-utterance");
       if (utt) {
-        utt.value = `从零设计 ${geneLbl} (${state.resolvedTarget.uniprot_accession || "UniProt"}) mRNA，m¹Ψ 修饰，避开 BsaI，蛋白序列 100% 锁定。`;
+        utt.value = `从零设计 ${geneLbl} (${importedTarget.uniprot_accession || "UniProt"}) mRNA，m¹Ψ 修饰，避开 BsaI，蛋白序列 100% 锁定。`;
       }
-      state.latestReport = null;
-      state.candidates = [];
-      state.selectedBundleId = null;
-      state.lastCliCommand = "";
-      state.cachedExports = {};
       renderCandidates();
       syncBenchmarkSelectedLabel();
+      if (typeof syncActionControlsDisabled === "function") syncActionControlsDisabled();
+      const btnSend = document.getElementById("btn-send-turn");
+      if (btnSend) {
+        btnSend.textContent = getSelectedExecMode() === "llm_agent" ? "发送给 Agent ↵" : "编译生成 ↵";
+      }
+      const btnForm = document.getElementById("btn-submit-initial");
+      if (btnForm) btnForm.textContent = "按表单直接编译";
       const banner = document.getElementById("banner-notes");
       if (banner) {
         banner.hidden = false;
         banner.className = "notice-banner";
-        banner.textContent = `已导入新靶点 ${geneLbl} (${aaLen} aa) 并重置为 Linear mRNA / m¹Ψ / 避开 BsaI，请点击「发送给 Agent」或「编译生成」生成候选序列。`;
+        banner.textContent = `已导入新靶点 ${geneLbl} (${aaLen} aa) 并开启全新项目空间 (Linear mRNA / m¹Ψ / 避开 BsaI)，请点击「发送给 Agent」或「编译生成」生成候选序列。`;
       }
       switchWorkspaceTab("studio");
     });
@@ -5439,8 +5565,9 @@ function syncBenchmarkSelectedLabel() {
       lbl.textContent = "当前源：粘贴或默认 eGFP 参考序列";
     }
   }
+  const customSeq = (document.getElementById("bench-custom-seq")?.value || "").trim();
   const chemSel = document.getElementById("bench-chemistry");
-  if (chemSel) {
+  if (chemSel && !customSeq && !state.userChoseBenchChem) {
     const activeMod = cand?.modality || state.modality || "linear_mrna";
     const latestIntent = state.intentHistory.length ? state.intentHistory[state.intentHistory.length - 1] : null;
     const effChem =
@@ -6102,6 +6229,7 @@ function saveSettingsFromModal() {
 
   if (originChanged) {
     state.systemStatus = null;
+    state.rulesRequestSeq = (state.rulesRequestSeq || 0) + 1;
     state.rulesCache = null;
     state.dataHubCache = null;
     state.structureCache = {};
@@ -6696,12 +6824,34 @@ function wireEvents() {
         user_utterance: "把 BsaI 改成避开 BspQI，其余锁定项继承不变",
         restriction_enzymes: ["BspQI"],
       });
-    } else if (act === "circrna") {
-      setModality("circrna");
-      document.getElementById("starter-circ")?.click();
-    } else if (act === "linear") {
-      setModality("linear_mrna");
-      document.getElementById("starter-egfp")?.click();
+    } else if (act === "circrna" || act === "linear") {
+      const targetMod = act === "circrna" ? "circrna" : "linear_mrna";
+      const targetScaf = defaultScaffoldForModality(targetMod);
+      const targetChem = targetMod === "circrna" ? "unmodified_u" : "m1psi";
+      const targetUtr =
+        targetMod === "circrna"
+          ? "切换模态为 circRNA（保留当前靶点蛋白与合规轨）"
+          : "切换模态为 Linear mRNA（保留当前靶点蛋白与合规轨）";
+      setModality(targetMod);
+      const scafEl = document.getElementById("sel-scaffold");
+      if (scafEl) scafEl.value = targetScaf;
+      const chemEl = document.getElementById("sel-chemistry");
+      if (chemEl) chemEl.value = targetChem;
+      updateSetupSummary();
+      if (state.intentHistory.length > 0) {
+        runRefineTurn(
+          {
+            mode: "refine",
+            user_utterance: targetUtr,
+            modality: targetMod,
+            scaffold_id: targetScaf,
+            uridine_chemistry: targetChem,
+          },
+          targetUtr
+        );
+      } else {
+        runInitialTurn(targetUtr, { fromForm: true });
+      }
     } else if (act === "compare") {
       openCandidateComparisonModal();
     } else if (act === "ivt") {
@@ -6881,6 +7031,9 @@ function wireEvents() {
   document.getElementById("dh-dataset-filter-q")?.addEventListener("input", renderDataHubDatasetsTable);
 
   // Tab 4: Clinical Benchmark & Wet-Lab Events
+  document.getElementById("bench-chemistry")?.addEventListener("change", () => {
+    state.userChoseBenchChem = true;
+  });
   document.getElementById("btn-run-clinical-bench")?.addEventListener("click", runClinicalBenchmarkCompare);
   document.getElementById("btn-load-sample-wetlab-small")?.addEventListener("click", () => loadWetLabSampleRows(4));
   document.getElementById("btn-load-sample-wetlab-cal")?.addEventListener("click", () => loadWetLabSampleRows(8));

@@ -597,17 +597,13 @@ def _post_json_bounded(
         )
 
 
-_DSML_CALLS_BLOCK_RE = re.compile(
-    r"<\s*[｜|]+\s*/?\s*DSML\s*[｜|]+\s*calls\b[^>]*>.*?<\s*/\s*[｜|]+\s*DSML\s*[｜|]+\s*calls\s*>",
-    re.DOTALL | re.IGNORECASE,
+_MARKUP_START_RE = re.compile(
+    r"<\s*(/?)\s*(?:([｜|]+)\s*DSML\s*[｜|]+\s*([A-Za-z_][A-Za-z0-9_-]*)?|(tool_call)\b)",
+    re.IGNORECASE,
 )
-_DSML_PAIR_RE = re.compile(
-    r"<\s*[｜|]+\s*DSML\s*[｜|]+[^>]*>.*?<\s*/\s*[｜|]+\s*DSML\s*[｜|]+[^>]*>",
-    re.DOTALL | re.IGNORECASE,
-)
-_DSML_TAG_RE = re.compile(r"<\s*/?\s*[｜|]+\s*DSML\s*[｜|]+.*?(?:>|$)", re.DOTALL | re.IGNORECASE)
-_TOOL_CALL_BLOCK_RE = re.compile(r"<\s*tool_call\b[^>]*>.*?<\s*/\s*tool_call\s*>", re.DOTALL | re.IGNORECASE)
-_TOOL_CALL_TAG_RE = re.compile(r"<\s*/?\s*tool_call\b[^>]*>", re.IGNORECASE)
+_SAFE_GENE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$")
+_SAFE_ACC_RE = re.compile(r"^(?:UniProt:|GenBank:|RefSeq:)?[A-Za-z0-9][A-Za-z0-9_.-]{1,23}$")
+_SAFE_LABEL_RE = re.compile(r"^[A-Za-z0-9\u4e00-\u9fff][A-Za-z0-9\u4e00-\u9fff #_().+/:-]{0,47}$")
 _NON_RETRYABLE_429_MARKERS = (
     "credit_balance",
     "insufficient_quota",
@@ -616,28 +612,76 @@ _NON_RETRYABLE_429_MARKERS = (
     "account_deactivated",
 )
 _TRANSIENT_429_RETRY_DELAYS = (1.5, 3.0)
+_MAX_HONORED_RETRY_AFTER_SEC = 30.0
 
 
 def _strip_leaked_tool_markup(text: str) -> str:
-    """Remove leaked model XML/DSML tool-call markup before persisting or displaying replies."""
-    if not text:
-        return ""
-    cleaned = _DSML_CALLS_BLOCK_RE.sub("", str(text))
-    cleaned = _DSML_PAIR_RE.sub("", cleaned)
-    cleaned = _DSML_TAG_RE.sub("", cleaned)
-    cleaned = _TOOL_CALL_BLOCK_RE.sub("", cleaned)
-    cleaned = _TOOL_CALL_TAG_RE.sub("", cleaned)
-    return cleaned.strip()
+    """Linear-time bounded removal of leaked XML/DSML tool-call markup without regex backtracking."""
+    raw = str(text or "")
+    if not raw or "<" not in raw:
+        return raw.strip()
+    out: list[str] = []
+    pos = 0
+    n = len(raw)
+    while pos < n:
+        m = _MARKUP_START_RE.search(raw, pos)
+        if m is None:
+            out.append(raw[pos:])
+            break
+        out.append(raw[pos : m.start()])
+        is_close = m.group(1) == "/"
+        is_tool_call = bool(m.group(4))
+        dsml_tag = (m.group(3) or "").lower()
+        gt_idx = raw.find(">", m.end())
+        if is_close:
+            if gt_idx == -1:
+                break
+            pos = gt_idx + 1
+            continue
+        if is_tool_call:
+            end_m = re.search(r"<\s*/\s*tool_call\s*>", raw[m.end() :], re.IGNORECASE)
+            if end_m is not None:
+                pos = m.end() + end_m.end()
+                continue
+            break
+        # Opening DSML block (e.g. calls / invoke / parameter): consume paired end tag or drop unclosed tail
+        if gt_idx != -1 and gt_idx >= 2 and raw[gt_idx - 1] == "/":
+            pos = gt_idx + 1
+            continue
+        end_pat = (
+            re.compile(rf"<\s*/\s*[｜|]+\s*DSML\s*[｜|]+\s*{re.escape(dsml_tag)}\s*>", re.IGNORECASE)
+            if dsml_tag
+            else re.compile(r"<\s*/\s*[｜|]+\s*DSML\s*[｜|]+[^>]*>", re.IGNORECASE)
+        )
+        search_from = (gt_idx + 1) if gt_idx != -1 else m.end()
+        end_m = end_pat.search(raw, search_from)
+        if end_m is not None:
+            pos = end_m.end()
+            continue
+        # Unclosed trailing DSML invocation/parameter tail: drop remainder cleanly
+        break
+    return "".join(out).strip()
+
+
+def _sanitize_short_fallback_token(val: Any, pattern: re.Pattern[str]) -> str | None:
+    text = str(val or "").strip()
+    if not text or any(ch in text for ch in "<>[]{}|\r\n\t"):
+        return None
+    if not pattern.fullmatch(text):
+        return None
+    return text
 
 
 def _build_tool_trace_fallback_reply(tool_trace: list[dict[str, Any]], user_text: str = "") -> str:
-    """Synthesize a clean summary from tool execution results when final reply text is empty."""
+    """Synthesize a clean, validated summary strictly from successful current-turn tool results."""
     is_zh = bool(re.search(r"[\u4e00-\u9fff]", str(user_text or "")))
     resolved_labels: list[str] = []
     seen_targets: set[str] = set()
     cand_count: int | None = None
     top_label: str | None = None
     questions: list[str] = []
+    had_success = False
+    had_error = False
 
     for entry in tool_trace:
         if not isinstance(entry, dict):
@@ -645,23 +689,35 @@ def _build_tool_trace_fallback_reply(tool_trace: list[dict[str, Any]], user_text
         res = entry.get("result")
         if not isinstance(res, dict):
             continue
-        sym = str(res.get("gene_symbol") or "").strip()
-        acc = str(res.get("uniprot_accession") or "").strip()
+        if res.get("error"):
+            had_error = True
+            continue
+        if res.get("matched") is False:
+            continue
+        had_success = True
+        sym = _sanitize_short_fallback_token(res.get("gene_symbol"), _SAFE_GENE_RE) or ""
+        acc = _sanitize_short_fallback_token(res.get("uniprot_accession"), _SAFE_ACC_RE) or ""
         if sym or acc:
             lbl = f"{sym} ({acc})" if sym and acc else (sym or acc)
             if lbl not in seen_targets:
                 seen_targets.add(lbl)
                 resolved_labels.append(lbl)
         cands = res.get("candidates")
-        if isinstance(cands, list) and cands:
+        if isinstance(cands, list):
             cand_count = len(cands)
-            c0 = cands[0] if isinstance(cands[0], dict) else {}
-            lbl0 = str(c0.get("display_label") or "").strip()
-            top_label = lbl0 or None
+            c0 = cands[0] if cands and isinstance(cands[0], dict) else {}
+            top_label = _sanitize_short_fallback_token(
+                c0.get("display_label") or c0.get("bundle_id"), _SAFE_LABEL_RE
+            )
+        elif isinstance(res.get("qualified_count"), int):
+            cand_count = int(res["qualified_count"])
+            rec_ids = res.get("recommended_bundle_ids")
+            if isinstance(rec_ids, list) and rec_ids:
+                top_label = _sanitize_short_fallback_token(rec_ids[0], _SAFE_LABEL_RE)
         bqs = res.get("blocking_questions")
         if isinstance(bqs, list):
-            for q in bqs:
-                q_str = str(q or "").strip()
+            for q in bqs[:4]:
+                q_str = re.sub(r"[\r\n<>[\]{}|]+", " ", str(q or "")).strip()[:160]
                 if q_str and q_str not in questions:
                     questions.append(q_str)
 
@@ -678,19 +734,56 @@ def _build_tool_trace_fallback_reply(tool_trace: list[dict[str, Any]], user_text
         joined_t = "、".join(resolved_labels[:4]) if is_zh else ", ".join(resolved_labels[:4])
         parts.append(f"已解析目标蛋白：{joined_t}" if is_zh else f"Resolved target protein assets: {joined_t}")
     if cand_count is not None:
-        if is_zh:
+        if cand_count == 0:
+            parts.append(
+                "已完成本轮序列评估，但在当前约束下暂无合格候选（0 条），请放宽或调整约束后重试。"
+                if is_zh
+                else "Sequence evaluation finished with 0 qualifying candidates under current constraints; adjust constraints and retry."
+            )
+        elif is_zh:
             top_part = f"，推荐优先查看「{top_label}」" if top_label else ""
             parts.append(f"已完成序列编译并筛出 {cand_count} 条合格候选{top_part}，可在左侧候选列表、帕累托图与结构轨中查看详情。")
         else:
             top_part = f" with top candidate '{top_label}'" if top_label else ""
             parts.append(f"Compiled {cand_count} qualifying candidate constructs{top_part}; inspect details in the candidates table and structure tracks.")
     if not parts:
+        if had_error and not had_success:
+            return (
+                "本轮工具检索未能成功完成，请检查输入参数或稍后重试。"
+                if is_zh
+                else "Tool execution failed during this turn; please check inputs or retry."
+            )
         return (
             "已完成本轮结构与文献工具检索，请查看左侧面板更新结果或继续指定调整约束。"
             if is_zh
             else "Completed the requested structure and rulebook tool checks; review the updated workspace panels or specify next constraints."
         )
     return "。".join(parts) if is_zh else ". ".join(parts)
+
+
+def _parse_retry_after_seconds(headers: httpx.Headers | None) -> float | None:
+    if headers is None:
+        return None
+    raw = str(headers.get("Retry-After") or "").strip()
+    if not raw:
+        return None
+    try:
+        secs = float(raw)
+        if secs >= 0.0 and not (secs != secs):  # guard NaN
+            return secs
+    except ValueError:
+        pass
+    from datetime import datetime, timezone
+    from email.utils import parsedate_to_datetime
+
+    try:
+        dt = parsedate_to_datetime(raw)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        delta = (dt - datetime.now(timezone.utc)).total_seconds()
+        return max(0.0, delta)
+    except (TypeError, ValueError, OverflowError):
+        return None
 
 
 def _post_json_with_429_retry(
@@ -704,7 +797,7 @@ def _post_json_with_429_retry(
     max_bytes: int = MAX_LLM_RESPONSE_BYTES,
     sleep_fn: Callable[[float], None] | None = None,
 ) -> httpx.Response:
-    """Retry transient rate-limit HTTP 429 responses up to 2 times within overall deadline."""
+    """Retry transient rate-limit HTTP 429 responses while honoring Retry-After and deadline."""
     eff_sleep = sleep_fn if sleep_fn is not None else _time.sleep
     for attempt in range(len(_TRANSIENT_429_RETRY_DELAYS) + 1):
         rem = overall_deadline - _time.monotonic()
@@ -734,7 +827,12 @@ def _post_json_with_429_retry(
             if any(marker in low_body for marker in _NON_RETRYABLE_429_MARKERS):
                 raise
             delay = _TRANSIENT_429_RETRY_DELAYS[attempt]
-            if (overall_deadline - _time.monotonic()) <= (delay + 2.0):
+            retry_after = _parse_retry_after_seconds(exc.response.headers)
+            if retry_after is not None:
+                if retry_after > _MAX_HONORED_RETRY_AFTER_SEC:
+                    raise
+                delay = max(delay, retry_after)
+            if (overall_deadline - _time.monotonic()) <= (delay + 1.5):
                 raise
             eff_sleep(delay)
     raise AssertionError("Unreachable 429 retry state")
@@ -867,17 +965,19 @@ class LiveDialogueAgent:
                     )
         self.tool_call_trace: list[dict[str, Any]] = []
 
-    def _finalize_reply_text(self, raw_content: Any, user_text: str) -> str:
-        """Strip leaked markup, synthesize fallback summary when empty, and sync last assistant turn."""
-        cleaned = redact_secrets_in_text(
-            _strip_leaked_tool_markup(str(raw_content or "")),
-            extra_secrets=self._extra_secrets,
-        )
-        if not cleaned and self.tool_call_trace:
-            cleaned = redact_secrets_in_text(
-                _build_tool_trace_fallback_reply(self.tool_call_trace, user_text),
-                extra_secrets=self._extra_secrets,
-            )
+    def _finalize_reply_text(
+        self,
+        raw_content: Any,
+        user_text: str,
+        *,
+        turn_trace: list[dict[str, Any]] | None = None,
+    ) -> str:
+        """Strip leaked markup, synthesize fallback summary from current-turn trace when empty, and sync history."""
+        active_trace = turn_trace if turn_trace is not None else self.tool_call_trace
+        stripped = _strip_leaked_tool_markup(str(raw_content or ""))
+        if not stripped and active_trace:
+            stripped = _build_tool_trace_fallback_reply(active_trace, user_text)
+        cleaned = redact_secrets_in_text(stripped, extra_secrets=self._extra_secrets)
         if self.messages and self.messages[-1].get("role") == "assistant":
             self.messages[-1]["content"] = cleaned
         return cleaned
@@ -1056,6 +1156,7 @@ class LiveDialogueAgent:
             raise ValueError("Invalid model identifier")
 
         self.messages.append({"role": "user", "content": redact_secrets_in_text(user_text, extra_secrets=active_secrets)})
+        turn_trace_start = len(self.tool_call_trace)
         tools_spec = self.toolbox.openai_tool_schemas() if allow_tools else None
         use_responses_api = _uses_openai_responses_endpoint(
             self.provider, self.model, has_tools=bool(tools_spec)
@@ -1116,7 +1217,11 @@ class LiveDialogueAgent:
                     extra_secrets=active_secrets,
                 )
                 self.messages.append(choice)
-                return self._finalize_reply_text(choice.get("content"), user_text)
+                return self._finalize_reply_text(
+                    choice.get("content"),
+                    user_text,
+                    turn_trace=self.tool_call_trace[turn_trace_start:],
+                )
 
             prev_resp_id: str | None = None
             pending_resp_outputs: list[dict[str, str]] | None = None
@@ -1166,11 +1271,20 @@ class LiveDialogueAgent:
                         _extract_choice_message(resp, allow_tool_calls=True),
                         extra_secrets=active_secrets,
                     )
+                if isinstance(choice.get("content"), str) and choice.get("tool_calls"):
+                    cleaned_mid = redact_secrets_in_text(
+                        _strip_leaked_tool_markup(choice["content"]), extra_secrets=active_secrets
+                    )
+                    choice["content"] = cleaned_mid or None
                 self.messages.append(choice)
 
                 tool_calls = choice.get("tool_calls") or []
                 if not tool_calls:
-                    return self._finalize_reply_text(choice.get("content"), user_text)
+                    return self._finalize_reply_text(
+                        choice.get("content"),
+                        user_text,
+                        turn_trace=self.tool_call_trace[turn_trace_start:],
+                    )
 
                 if self._on_tool_batch_started is not None:
                     self._on_tool_batch_started(
@@ -1278,7 +1392,7 @@ class LiveDialogueAgent:
                     self.messages.append(
                         {
                             "role": "user",
-                            "content": "工具调用已达到本轮上限。请不要再调用任何工具或输出 XML/DSML 标记，直接基于以上工具结果给出简洁清晰的中文/用户语言总结与下一步建议。",
+                            "content": "工具调用已达到本轮上限。请不要再调用任何工具或输出内部调用标签，直接基于以上工具结果给出简洁清晰的中文/用户语言总结与下一步建议。",
                         }
                     )
                     final_payload = self._build_completion_payload(tools_spec=None, tool_choice=None)
@@ -1300,9 +1414,17 @@ class LiveDialogueAgent:
                         extra_secrets=active_secrets,
                     )
                 self.messages.append(choice)
-                return self._finalize_reply_text(choice.get("content"), user_text)
+                return self._finalize_reply_text(
+                    choice.get("content"),
+                    user_text,
+                    turn_trace=self.tool_call_trace[turn_trace_start:],
+                )
 
-        return self._finalize_reply_text(self.messages[-1].get("content") if self.messages else "", user_text)
+        return self._finalize_reply_text(
+            self.messages[-1].get("content") if self.messages else "",
+            user_text,
+            turn_trace=self.tool_call_trace[turn_trace_start:],
+        )
 
     def save_transcript(self, out_path: str) -> None:
         from pathlib import Path
