@@ -1642,3 +1642,92 @@ test("Gate B-R2 Round 2 (#10a, #10c, #12): agent structured track/modality forwa
   assert.match(cacheKeys[0], /:research_max:/);
   assert.doesNotMatch(cacheKeys[0], /:commercial_clean:/);
 });
+
+test("Gate B-R2 Round 3 (#10): syncControlsFromIntent resets linear modality/scaffold after circular turn and starter-commercial clears imported accession", async () => {
+  const calls = [];
+  const { run, document } = app({
+    fetch: async (url, init) => {
+      calls.push({ url, init: init || {} });
+      return response(200, {
+        status: "COMPLETED",
+        intent: { intent_id: "i_r3", intent_version: 2, status: "ready", compliance_track: "commercial_clean", locked_scopes: {} },
+        candidates: [],
+      });
+    },
+  });
+  run(`
+    state.apiBase = "http://localhost";
+    syncControlsFromIntent({ intent_id: "i_c1", intent_version: 1, status: "ready", compliance_track: "commercial_clean", modality: "circrna", scaffold_id: "circ_t4td_hrvb3", locked_scopes: {} });
+    assert_mod = state.modality;
+    assert_scaf = document.getElementById("sel-scaffold").value;
+  `);
+  assert.equal(run("assert_mod"), "circrna");
+  assert.equal(run("assert_scaf"), "circ_t4td_hrvb3");
+
+  // Linear intent omits default modality/scaffold_id; syncControlsFromIntent must reset controls back to linear_mrna
+  run(`
+    state.intentHistory.push({ intent_id: "i_c1", intent_version: 1, status: "ready", compliance_track: "commercial_clean", modality: "circrna", scaffold_id: "circ_t4td_hrvb3" });
+    syncControlsFromIntent({ intent_id: "i_lin2", intent_version: 2, status: "ready", compliance_track: "commercial_clean", locked_scopes: {} });
+  `);
+  assert.equal(run("state.modality"), "linear_mrna");
+  assert.equal(run('document.getElementById("sel-scaffold").value'), "cap1_hba1_aes_mt_a30l70");
+
+  // Subsequent agent refine uses linear_mrna, not stale circrna
+  run(`
+    document.getElementById("sel-exec-mode").value = "llm_agent";
+    document.getElementById("cfg-llm-provider").value = "deepseek";
+    state.byoKey = "sk-r3-agent-123456";
+    document.getElementById("inp-refine").value = "Refine UTR";
+  `);
+  await run(`runRefineTurn(null, "Refine UTR", { fromForm: true })`);
+  const agentCall = calls.find((c) => c.url.includes("/agent-chat"));
+  assert.ok(agentCall);
+  const agBody = JSON.parse(agentCall.init.body);
+  assert.equal(agBody.modality, "linear_mrna");
+  assert.equal(agBody.scaffold_id, "cap1_hba1_aes_mt_a30l70");
+
+  // Verify empty-project starter-commercial handler resets imported accession before running eGFP turn
+  const listenerMap = new Map();
+  run(`
+    state.intentHistory = [];
+    state.proteinAccession = "UniProt:P01588";
+    document.getElementById("sel-exec-mode").value = "deterministic";
+    document.getElementById("sel-track-mock");
+  `);
+  const origGet = document.getElementById;
+  const noopEl = {
+    addEventListener() {},
+    removeEventListener() {},
+    classList: { toggle() {}, add() {}, remove() {}, contains: () => false },
+    dataset: {},
+    style: {},
+    options: [],
+    appendChild() {},
+    querySelectorAll: () => [],
+  };
+  document.querySelectorAll = () => [];
+  document.querySelector = () => null;
+  document.addEventListener = () => {};
+  document.getElementById = (id) => {
+    const el = origGet.call(document, id);
+    if (!el.addEventListener) {
+      el.addEventListener = (ev, fn) => {
+        if (!listenerMap.has(id)) listenerMap.set(id, {});
+        listenerMap.get(id)[ev] = fn;
+      };
+      el.classList = { toggle() {}, add() {}, remove() {}, contains: () => false };
+      el.dataset = el.dataset || {};
+      el.style = el.style || {};
+      el.querySelectorAll = () => [];
+    }
+    return el;
+  };
+  run("wireEvents()");
+  calls.length = 0;
+  listenerMap.get("starter-commercial").click();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(run("state.proteinAccession"), "GenBank:U55762.1");
+  const starterTurn = calls.find((c) => c.url.includes("/turn"));
+  assert.ok(starterTurn);
+  assert.equal(JSON.parse(starterTurn.init.body).accession_or_source, "GenBank:U55762.1");
+});

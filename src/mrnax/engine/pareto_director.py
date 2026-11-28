@@ -28,6 +28,7 @@ from mrnax.engine.cell_expression import (
     assemble_detargeted_3utr,
     build_crs_and_tissue_safety_advisory,
 )
+from mrnax.engine.lineardesign_adapter import local_heavy_binaries_disabled
 from mrnax.engine.profiles import (
     COMPONENT_CATALOG,
     RC005_PARTNER_METRICS,
@@ -747,6 +748,8 @@ def _evaluate_molecule_eternafold(
     ef_params: Path,
 ) -> tuple[list[MetricResult], list[AdvisoryNote]]:
     """Compute BSD-3-Clause EternaFold v1.3.1 Kozak initiation unpaired accessibility (RC-004)."""
+    if local_heavy_binaries_disabled():
+        raise PermissionError("Local heavy binary execution (EternaFold) is disabled by host policy.")
     u5 = mol.get_segment_sequence("five_prime_utr")
     cds = mol.get_segment_sequence("cds")
     stop = mol.get_segment_sequence("stop_cassette")
@@ -1310,6 +1313,10 @@ def run_design_pipeline(
     active_eternafold_bin: Path | None = None
     active_eternafold_params: Path | None = None
     if use_eternafold:
+        if local_heavy_binaries_disabled():
+            return unavailable(
+                f"无法比较：当前轻量控制面节点已禁用本地 {active_eternafold_comp_id} 重型二进制评估（MRNAX_DISABLE_LOCAL_HEAVY_BINARIES=1）。"
+            )
         ef_bin_env = os.environ.get("MRNAX_ETERNAFOLD_BIN", "").strip()
         ef_params_env = os.environ.get("MRNAX_ETERNAFOLD_PARAMS", "").strip()
         ef_bin_cand = Path(ef_bin_env) if ef_bin_env else None

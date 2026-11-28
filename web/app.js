@@ -3215,12 +3215,15 @@ function syncControlsFromIntent(intent) {
       updateProteinBadge();
     }
   }
-  if (intent.modality) {
-    setModality(intent.modality);
-  }
-  if (intent.scaffold_id) {
-    const scafEl = document.getElementById("sel-scaffold");
-    if (scafEl) scafEl.value = intent.scaffold_id;
+  const nextMod = intent.modality || "linear_mrna";
+  setModality(nextMod);
+  const scafEl = document.getElementById("sel-scaffold");
+  if (scafEl) {
+    if (intent.scaffold_id) {
+      scafEl.value = intent.scaffold_id;
+    } else if (nextMod === "linear_mrna") {
+      scafEl.value = "cap1_hba1_aes_mt_a30l70";
+    }
   }
   updateSetupSummary();
 }
@@ -6222,6 +6225,7 @@ function wireEvents() {
     if (!hasIntent) {
       const seq = (state.presets?.egfp_reporter?.protein_sequence) || FALLBACK_EGFP;
       setEntryMode("protein_only");
+      state.proteinAccession = "GenBank:U55762.1";
       document.getElementById("input-protein").value = seq;
       state.additionalProteinSequences = [];
       state.userEditedProtein = false;
@@ -6265,6 +6269,7 @@ function wireEvents() {
     } else {
       const seq = (state.presets?.egfp_reporter?.protein_sequence) || FALLBACK_EGFP;
       setEntryMode("protein_only");
+      state.proteinAccession = "GenBank:U55762.1";
       document.getElementById("input-protein").value = seq;
       state.additionalProteinSequences = [];
       state.userEditedProtein = false;

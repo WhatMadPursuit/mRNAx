@@ -1426,10 +1426,19 @@ def create_control_plane_app(
         allow_bind_new: bool = False,
         header_project_key: str | None = None,
         header_access_token: str | None = None,
-        pending_claim_proof: str | None = None,
+        pending_claim_proof: str | tuple[str, ...] | None = None,
     ) -> tuple[str, str | None]:
         safe_pid = _validate_safe_id(project_id, "project_id")
         is_admin = _is_valid_admin_token(header_access_token)
+        claim_cands = tuple(
+            p
+            for p in (
+                (pending_claim_proof,)
+                if isinstance(pending_claim_proof, str)
+                else (pending_claim_proof or ())
+            )
+            if p
+        )
         proj_dir = resolved_projects / safe_pid
         owner_file = proj_dir / "owner_token_sha256.txt"
         claim_file = proj_dir / "pending_delivery_claim.json"
@@ -1494,8 +1503,8 @@ def create_control_plane_app(
                     claim_file.unlink(missing_ok=True)
                     return safe_pid, None
                 # First-call BYO / turn crash recovery: retain claim proof until client demonstrates key receipt.
-                if (not supplied_key) and pending_claim_proof and stored_claim:
-                    if hmac.compare_digest(pending_claim_proof, stored_claim):
+                if (not supplied_key) and claim_cands and stored_claim:
+                    if any(hmac.compare_digest(cand_p, stored_claim) for cand_p in claim_cands):
                         rotated_key = f"pk_{secrets.token_urlsafe(24)}"
                         rotated_sha = hashlib.sha256(rotated_key.encode("utf-8")).hexdigest()
                         _atomic_replace_owner_file(owner_file, rotated_sha, stored_claim)
@@ -1533,7 +1542,7 @@ def create_control_plane_app(
             was_server_minted = len(supplied_key) < 16
             effective_key = supplied_key if not was_server_minted else f"pk_{secrets.token_urlsafe(24)}"
             effective_sha = hashlib.sha256(effective_key.encode("utf-8")).hexdigest()
-            effective_claim = pending_claim_proof if (was_server_minted and pending_claim_proof) else None
+            effective_claim = claim_cands[0] if (was_server_minted and claim_cands) else None
             proj_dir.mkdir(parents=True, exist_ok=True)
             try:
                 _write_owner_file_exclusive(owner_file, effective_sha, effective_claim)
@@ -1775,8 +1784,14 @@ def create_control_plane_app(
             turn_req_digest_v252 = None
         safe_pid_preview = _validate_safe_id(project_id, "project_id")
         pre_turn_cookie = request.cookies.get(f"mrnax_pk_{safe_pid_preview}", "")
-        turn_claim_proof = (
-            hashlib.sha256(f"turn:{turn_req_key}:{turn_req_digest}".encode("utf-8")).hexdigest()
+        turn_claim_proof: tuple[str, ...] | None = (
+            tuple(
+                dict.fromkeys(
+                    hashlib.sha256(f"turn:{turn_req_key}:{dig}".encode("utf-8")).hexdigest()
+                    for dig in (turn_req_digest, turn_req_digest_v252)
+                    if dig
+                )
+            )
             if (
                 req.mode == "initial"
                 and turn_req_key
@@ -2970,7 +2985,7 @@ def create_control_plane_app(
             header_project_key=x_mrnax_project_key,
             header_access_token=x_mrnax_access_token,
         )
-        with project_lock(resolved_projects / safe_pid):
+        with project_lock(resolved_projects / safe_pid), enforce_local_heavy_binaries_policy(disable_local_heavy_binaries):
             session = _get_session(safe_pid)
             safe_bid = _validate_safe_id(bundle_id, "bundle_id")
             try:
@@ -3020,7 +3035,7 @@ def create_control_plane_app(
             header_project_key=header_project_key,
             header_access_token=header_access_token,
         )
-        with project_lock(resolved_projects / safe_pid):
+        with project_lock(resolved_projects / safe_pid), enforce_local_heavy_binaries_policy(disable_local_heavy_binaries):
             session = _get_session(safe_pid)
             safe_bid = _validate_safe_id(bundle_id, "bundle_id")
             try:
@@ -3270,7 +3285,7 @@ def create_control_plane_app(
                 header_project_key=x_mrnax_project_key,
                 header_access_token=x_mrnax_access_token,
             )
-            with project_lock(resolved_projects / safe_pid):
+            with project_lock(resolved_projects / safe_pid), enforce_local_heavy_binaries_policy(disable_local_heavy_binaries):
                 session = _get_session(safe_pid)
                 safe_bid = _validate_safe_id(req.bundle_id, "bundle_id")
                 try:
@@ -3403,7 +3418,7 @@ def create_control_plane_app(
                 header_project_key=x_mrnax_project_key,
                 header_access_token=x_mrnax_access_token,
             )
-            with project_lock(resolved_projects / safe_pid):
+            with project_lock(resolved_projects / safe_pid), enforce_local_heavy_binaries_policy(disable_local_heavy_binaries):
                 session = _get_session(safe_pid)
                 safe_bid = _validate_safe_id(req.bundle_id, "bundle_id")
                 try:

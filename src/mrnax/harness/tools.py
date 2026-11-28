@@ -1491,9 +1491,21 @@ class AtomicToolbox:
                 raise ValueError(
                     f"Export out_dir '{out_dir}' must resolve inside project store_dir '{base_store}'"
                 )
-            for reserved_name in ("intents", "bundles", "reports", "experiments", "manifests"):
+            rel_target_parts = target_dir.relative_to(base_store).parts
+            reserved_names = ("intents", "bundles", "reports", "experiments", "manifests")
+            if rel_target_parts and rel_target_parts[0].lower() in reserved_names:
+                raise ValueError(
+                    f"Export out_dir '{out_dir}' cannot target protected project directory '{rel_target_parts[0]}'"
+                )
+            for reserved_name in reserved_names:
                 reserved_dir = (base_store / reserved_name).resolve()
-                if target_dir == reserved_dir or target_dir.is_relative_to(reserved_dir):
+                is_same_reserved = False
+                try:
+                    if target_dir.exists() and reserved_dir.exists():
+                        is_same_reserved = os.path.samefile(target_dir, reserved_dir)
+                except OSError:
+                    is_same_reserved = False
+                if is_same_reserved or target_dir == reserved_dir or target_dir.is_relative_to(reserved_dir):
                     raise ValueError(
                         f"Export out_dir '{out_dir}' cannot target protected project directory '{reserved_name}'"
                     )
@@ -1582,7 +1594,7 @@ class AtomicToolbox:
                     if not include_dossier:
                         (target_dir / "ivt_synthesis_order.csv").unlink(missing_ok=True)
                         (target_dir / "qc_dossier.html").unlink(missing_ok=True)
-                except Exception:
+                except BaseException:
                     for fn in checked_files:
                         dst_f = target_dir / fn
                         bak_f = bak_dir / fn

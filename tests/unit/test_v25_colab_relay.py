@@ -775,3 +775,189 @@ def test_gate_b_r2_round2_colab_worker_hardening(
         srv_thread.join(timeout=5.0)
         sock.close()
 
+
+def test_gate_b_r2_round3_worker_fixes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import hashlib
+    import importlib.util
+    import socket
+    import threading
+    import time
+    import uvicorn
+
+    from mrnax.cloud.cas_store import ExecutionCASStore
+    from mrnax.cloud.drive_rest_v3 import DRIVE_FOLDER_MIME, DriveRestV3Client, InMemoryDriveV3Transport
+    from mrnax.cloud.gateway import create_control_plane_app
+
+    spec = importlib.util.spec_from_file_location("colab_heavy_sota_worker_r3", WORKER_SCRIPT)
+    assert spec and spec.loader
+    worker_mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = worker_mod
+    spec.loader.exec_module(worker_mod)
+
+    egfp_prot = json.loads((REPO_ROOT / "registry_seed" / "egfp_reporter_snapshot.json").read_text(encoding="utf-8"))[
+        "mammalian_reporter_egfp"
+    ]["protein_sequence"]
+    secret_tok = "tok_r3_secret_key_998877"
+    monkeypatch.setenv("MRNAX_GATEWAY_ACCESS_TOKEN", secret_tok)
+
+    # #6: _PinnedHTTPSConnection supports :8443 authority while rejecting mismatched port, and _redact_obj scrubs dict keys
+    conn_ok = worker_mod._PinnedHTTPSConnection(
+        "149-248-39-200.sslip.io:8443",
+        port=8443,
+        pinned_ip="203.0.113.10",
+        expected_host="149-248-39-200.sslip.io",
+        expected_port=8443,
+    )
+    assert conn_ok.host == "149-248-39-200.sslip.io"
+    assert int(conn_ok.port) == 8443
+    with pytest.raises(ValueError, match="escaped pinned verified gateway"):
+        worker_mod._PinnedHTTPSConnection(
+            "149-248-39-200.sslip.io:9443",
+            port=8443,
+            pinned_ip="203.0.113.10",
+            expected_host="149-248-39-200.sslip.io",
+            expected_port=8443,
+        )
+    scrubbed = worker_mod._redact_obj({secret_tok: {"nested_" + secret_tok: secret_tok}}, secret_tok)
+    assert secret_tok not in json.dumps(scrubbed)
+
+    # #4 & #5: Support-table filename collision cannot overwrite staged binary, and support-table changes alter digest
+    fake_ld_py = (
+        f"#!{sys.executable}\n"
+        "import sys\n"
+        "CODON = dict(zip('ACDEFGHIKLMNPQRSTVWY', "
+        "'GCU UGU GAU GAA UUU GGU CAU AUU AAA CUU AUG AAU CCU CAA CGU UCU ACU GUU UGG UAU'.split()))\n"
+        "aa = ''.join(ch for ch in sys.stdin.read().strip().upper() if ch in CODON)\n"
+        "rna = ''.join(CODON[c] for c in aa)\n"
+        "print(f'mRNA sequence:  {rna}')\n"
+        "print('mRNA structure: ' + '.' * len(rna))\n"
+        "print('mRNA folding free energy: -42.50 kcal/mol; mRNA CAI: 0.910')\n"
+    )
+    dir_sup_a = tmp_path / "sup_a"
+    dir_sup_a.mkdir(parents=True, exist_ok=True)
+    # Deliberately name executable `coding_wheel.txt` alongside real `coding_wheel.txt`? Keep binary named `lineardesign` in A,
+    # and test collision with a colliding name in a dedicated dir where support table is absent or another support table exists.
+    bin_collide = dir_sup_a / "codon_usage_freq_table_human.csv"
+    bin_collide.write_text(fake_ld_py, encoding="utf-8")
+    bin_collide.chmod(0o755)
+    (dir_sup_a / "coding_wheel.txt").write_text("wheel_v1\n", encoding="utf-8")
+    sha_collide = hashlib.sha256(bin_collide.read_bytes()).hexdigest()
+
+    # #1: run_worker(defer_commit=True, output_json=None) fails closed directly in Python API
+    with pytest.raises(ValueError, match="--defer-commit requires --output-json"):
+        worker_mod.run_worker(
+            protein_seq=egfp_prot,
+            lineardesign_bin=bin_collide,
+            lineardesign_bin_sha256=sha_collide,
+            defer_commit=True,
+            work_dir=tmp_path / "w_nodef",
+        )
+
+    transport = InMemoryDriveV3Transport()
+    runs_root_id = transport.create_file(parent_id="root", name="RunsR3", mime_type=DRIVE_FOLDER_MIME)["id"]
+    commits_id = transport.create_file(parent_id="root", name="CommitsR3", mime_type=DRIVE_FOLDER_MIME)["id"]
+    drive_client = DriveRestV3Client(transport)
+    cas_store = ExecutionCASStore(
+        tmp_path / "cas_r3.sqlite3",
+        drive_verifier=drive_client,
+        commits_snapshot_folder_id=commits_id,
+        runs_root_id=runs_root_id,
+        require_drive_verifier=True,
+    )
+    app = create_control_plane_app(
+        cas_store,
+        projects_root=tmp_path / "proj_r3",
+        seed_dir=REPO_ROOT / "registry_seed",
+        access_token=secret_tok,
+    )
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error"))
+    srv_thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
+    srv_thread.start()
+    try:
+        for _ in range(50):
+            if server.started:
+                break
+            time.sleep(0.05)
+
+        # #1: defer_commit=True + gateway_url runs cleanly without creating/acquiring an orphaned CAS lease
+        res_def = worker_mod.run_worker(
+            protein_seq=egfp_prot,
+            compliance_track="research_max",
+            lambdas=(1.0,),
+            lineardesign_bin=bin_collide,
+            lineardesign_bin_sha256=sha_collide,
+            gateway_url=f"http://127.0.0.1:{port}",
+            defer_commit=True,
+            output_json=tmp_path / "def_out.json",
+            work_dir=tmp_path / "w_def_gw",
+        )
+        assert res_def["status"] == "COMPUTED"
+        assert res_def["execution_id"] is None
+
+        # #5: Distinct support table contents alter CAS submission_id & request_digest
+        res_s1 = worker_mod.run_worker(
+            protein_seq=egfp_prot,
+            compliance_track="research_max",
+            lambdas=(1.0,),
+            lineardesign_bin=bin_collide,
+            lineardesign_bin_sha256=sha_collide,
+            gateway_url=f"http://127.0.0.1:{port}",
+            drive_runs_root_id=runs_root_id,
+            drive_client=drive_client,
+            output_json=tmp_path / "sup1.json",
+            work_dir=tmp_path / "w_sup1",
+        )
+        (dir_sup_a / "coding_wheel.txt").write_text("wheel_v2_changed\n", encoding="utf-8")
+        res_s2 = worker_mod.run_worker(
+            protein_seq=egfp_prot,
+            compliance_track="research_max",
+            lambdas=(1.0,),
+            lineardesign_bin=bin_collide,
+            lineardesign_bin_sha256=sha_collide,
+            gateway_url=f"http://127.0.0.1:{port}",
+            drive_runs_root_id=runs_root_id,
+            drive_client=drive_client,
+            output_json=tmp_path / "sup2.json",
+            work_dir=tmp_path / "w_sup2",
+        )
+        assert cas_store.get_execution(res_s1["execution_id"]).request_digest != cas_store.get_execution(res_s2["execution_id"]).request_digest
+
+        # #5: Uncommitted explicit execution_id rejects mismatched supplied request_digest/intent_id BEFORE lease acquisition
+        import httpx
+
+        with httpx.Client(trust_env=False, timeout=5.0) as hc:
+            sub_uncomm = hc.post(
+                f"http://127.0.0.1:{port}/v1/executions",
+                headers={"X-MRNAX-Access-Token": secret_tok},
+                json={"submission_id": "sub_uncomm_r3", "request_digest": "digest_expected_r3", "intent_id": "int_r3"},
+            )
+        assert sub_uncomm.status_code == 200
+        eid_uncomm = sub_uncomm.json()["execution_id"]
+        with pytest.raises(ValueError, match="mismatch"):
+            worker_mod.run_worker(
+                protein_seq=egfp_prot,
+                compliance_track="research_max",
+                lambdas=(1.0,),
+                lineardesign_bin=bin_collide,
+                lineardesign_bin_sha256=sha_collide,
+                gateway_url=f"http://127.0.0.1:{port}",
+                execution_id=eid_uncomm,
+                request_digest="digest_wrong_r3",
+                intent_id="int_wrong_r3",
+                drive_runs_root_id=runs_root_id,
+                drive_client=drive_client,
+                work_dir=tmp_path / "w_mismatch",
+            )
+        assert cas_store.get_execution(eid_uncomm).lease_epoch == 0
+    finally:
+        server.should_exit = True
+        srv_thread.join(timeout=5.0)
+        sock.close()
+
+

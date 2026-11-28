@@ -115,7 +115,10 @@ def _redact_obj(obj: Any, *secrets_to_scrub: str) -> Any:
     if isinstance(obj, str):
         return _redact_secrets(obj, *secrets_to_scrub)
     if isinstance(obj, dict):
-        return {str(k): _redact_obj(v, *secrets_to_scrub) for k, v in obj.items()}
+        return {
+            _redact_secrets(str(k), *secrets_to_scrub): _redact_obj(v, *secrets_to_scrub)
+            for k, v in obj.items()
+        }
     if isinstance(obj, list):
         return [_redact_obj(x, *secrets_to_scrub) for x in obj]
     return obj
@@ -638,10 +641,21 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
         timeout: float = 15.0,
         context: ssl.SSLContext | None = None,
     ) -> None:
-        super().__init__(host, port=port, timeout=timeout, context=context)
+        exp_host_norm = expected_host.lower()
+        exp_port_int = int(expected_port)
+        parsed_auth = urllib.parse.urlsplit(f"//{host}")
+        req_host_only = (parsed_auth.hostname or "").lower()
+        try:
+            req_port = parsed_auth.port
+        except ValueError as exc:
+            raise ValueError("HTTPS connection used invalid authority port") from exc
+        eff_port = exp_port_int if port is None else int(port)
+        if req_host_only != exp_host_norm or eff_port != exp_port_int or (req_port is not None and int(req_port) != exp_port_int):
+            raise ValueError("HTTPS connection escaped pinned verified gateway origin")
+        super().__init__(exp_host_norm, port=exp_port_int, timeout=timeout, context=context)
         self._pinned_ip = pinned_ip
-        self._expected_host = expected_host.lower()
-        self._expected_port = expected_port
+        self._expected_host = exp_host_norm
+        self._expected_port = exp_port_int
 
     def connect(self) -> None:
         if self.host.lower() != self._expected_host or int(self.port) != self._expected_port:
@@ -795,13 +809,40 @@ def _sanitize_commit_receipt(raw: dict[str, Any], *, secrets_to_scrub: tuple[str
     return out
 
 
-def _copy_verified_raw_binary(src_bin: Path, dest_dir: Path, *, expected_sha256: str) -> tuple[Path, Path]:
-    """Read, SHA-256 verify, and stage raw binary via ONE open file descriptor into `dest_dir`."""
+_RAW_SUPPORT_TABLES = ("coding_wheel.txt", "codon_usage_freq_table_human.csv")
+
+
+def _hash_support_tables(src_dir: Path) -> dict[str, str]:
+    digests: dict[str, str] = {}
+    for tbl in _RAW_SUPPORT_TABLES:
+        cand = src_dir / tbl
+        if cand.is_file():
+            h = hashlib.sha256()
+            with cand.open("rb") as fh:
+                while True:
+                    blk = fh.read(65536)
+                    if not blk:
+                        break
+                    h.update(blk)
+            digests[tbl] = h.hexdigest()
+    return digests
+
+
+def _copy_verified_raw_binary(
+    src_bin: Path,
+    dest_dir: Path,
+    *,
+    expected_sha256: str,
+    expected_support_sha256s: dict[str, str] | None = None,
+) -> tuple[Path, Path]:
+    """Read, SHA-256 verify, and stage raw binary + runtime tables via single open FDs."""
     exp_bin_sha = expected_sha256.strip().lower()
     if not _SHA256_HEX_RE.fullmatch(exp_bin_sha):
         raise ValueError("--lineardesign-bin-sha256 must be a valid 64-char hex SHA-256")
     dest_dir.mkdir(parents=True, exist_ok=True)
-    staged_bin = dest_dir / src_bin.name
+    exe_dir = dest_dir / "_bin"
+    exe_dir.mkdir(parents=True, exist_ok=True)
+    staged_bin = exe_dir / src_bin.name
     h = hashlib.sha256()
     with src_bin.open("rb") as src_fh, staged_bin.open("wb") as dst_fh:
         while True:
@@ -817,10 +858,22 @@ def _copy_verified_raw_binary(src_bin: Path, dest_dir: Path, *, expected_sha256:
             f"LinearDesign binary SHA-256 mismatch: got {actual_sha}, expected {exp_bin_sha}"
         )
     os.chmod(staged_bin, 0o755)
-    for tbl in ("coding_wheel.txt", "codon_usage_freq_table_human.csv"):
+    for tbl in _RAW_SUPPORT_TABLES:
         cand_tbl = src_bin.parent / tbl
         if cand_tbl.is_file():
-            shutil.copy2(cand_tbl, dest_dir / tbl)
+            dst_tbl = dest_dir / tbl
+            th = hashlib.sha256()
+            with cand_tbl.open("rb") as sfh, dst_tbl.open("wb") as dfh:
+                while True:
+                    blk = sfh.read(65536)
+                    if not blk:
+                        break
+                    th.update(blk)
+                    dfh.write(blk)
+            if expected_support_sha256s and tbl in expected_support_sha256s:
+                if not hmac.compare_digest(th.hexdigest(), expected_support_sha256s[tbl]):
+                    dst_tbl.unlink(missing_ok=True)
+                    raise ValueError(f"LinearDesign runtime table '{tbl}' changed after pinning")
     return staged_bin.resolve(), dest_dir.resolve()
 
 
@@ -871,7 +924,7 @@ def run_worker(
     ttl_seconds: int = 120,
     submission_id: str | None = None,
     request_digest: str | None = None,
-    intent_id: str = "int_colab_sota",
+    intent_id: str | None = None,
     sealed_file_id: str | None = None,
     sealed_sha256: str | None = None,
     drive_runs_root_id: str | None = None,
@@ -922,6 +975,8 @@ def run_worker(
         and output_json.resolve() == commit_receipt_json.resolve()
     ):
         raise ValueError("--commit-receipt-json must be distinct from --output-json so the sealed artifact stays immutable")
+    if defer_commit and output_json is None:
+        raise ValueError("--defer-commit requires --output-json so the computed artifact is persisted for external sealing")
 
     if cas_client is not None and not defer_commit and not cas_client.is_loopback:
         if eff_drive_client is None and not (sealed_file_id and sealed_sha256):
@@ -931,32 +986,39 @@ def run_worker(
             )
 
     eff_exec_id = (execution_id or "").strip() or None
+    eff_intent_id = (intent_id or "").strip() or "int_colab_sota"
     ld_identity = (
         PINNED_LINEARDESIGN_TAR_SHA256
         if lineardesign_tar is not None
         else (lineardesign_bin_sha256 or "").strip().lower()
     )
+    raw_support_shas: dict[str, str] = {}
+    if lineardesign_tar is None and lineardesign_bin is not None:
+        raw_bin_parent = lineardesign_bin.resolve().parent
+        if raw_bin_parent.is_dir():
+            raw_support_shas = _hash_support_tables(raw_bin_parent)
     ef_identity = PINNED_ETERNAFOLD_TAR_SHA256 if include_eternafold else None
-    if cas_client is not None and eff_exec_id is None:
-        eff_req_dig = (request_digest or "").strip() or hashlib.sha256(
-            json.dumps(
-                {
-                    "protein": sense_aa,
-                    "lambdas": list(lambdas),
-                    "ef": include_eternafold,
-                    "track": compliance_track,
-                    "intent_id": intent_id,
-                    "ld_sha": ld_identity,
-                    "ef_sha": ef_identity,
-                },
-                sort_keys=True,
-            ).encode("utf-8")
-        ).hexdigest()
+    eff_req_dig = (request_digest or "").strip() or hashlib.sha256(
+        json.dumps(
+            {
+                "protein": sense_aa,
+                "lambdas": list(lambdas),
+                "ef": include_eternafold,
+                "track": compliance_track,
+                "intent_id": eff_intent_id,
+                "ld_sha": ld_identity,
+                "ld_support_sha": raw_support_shas,
+                "ef_sha": ef_identity,
+            },
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    if cas_client is not None and not defer_commit and eff_exec_id is None:
         eff_sub_id = (submission_id or "").strip() or f"sub_colab_{eff_req_dig[:16]}"
         sub_row = cas_client.submit_execution(
             submission_id=eff_sub_id,
             request_digest=eff_req_dig,
-            intent_id=intent_id,
+            intent_id=eff_intent_id,
         )
         eff_exec_id = str(sub_row["execution_id"])
         if str(sub_row.get("status") or "") == "COMMITTED":
@@ -964,16 +1026,26 @@ def run_worker(
                 f"Execution '{eff_exec_id}' (submission_id='{eff_sub_id}') is already COMMITTED "
                 f"(winning_attempt_id={sub_row.get('winning_attempt_id')})."
             )
-    elif cas_client is not None and eff_exec_id is not None:
+    elif cas_client is not None and not defer_commit and eff_exec_id is not None:
         existing_exec = cas_client.get_execution(eff_exec_id)
         if str(existing_exec.get("status") or "") == "COMMITTED":
             raise RuntimeError(
                 f"Execution '{eff_exec_id}' is already COMMITTED "
                 f"(winning_attempt_id={existing_exec.get('winning_attempt_id')})."
             )
+        if request_digest is not None and str(existing_exec.get("request_digest") or "") != request_digest.strip():
+            raise ValueError(
+                f"Execution '{eff_exec_id}' request_digest mismatch: stored '{existing_exec.get('request_digest')}', "
+                f"got '{request_digest.strip()}'"
+            )
+        if intent_id is not None and existing_exec.get("intent_id") and str(existing_exec.get("intent_id")) != intent_id.strip():
+            raise ValueError(
+                f"Execution '{eff_exec_id}' intent_id mismatch: stored '{existing_exec.get('intent_id')}', "
+                f"got '{intent_id.strip()}'"
+            )
 
     lease_grant: dict[str, Any] | None = None
-    if cas_client is not None and eff_exec_id is not None:
+    if cas_client is not None and not defer_commit and eff_exec_id is not None:
         lease_grant = cas_client.acquire_or_renew_lease(
             eff_exec_id,
             worker_id=worker_id,
@@ -1050,6 +1122,7 @@ def run_worker(
                         raw_ld_bin,
                         isolated_dir / "pinned_bin",
                         expected_sha256=lineardesign_bin_sha256,
+                        expected_support_sha256s=raw_support_shas,
                     )
                 else:
                     raise FileNotFoundError("Provide --lineardesign-tar (pinned SHA-256) or --lineardesign-bin + --lineardesign-bin-sha256.")
@@ -1212,7 +1285,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--ttl-seconds", type=int, default=120, help="CAS lease TTL in seconds (clamped [15, 600])")
     p.add_argument("--submission-id", default=None, help="Optional CAS submission_id for auto-submit")
     p.add_argument("--request-digest", default=None, help="Optional CAS request_digest for auto-submit")
-    p.add_argument("--intent-id", default="int_colab_sota", help="Intent ID for CAS auto-submit")
+    p.add_argument("--intent-id", default=None, help="Intent ID for CAS auto-submit")
     p.add_argument("--drive-runs-root-id", default=None, help="Drive runs root folder ID for SEALED.json upload")
     p.add_argument("--sealed-file-id", default=None, help="Pre-uploaded Drive SEALED.json file ID")
     p.add_argument("--sealed-sha256", default=None, help="SHA-256 of pre-uploaded Drive SEALED.json")

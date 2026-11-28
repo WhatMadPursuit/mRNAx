@@ -478,7 +478,7 @@ def _post_json_bounded(
                 f"Upstream LLM response exceeded {max_bytes}-byte decoded safety cap"
             )
         return resp
-    deadline = _time.monotonic() + max(1.0, float(timeout_sec))
+    deadline = _time.monotonic() + max(0.05, float(timeout_sec))
     with client.stream("POST", url, headers=req_headers, json=json_body) as stream_resp:
         enc = stream_resp.headers.get("content-encoding")
         clean_headers = _strip_encoding_and_length_headers(stream_resp.headers.items())
@@ -598,11 +598,13 @@ class LiveDialogueAgent:
         on_tool_executed: Callable[[dict[str, Any]], None] | None = None,
         on_tool_batch_started: Callable[[list[dict[str, Any]], None], None] | Callable[[list[dict[str, Any]]], None] | None = None,
         transport: httpx.BaseTransport | None = None,
+        overall_timeout_sec: float = 90.0,
     ) -> None:
         self.toolbox = toolbox
         self.provider = normalize_dialogue_provider(provider)
         self.vault = vault or SecretVault()
         self._transport = transport
+        self._overall_timeout_sec = max(0.05, float(overall_timeout_sec))
         raw_url = base_url or PROVIDER_ENV_MAP[self.provider][1]
         self._has_custom_base_url = base_url is not None and base_url.strip().rstrip("/") != PROVIDER_ENV_MAP[self.provider][1].rstrip("/")
         self.base_url = _run_bounded_dns_call(
@@ -611,7 +613,7 @@ class LiveDialogueAgent:
                 allow_localhost=False,
                 resolve_dns=self._has_custom_base_url,
             ),
-            timeout_sec=15.0,
+            timeout_sec=min(15.0, self._overall_timeout_sec),
         )
         cleaned_model = (model or "").strip()
         self.model = cleaned_model or DEFAULT_PROVIDER_MODELS[self.provider]
@@ -846,7 +848,7 @@ class LiveDialogueAgent:
             self.provider, self.model, has_tools=bool(tools_spec)
         )
 
-        overall_deadline = _time.monotonic() + 90.0
+        overall_deadline = _time.monotonic() + self._overall_timeout_sec
         custom_transport: httpx.BaseTransport | None = self._transport
         if custom_transport is None and (self._has_custom_base_url or not _is_direct_pytest_post_stub()):
             from mrnax.harness.sandbox import SSRFBlockedError, resolve_verified_public_peer
@@ -889,6 +891,7 @@ class LiveDialogueAgent:
                         "Content-Type": "application/json",
                     },
                     json_body=self._build_completion_payload(tools_spec=None, tool_choice=None),
+                    timeout_sec=max(0.05, rem_overall),
                 )
                 choice = redact_secrets_in_obj(
                     _extract_choice_message(resp, allow_tool_calls=False),
@@ -920,6 +923,7 @@ class LiveDialogueAgent:
                             previous_response_id=prev_resp_id,
                             pending_tool_outputs=pending_resp_outputs,
                         ),
+                        timeout_sec=max(0.05, rem_round),
                     )
                     raw_choice, prev_resp_id = self._extract_responses_choice(resp, allow_tool_calls=True)
                     choice = redact_secrets_in_obj(raw_choice, extra_secrets=active_secrets)
@@ -932,6 +936,7 @@ class LiveDialogueAgent:
                             "Content-Type": "application/json",
                         },
                         json_body=self._build_completion_payload(tools_spec=tools_spec, tool_choice="auto"),
+                        timeout_sec=max(0.05, rem_round),
                     )
                     choice = redact_secrets_in_obj(
                         _extract_choice_message(resp, allow_tool_calls=True),
@@ -961,6 +966,8 @@ class LiveDialogueAgent:
 
                 next_resp_outputs: list[dict[str, str]] = []
                 for tc in tool_calls:
+                    if _time.monotonic() >= overall_deadline:
+                        raise httpx.ReadTimeout("Upstream LLM dialogue exceeded overall deadline")
                     tc_id = tc["id"].strip()
                     fn_name = tc["function"]["name"].strip()
                     raw_args = tc["function"]["arguments"]
@@ -971,12 +978,16 @@ class LiveDialogueAgent:
                             raise ValueError("Tool arguments must decode to a JSON object")
                         parsed_args = redact_secrets_in_obj(decoded, extra_secrets=active_secrets)
                         result = self.toolbox.dispatch_tool_call(fn_name, parsed_args)
+                    except httpx.ReadTimeout:
+                        raise
                     except (json.JSONDecodeError, ValueError, KeyError, TypeError) as exc:
                         result = {
                             "error": redact_secrets_in_text(
                                 f"{type(exc).__name__}: {exc}", extra_secrets=active_secrets
                             )
                         }
+                    if _time.monotonic() >= overall_deadline:
+                        raise httpx.ReadTimeout("Upstream LLM dialogue exceeded overall deadline")
                     safe_args = redact_secrets_in_obj(
                         parsed_args
                         if isinstance(parsed_args, dict)
@@ -1014,6 +1025,11 @@ class LiveDialogueAgent:
                 pending_resp_outputs = next_resp_outputs
 
             if self.messages and self.messages[-1].get("role") == "tool":
+                rem_final = overall_deadline - _time.monotonic()
+                if rem_final <= 0.0:
+                    raise httpx.ReadTimeout("Upstream LLM request exceeded overall deadline")
+                if isinstance(custom_transport, _PinnedHostHTTPTransport):
+                    custom_transport._timeout_sec = max(0.05, rem_final)
                 if use_responses_api:
                     resp = _post_json_bounded(
                         client,
@@ -1028,6 +1044,7 @@ class LiveDialogueAgent:
                             previous_response_id=prev_resp_id,
                             pending_tool_outputs=pending_resp_outputs,
                         ),
+                        timeout_sec=max(0.05, rem_final),
                     )
                     raw_choice, _ = self._extract_responses_choice(resp, allow_tool_calls=False)
                     choice = redact_secrets_in_obj(raw_choice, extra_secrets=active_secrets)
@@ -1040,6 +1057,7 @@ class LiveDialogueAgent:
                             "Content-Type": "application/json",
                         },
                         json_body=self._build_completion_payload(tools_spec=tools_spec, tool_choice="none"),
+                        timeout_sec=max(0.05, rem_final),
                     )
                     choice = redact_secrets_in_obj(
                         _extract_choice_message(resp, allow_tool_calls=False),

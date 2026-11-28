@@ -1713,4 +1713,171 @@ def test_gate_b_r2_round2_export_provenance_policy_and_deadlines(
     assert (time.monotonic() - t0) < 0.4
 
 
+def test_gate_b_r2_round3_remaining_findings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import hashlib
+    import os
+    from mrnax.cloud.gateway import InitialTurnRequest
+    from mrnax.engine.lineardesign_adapter import enforce_local_heavy_binaries_policy, local_heavy_binaries_disabled
+    from mrnax.engine.pareto_director import _evaluate_molecule_eternafold
+    from mrnax.harness import dialogue as dlg_mod
+
+    short_prot = "MVSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPTLVTT"
+
+    # #11: Case-variant reserved directories rejected & BaseException rollback restores prior export cleanly
+    session = ProjectHarnessSession(project_id="proj_r3_exp", store_dir=tmp_path / "proj_r3_exp", seed_dir=SEED_DIR)
+    toolbox = AtomicToolbox(session)
+    with enforce_local_heavy_binaries_policy(True):
+        des = toolbox.design_constructs(
+            user_utterance="Commercial reporter",
+            protein_sequence=short_prot,
+            compliance_track="commercial_clean",
+        )
+    top_bid = des["recommended_bundle_ids"][0]
+    for cap_bad in ("Intents", "Experiments", "Bundles"):
+        with pytest.raises(ValueError, match="protected project directory"):
+            toolbox.export_bundle(bundle_id=top_bid, out_dir=cap_bad, include_dossier=False)
+
+    exp_dir = session.store_dir / "exports" / "r3_rollback"
+    exp_dir.mkdir(parents=True, exist_ok=True)
+    (exp_dir / "cds_only.fasta").write_text(">old_cds\nAUG\n", encoding="utf-8")
+    (exp_dir / "chemistry_metadata.json").write_text('{"old":true}\n', encoding="utf-8")
+    orig_replace = os.replace
+    swaps = 0
+    interrupted = False
+
+    def _interrupt_third_swap(src: Any, dst: Any) -> None:
+        nonlocal swaps, interrupted
+        if not interrupted and str(exp_dir) in str(dst) and "pkg" in str(src):
+            swaps += 1
+            if swaps == 3:
+                interrupted = True
+                raise KeyboardInterrupt("simulated interrupt")
+        orig_replace(src, dst)
+
+    with monkeypatch.context() as mp:
+        mp.setattr(os, "replace", _interrupt_third_swap)
+        with pytest.raises(KeyboardInterrupt):
+            toolbox.export_bundle(bundle_id=top_bid, out_dir="exports/r3_rollback", include_dossier=False)
+    assert (exp_dir / "cds_only.fasta").read_text(encoding="utf-8") == ">old_cds\nAUG\n"
+    assert (exp_dir / "chemistry_metadata.json").read_text(encoding="utf-8") == '{"old":true}\n'
+
+    # #8: Owner crash recovery (`21768a1` single-digest owner_token_sha256.txt) returns 200 even without X-MRNAX-Project-Key
+    projects_root = tmp_path / "gw_r3_claim"
+    admin_secret = "tok_r3_admin_1234"
+    app1 = create_control_plane_app(
+        ExecutionCASStore(tmp_path / "gw_r3.sqlite3"),
+        projects_root=projects_root,
+        seed_dir=SEED_DIR,
+        access_token=admin_secret,
+    )
+    anon_c1 = TestClient(app1)
+    claim_payload = {
+        "mode": "initial",
+        "user_utterance": "Crash recovery eGFP",
+        "protein_sequence": short_prot,
+        "compliance_track": "commercial_clean",
+        "uridine_chemistry": "m1psi",
+    }
+    idemp_key = "req_r3_owner_claim"
+    r1 = anon_c1.post(
+        "/v1/projects/proj_r3_claim/turn",
+        headers={"X-MRNAX-Idempotency-Key": idemp_key},
+        json=claim_payload,
+    )
+    assert r1.status_code == 200
+    proj_dir = projects_root / "proj_r3_claim"
+    req_m = InitialTurnRequest(**claim_payload)
+    digest_v252 = hashlib.sha256(req_m.model_dump_json().encode("utf-8")).hexdigest()
+    turn_req_key = hashlib.sha256(idemp_key.encode("utf-8")).hexdigest()
+    digest_compat = hashlib.sha256(
+        json.dumps(
+            {k: v for k, v in req_m.model_dump(mode="json").items() if not (k in ("additional_protein_sequences", "modality", "scaffold_id") and v is None)},
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    claim_compat = hashlib.sha256(f"turn:{turn_req_key}:{digest_compat}".encode("utf-8")).hexdigest()
+    claim_v252 = hashlib.sha256(f"turn:{turn_req_key}:{digest_v252}".encode("utf-8")).hexdigest()
+    owner_f = proj_dir / "owner_token_sha256.txt"
+    owner_f.write_text(owner_f.read_text(encoding="utf-8").replace(claim_compat, claim_v252), encoding="utf-8")
+    tj_f = proj_dir / "turn_requests.json"
+    tj_f.write_text(tj_f.read_text(encoding="utf-8").replace(digest_compat, digest_v252), encoding="utf-8")
+
+    # Fresh anonymous TestClient (no project key, no cookie!) repeats identical request and recovers 200
+    app2 = create_control_plane_app(
+        ExecutionCASStore(tmp_path / "gw_r3.sqlite3"),
+        projects_root=projects_root,
+        seed_dir=SEED_DIR,
+        access_token=admin_secret,
+    )
+    anon_c2 = TestClient(app2)
+    r_recover = anon_c2.post(
+        "/v1/projects/proj_r3_claim/turn",
+        headers={"X-MRNAX-Idempotency-Key": idemp_key},
+        json=claim_payload,
+    )
+    assert r_recover.status_code == 200
+    assert r_recover.json()["intent"]["intent_id"] == r1.json()["intent"]["intent_id"]
+
+    # #13: _evaluate_molecule_eternafold refuses execution when local_heavy_binaries_disabled() is True, and gateway export blocks wrap policy
+    b0 = session.get_bundle(top_bid)
+    with enforce_local_heavy_binaries_policy(True):
+        assert local_heavy_binaries_disabled() is True
+        with pytest.raises(PermissionError, match="disabled"):
+            _evaluate_molecule_eternafold(
+                b0.molecules[0],
+                contrafold_bin=tmp_path / "ef",
+                ef_params=tmp_path / "params",
+            )
+
+    # #14: Virtual-clock slow tool advancing beyond overall_timeout_sec prevents final HTTP request from starting
+    fake_now = [1000.0]
+    monkeypatch.setattr(dlg_mod._time, "monotonic", lambda: fake_now[0])
+
+    http_calls: list[str] = []
+
+    def _mock_llm_handler(request: httpx.Request) -> httpx.Response:
+        http_calls.append(request.url.path)
+        if len(http_calls) == 1:
+            return httpx.Response(
+                200,
+                headers={"Content-Type": "application/json"},
+                json={
+                    "choices": [
+                        {
+                            "finish_reason": "tool_calls",
+                            "message": {
+                                "role": "assistant",
+                                "content": "",
+                                "tool_calls": [
+                                    {"id": "call_1", "type": "function", "function": {"name": "query_design_rules", "arguments": "{}"}}
+                                ],
+                            },
+                        }
+                    ]
+                },
+            )
+        return httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": "late"}}]})
+
+    orig_dispatch = toolbox.dispatch_tool_call
+
+    def _clock_advancing_tool(name: str, args: dict[str, Any]) -> Any:
+        fake_now[0] += 95.0
+        return orig_dispatch(name, args)
+
+    monkeypatch.setattr(toolbox, "dispatch_tool_call", _clock_advancing_tool)
+    agent = LiveDialogueAgent(
+        toolbox,
+        provider="deepseek",
+        transport=httpx.MockTransport(_mock_llm_handler),
+        overall_timeout_sec=90.0,
+    )
+    with pytest.raises(httpx.ReadTimeout, match="overall"):
+        agent.send_user_message("check rules", max_tool_rounds=1)
+    assert len(http_calls) == 1
+
+
+
 
