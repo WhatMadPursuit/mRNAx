@@ -2203,9 +2203,10 @@ def create_control_plane_app(
 
         req_id = req.client_request_id
         req_key = _hash_client_request_id(req_id) if req_id else None
+        explicit_provider = header_provider or req.provider
         digest_payload: dict[str, Any] = {
             "message": req.message,
-            "provider": header_provider or req.provider or ("gemini" if byo_clean.startswith("AIza") else "deepseek"),
+            "provider": explicit_provider or "",
             "model": req.model or "",
         }
         for opt_k, opt_v in (
@@ -2221,6 +2222,18 @@ def create_control_plane_app(
         req_digest = hashlib.sha256(
             json.dumps(digest_payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
         ).hexdigest()
+        accepted_digests = {req_digest}
+        if not explicit_provider:
+            for legacy_prov in dict.fromkeys(
+                ["deepseek", effective_provider, "openai", "gemini" if byo_clean.startswith("AIza") else "deepseek"]
+            ):
+                leg_payload = dict(digest_payload)
+                leg_payload["provider"] = legacy_prov
+                accepted_digests.add(
+                    hashlib.sha256(
+                        json.dumps(leg_payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+                    ).hexdigest()
+                )
         claim_proof = (
             hashlib.sha256(
                 f"{req_key or 'no_id'}:{req_digest}:{hashlib.sha256(byo_clean.encode('utf-8')).hexdigest()}".encode("utf-8")
@@ -2375,7 +2388,7 @@ def create_control_plane_app(
                 prior_req_record = None
             if prior_req_record:
                 prior_digest = prior_req_record.get("request_digest")
-                if prior_digest and prior_digest != req_digest:
+                if prior_digest and prior_digest not in accepted_digests:
                     raise HTTPException(
                         status_code=409,
                         detail="Idempotency conflict: client_request_id reused with a different request payload.",
@@ -2408,14 +2421,28 @@ def create_control_plane_app(
                         clean_cached_reply = _strip_leaked_tool_markup(sanitized_cached["assistant_reply"])
                         if not clean_cached_reply and (
                             sanitized_cached.get("tool_calls")
-                            or sanitized_cached.get("candidates")
+                            or sanitized_cached.get("intent_diff") is not None
                             or sanitized_cached.get("blocking_questions")
                         ):
                             c_trace: list[dict[str, Any]] = []
-                            if sanitized_cached.get("candidates"):
-                                c_trace.append({"name": "design_constructs", "result": {"candidates": sanitized_cached["candidates"]}})
-                            if sanitized_cached.get("blocking_questions"):
-                                c_trace.append({"name": "clarify", "result": {"blocking_questions": list(sanitized_cached["blocking_questions"])}})
+                            raw_cached_tcs = [
+                                tc for tc in (sanitized_cached.get("tool_calls") or []) if isinstance(tc, dict) and isinstance(tc.get("result"), dict)
+                            ]
+                            if raw_cached_tcs:
+                                c_trace = raw_cached_tcs
+                            else:
+                                cached_int = sanitized_cached.get("intent")
+                                is_initial_creation = (
+                                    isinstance(cached_int, dict)
+                                    and cached_int.get("intent_version") == 1
+                                    and not sanitized_cached.get("tool_calls")
+                                )
+                                if sanitized_cached.get("candidates") and (
+                                    sanitized_cached.get("intent_diff") is not None or is_initial_creation
+                                ):
+                                    c_trace.append({"name": "design_constructs", "result": {"candidates": sanitized_cached["candidates"]}})
+                                if sanitized_cached.get("blocking_questions"):
+                                    c_trace.append({"name": "clarify", "result": {"blocking_questions": list(sanitized_cached["blocking_questions"])}})
                             clean_cached_reply = _build_tool_trace_fallback_reply(
                                 c_trace or list(sanitized_cached.get("tool_calls") or []),
                                 str(req.message or ""),

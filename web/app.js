@@ -574,57 +574,103 @@ function extractSandboxedText(val) {
     .trim();
 }
 
+function parseMarkupMarkerClient(raw, low, ltIdx) {
+  const n = raw.length;
+  const isWs = (ch) => ch === " " || ch === "\t" || ch === "\r" || ch === "\n" || ch === "\f" || ch === "\v";
+  let p = ltIdx + 1;
+  while (p < n && isWs(raw[p])) p += 1;
+  if (p >= n) return null;
+  let isClose = false;
+  if (raw[p] === "/") {
+    isClose = true;
+    p += 1;
+    while (p < n && isWs(raw[p])) p += 1;
+    if (p >= n) return null;
+  }
+  if (low.startsWith("tool_call", p)) {
+    const endKw = p + 9;
+    if (endKw < n && /[A-Za-z0-9_]/.test(raw[endKw])) return null;
+    const gt = raw.indexOf(">", endKw);
+    if (gt === -1) return { kind: "tool_call", isClose, tagName: "tool_call", afterPos: n, unclosed: true };
+    const selfClose = gt > endKw && raw[gt - 1] === "/" && !isClose;
+    return { kind: "tool_call", isClose: isClose || selfClose, tagName: "tool_call", afterPos: gt + 1, unclosed: false };
+  }
+  if (raw[p] !== "|" && raw[p] !== "｜") return null;
+  while (p < n && (raw[p] === "|" || raw[p] === "｜")) p += 1;
+  while (p < n && isWs(raw[p])) p += 1;
+  if (!low.startsWith("dsml", p)) return null;
+  p += 4;
+  if (p < n && raw[p] !== "|" && raw[p] !== "｜" && !isWs(raw[p]) && raw[p] !== ">" && raw[p] !== "/") return null;
+  while (p < n && isWs(raw[p])) p += 1;
+  while (p < n && (raw[p] === "|" || raw[p] === "｜")) p += 1;
+  while (p < n && isWs(raw[p])) p += 1;
+  const nameStart = p;
+  while (p < n && /[a-z0-9_-]/.test(low[p])) p += 1;
+  const tagName = low.slice(nameStart, p);
+  const gt = raw.indexOf(">", p);
+  if (gt === -1) return { kind: "dsml", isClose, tagName, afterPos: n, unclosed: true };
+  const selfClose = gt >= 1 && raw[gt - 1] === "/" && !isClose;
+  if (selfClose) return { kind: "dsml_self", isClose: false, tagName, afterPos: gt + 1, unclosed: false };
+  return { kind: "dsml", isClose, tagName, afterPos: gt + 1, unclosed: false };
+}
+
 function stripLeakedMarkupClient(rawText) {
   const raw = rawText == null ? "" : String(rawText);
   if (!raw || !raw.includes("<")) return raw.trim();
-  const startRe = /<\s*(\/?)\s*(?:([｜|]+)\s*DSML(?:[｜|]+\s*([A-Za-z_][A-Za-z0-9_-]*)?|\b)|(tool_call)\b)/gi;
-  let out = "";
+  const low = raw.toLowerCase();
+  const out = [];
   let pos = 0;
-  while (pos < raw.length) {
-    startRe.lastIndex = pos;
-    const m = startRe.exec(raw);
-    if (!m) {
-      out += raw.slice(pos);
+  const n = raw.length;
+  const dsmlStack = [];
+  let toolDepth = 0;
+  while (pos < n) {
+    const ltIdx = raw.indexOf("<", pos);
+    if (ltIdx === -1) {
+      if (!dsmlStack.length && toolDepth === 0) out.push(raw.slice(pos));
       break;
     }
-    out += raw.slice(pos, m.index);
-    const isClose = m[1] === "/";
-    const isToolCall = Boolean(m[4]);
-    const dsmlTag = (m[3] || "").toLowerCase();
-    const gtIdx = raw.indexOf(">", startRe.lastIndex);
-    if (isClose) {
-      if (gtIdx === -1) break;
-      pos = gtIdx + 1;
+    const marker = parseMarkupMarkerClient(raw, low, ltIdx);
+    if (!marker) {
+      let adv = ltIdx + 1;
+      while (adv < n && (raw[adv] === " " || raw[adv] === "\t" || raw[adv] === "\r" || raw[adv] === "\n")) adv += 1;
+      if (adv === ltIdx + 1) adv = Math.min(n, ltIdx + 1);
+      if (!dsmlStack.length && toolDepth === 0) out.push(raw.slice(pos, adv));
+      pos = adv;
       continue;
     }
-    if (isToolCall) {
-      if (gtIdx === -1) break;
-      const endRe = /<\s*\/\s*tool_call\s*>/gi;
-      endRe.lastIndex = gtIdx + 1;
-      const endM = endRe.exec(raw);
-      if (endM) {
-        pos = endRe.lastIndex;
-        continue;
+    if (!dsmlStack.length && toolDepth === 0 && ltIdx > pos) {
+      out.push(raw.slice(pos, ltIdx));
+    }
+    if (marker.kind === "tool_call") {
+      if (marker.unclosed) break;
+      if (marker.isClose) {
+        if (toolDepth > 0) toolDepth -= 1;
+      } else {
+        toolDepth += 1;
       }
-      break;
-    }
-    if (gtIdx === -1) break;
-    if (gtIdx >= 2 && raw[gtIdx - 1] === "/") {
-      pos = gtIdx + 1;
+      pos = marker.afterPos;
       continue;
     }
-    const endRe = dsmlTag
-      ? new RegExp(`<\\s*/\\s*[｜|]+\\s*DSML\\s*[｜|]+\\s*${dsmlTag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*>`, "gi")
-      : /<\s*\/\s*[｜|]+\s*DSML\s*[｜|]+[^>]*>/gi;
-    endRe.lastIndex = gtIdx + 1;
-    const endM = endRe.exec(raw);
-    if (endM) {
-      pos = endRe.lastIndex;
+    if (marker.kind === "dsml_self") {
+      pos = marker.afterPos;
       continue;
     }
-    break;
+    if (marker.unclosed) break;
+    if (marker.isClose) {
+      if (dsmlStack.length) {
+        if (marker.tagName && dsmlStack.includes(marker.tagName)) {
+          const idx = dsmlStack.lastIndexOf(marker.tagName);
+          dsmlStack.splice(idx);
+        } else {
+          dsmlStack.pop();
+        }
+      }
+    } else {
+      dsmlStack.push(marker.tagName || "");
+    }
+    pos = marker.afterPos;
   }
-  return out.trim();
+  return out.join("").trim();
 }
 
 function formatSafeMarkdown(rawText) {
@@ -1104,6 +1150,7 @@ function setModelPreference(modelName, { userInitiated = false } = {}) {
     : (state.defaultModels[prov] || DEFAULT_PROVIDER_MODELS[prov] || allowed[0]);
   if (userInitiated) {
     state.userChoseModel = true;
+    state.pendingStoredModel = "";
     safeStorageSet("local", "mrnax_user_chose_model", "1");
   }
   safeStorageSet("local", "mrnax_llm_model", state.llmModel);
@@ -1123,6 +1170,7 @@ function setProviderPreference(value, { userInitiated = false } = {}) {
   if (select) select.value = state.llmProvider;
   if (userInitiated) {
     state.userChoseModel = true;
+    state.pendingStoredModel = "";
     safeStorageSet("local", "mrnax_user_chose_model", "1");
   }
   safeStorageSet("local", "mrnax_llm_provider", state.llmProvider);
@@ -2704,11 +2752,9 @@ function renderStructureArcSvg(profile) {
   const enginesRaw = Array.isArray(profile.engines_used) ? profile.engines_used.join(" + ") : "";
   const isPureSeqApprox =
     profile.mfe_method === "pure_seq_gc_approx" || enginesRaw.toLowerCase().includes("pureseqapprox");
-  const activeIntentForStruct = state.intentHistory.length ? state.intentHistory[state.intentHistory.length - 1] : null;
+  const activeCandStruct = state.candidates.find((c) => c.bundle_id === state.selectedBundleId);
   const effStructTrack =
-    (state.candidates.some((c) => c.bundle_id === state.selectedBundleId) && activeIntentForStruct?.compliance_track) ||
-    document.getElementById("sel-profile")?.value ||
-    "";
+    profile._requestedTrack || getActiveComplianceTrackForCandidate(activeCandStruct);
   const isCommercialTrack = effStructTrack === "commercial_clean";
   const emptyArcText = isPureSeqApprox
     ? isCommercialTrack
@@ -2830,11 +2876,9 @@ function renderStructureVisuals(profile, chain) {
     const isVienna = engines.toLowerCase().includes("viennarna");
     const isPureSeqApprox =
       profile.mfe_method === "pure_seq_gc_approx" || engines.toLowerCase().includes("pureseqapprox");
-    const activeIntentForBadge = state.intentHistory.length ? state.intentHistory[state.intentHistory.length - 1] : null;
+    const activeCandBadge = state.candidates.find((c) => c.bundle_id === state.selectedBundleId);
     const effBadgeTrack =
-      (state.candidates.some((c) => c.bundle_id === state.selectedBundleId) && activeIntentForBadge?.compliance_track) ||
-      document.getElementById("sel-profile")?.value ||
-      "";
+      profile._requestedTrack || getActiveComplianceTrackForCandidate(activeCandBadge);
     const isCommercialTrack = effBadgeTrack === "commercial_clean";
     if (isVienna) {
       srcBadge.textContent = "ViennaRNA 精确配分函数";
@@ -3022,6 +3066,7 @@ async function runStructureAnalysisForSelected() {
       body: JSON.stringify(payload),
     });
     if (data && data.initiation_window) {
+      data._requestedTrack = effTrack;
       if (reqApiBase === normalizeOrigin(state.apiBase) && reqProjId === state.projectId) {
         state.structureCache[cacheKey] = data;
       }
@@ -3040,7 +3085,10 @@ async function runStructureAnalysisForSelected() {
     }
   }
   const fallback = computeClientStructureProfile(chain, effMod);
-  if (fallback && isCurrentSelection()) renderStructureVisuals(fallback, chain);
+  if (fallback) {
+    fallback._requestedTrack = effTrack;
+    if (isCurrentSelection()) renderStructureVisuals(fallback, chain);
+  }
   return fallback;
 }
 

@@ -53,6 +53,15 @@ def test_strip_leaked_tool_markup_and_fallback_reply() -> None:
     unclosed = "已收到。<｜DSML｜ calls>\n<｜DSML｜ invoke name=\"x\">"
     assert _strip_leaked_tool_markup(unclosed) == "已收到。"
 
+    nested = "Start <|DSML| calls>first<|DSML | calls>second</|DSML| calls></|DSML| calls> End"
+    assert _strip_leaked_tool_markup(nested) == "Start  End"
+
+    import time as _pytime
+    spaced = "<" + (" " * 4000) + "x>"
+    t_s = _pytime.perf_counter()
+    assert _strip_leaked_tool_markup(spaced) == spaced
+    assert (_pytime.perf_counter() - t_s) < 0.05
+
     fb_zh = _build_tool_trace_fallback_reply(
         [
             {"name": "resolve_target_protein", "result": {"gene_symbol": "EPO", "uniprot_accession": "P01588"}},

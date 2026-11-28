@@ -2191,8 +2191,10 @@ test("v2.5.3 upgrades: rich markdown tables/headings, DSML strip, target import 
   const thTdCount = (tbl16Html.match(/<t[hd]>/g) || []).length;
   assert.ok(thTdCount <= 1000 && thTdCount >= 900, `Expected bounded cells <= 1000, got ${thTdCount}`);
   assert.equal(run('stripLeakedMarkupClient("Hi <|DSML")'), "Hi");
+  assert.equal(run('stripLeakedMarkupClient("Start <|DSML| calls>first<|DSML | calls>second</|DSML| calls></|DSML| calls> End")'), "Start  End");
+  assert.equal(run('stripLeakedMarkupClient("<" + " ".repeat(4000) + "x>")').length, 4003);
 
-  // 8b. Legacy gateway-advertised model (deepseek-reasoner) restores once status loads catalog
+  // 8b. Legacy gateway-advertised model (deepseek-reasoner) restores once status loads catalog, and manual override clears pendingStoredModel
   storageMap.clear();
   storageMap.set("mrnax_llm_provider", "deepseek");
   storageMap.set("mrnax_llm_model", "deepseek-reasoner");
@@ -2217,6 +2219,17 @@ test("v2.5.3 upgrades: rich markdown tables/headings, DSML strip, target import 
   await run("refreshSystemStatus()");
   assert.equal(run("state.llmProvider"), "deepseek");
   assert.equal(run("state.llmModel"), "deepseek-reasoner");
+
+  // Choosing deepseek-v4-pro before status completes clears pendingStoredModel
+  storageMap.clear();
+  storageMap.set("mrnax_llm_provider", "deepseek");
+  storageMap.set("mrnax_llm_model", "deepseek-reasoner");
+  run(`
+    initConfig();
+    setModelPreference("deepseek::deepseek-v4-pro", { userInitiated: true });
+  `);
+  await run("refreshSystemStatus()");
+  assert.equal(run("state.llmModel"), "deepseek-v4-pro");
 
   run(`
     document.getElementById("sel-profile").value = "research_max";

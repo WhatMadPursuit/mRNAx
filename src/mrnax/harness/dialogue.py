@@ -597,13 +597,8 @@ def _post_json_bounded(
         )
 
 
-_MARKUP_START_RE = re.compile(
-    r"<\s*(/?)\s*(?:([｜|]+)\s*DSML(?:[｜|]+\s*([A-Za-z_][A-Za-z0-9_-]*)?|\b)|(tool_call)\b)",
-    re.IGNORECASE,
-)
-_TOOL_CALL_CLOSE_RE = re.compile(r"<\s*/\s*tool_call\s*>", re.IGNORECASE)
-_DSML_ANY_CLOSE_RE = re.compile(r"<\s*/\s*[｜|]+\s*DSML\s*[｜|]+[^>]*>", re.IGNORECASE)
-_DSML_TAG_CLOSE_RE_CACHE: dict[str, re.Pattern[str]] = {}
+_DSML_PIPE_CHARS = "|｜"
+_ASCII_WS = " \t\r\n\f\v"
 _SAFE_GENE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$")
 _SAFE_ACC_RE = re.compile(r"^(?:UniProt:|GenBank:|RefSeq:)?[A-Za-z0-9][A-Za-z0-9_.-]{1,23}$")
 _SAFE_LABEL_RE = re.compile(r"^[A-Za-z0-9\u4e00-\u9fff][A-Za-z0-9\u4e00-\u9fff #_().+/:-]{0,47}$")
@@ -618,58 +613,129 @@ _TRANSIENT_429_RETRY_DELAYS = (1.5, 3.0)
 _MAX_HONORED_RETRY_AFTER_SEC = 30.0
 
 
+def _skip_ascii_ws(s: str, idx: int) -> int:
+    n = len(s)
+    while idx < n and s[idx] in _ASCII_WS:
+        idx += 1
+    return idx
+
+
+def _parse_markup_marker_at(raw: str, low: str, lt_idx: int) -> tuple[str, bool, str, int, bool] | None:
+    """Parse a DSML or `<tool_call>` tag strictly from `lt_idx` in O(tag_len) without backtracking.
+
+    Returns `(kind, is_close, tag_name, after_pos, unclosed_angle)` or None if `<` starts normal text.
+    """
+    n = len(raw)
+    p = _skip_ascii_ws(raw, lt_idx + 1)
+    if p >= n:
+        return None
+    is_close = False
+    if raw[p] == "/":
+        is_close = True
+        p = _skip_ascii_ws(raw, p + 1)
+        if p >= n:
+            return None
+
+    if low.startswith("tool_call", p):
+        end_kw = p + 9
+        if end_kw < n and (raw[end_kw].isalnum() or raw[end_kw] == "_"):
+            return None
+        gt = raw.find(">", end_kw)
+        if gt == -1:
+            return ("tool_call", is_close, "tool_call", n, True)
+        self_close = gt > end_kw and raw[gt - 1] == "/"
+        return ("tool_call", is_close or self_close, "tool_call", gt + 1, False)
+
+    if raw[p] not in _DSML_PIPE_CHARS:
+        return None
+    while p < n and raw[p] in _DSML_PIPE_CHARS:
+        p += 1
+    p = _skip_ascii_ws(raw, p)
+    if not low.startswith("dsml", p):
+        return None
+    p += 4
+    # Must end DSML token at pipe, whitespace, '>', '/', or EOF
+    if p < n and raw[p] not in _DSML_PIPE_CHARS and raw[p] not in _ASCII_WS and raw[p] not in ">/":
+        return None
+    p = _skip_ascii_ws(raw, p)
+    while p < n and raw[p] in _DSML_PIPE_CHARS:
+        p += 1
+    p = _skip_ascii_ws(raw, p)
+    name_start = p
+    while p < n and (low[p].isalnum() or low[p] in "_-"):
+        p += 1
+    tag_name = low[name_start:p]
+    gt = raw.find(">", p)
+    if gt == -1:
+        return ("dsml", is_close, tag_name, n, True)
+    self_close = gt >= 1 and raw[gt - 1] == "/" and not is_close
+    return ("dsml", is_close, tag_name, gt + 1, False) if not self_close else ("dsml_self", False, tag_name, gt + 1, False)
+
+
 def _strip_leaked_tool_markup(text: str) -> str:
-    """Strictly linear-time removal of leaked XML/DSML tool-call markup without slicing loops or backtracking."""
+    """Strict O(N) depth-aware removal of leaked XML/DSML tool-call markup."""
     raw = str(text or "")
     if not raw or "<" not in raw:
         return raw.strip()
+    low = raw.lower()
     out: list[str] = []
     pos = 0
     n = len(raw)
+    dsml_stack: list[str] = []
+    tool_depth = 0
+
     while pos < n:
-        m = _MARKUP_START_RE.search(raw, pos)
-        if m is None:
-            out.append(raw[pos:])
+        lt_idx = raw.find("<", pos)
+        if lt_idx == -1:
+            if not dsml_stack and tool_depth == 0:
+                out.append(raw[pos:])
             break
-        out.append(raw[pos : m.start()])
-        is_close = m.group(1) == "/"
-        is_tool_call = bool(m.group(4))
-        dsml_tag = (m.group(3) or "").lower()
-        gt_idx = raw.find(">", m.end())
+        marker = _parse_markup_marker_at(raw, low, lt_idx)
+        if marker is None:
+            adv = _skip_ascii_ws(raw, lt_idx + 1)
+            if adv == lt_idx + 1:
+                adv = min(n, lt_idx + 1)
+            if not dsml_stack and tool_depth == 0:
+                out.append(raw[pos:adv])
+            pos = adv
+            continue
+
+        kind, is_close, tag_name, after_pos, unclosed_angle = marker
+        suppressed_before = bool(dsml_stack or tool_depth > 0)
+        if not suppressed_before and lt_idx > pos:
+            out.append(raw[pos:lt_idx])
+
+        if kind == "tool_call":
+            if unclosed_angle:
+                break
+            if is_close:
+                if tool_depth > 0:
+                    tool_depth -= 1
+            else:
+                tool_depth += 1
+            pos = after_pos
+            continue
+
+        if kind == "dsml_self":
+            pos = after_pos
+            continue
+
+        # kind == "dsml"
+        if unclosed_angle:
+            break
         if is_close:
-            if gt_idx == -1:
-                break
-            pos = gt_idx + 1
-            continue
-        if is_tool_call:
-            if gt_idx == -1:
-                break
-            end_m = _TOOL_CALL_CLOSE_RE.search(raw, gt_idx + 1)
-            if end_m is not None:
-                pos = end_m.end()
-                continue
-            break
-        # Opening DSML block: wait for closing </|DSML| ...> or drop truncated tail cleanly
-        if gt_idx == -1:
-            break
-        if gt_idx >= 2 and raw[gt_idx - 1] == "/":
-            pos = gt_idx + 1
-            continue
-        if dsml_tag:
-            end_pat = _DSML_TAG_CLOSE_RE_CACHE.get(dsml_tag)
-            if end_pat is None:
-                end_pat = re.compile(
-                    rf"<\s*/\s*[｜|]+\s*DSML\s*[｜|]+\s*{re.escape(dsml_tag)}\s*>",
-                    re.IGNORECASE,
-                )
-                _DSML_TAG_CLOSE_RE_CACHE[dsml_tag] = end_pat
+            if dsml_stack:
+                if tag_name and tag_name in dsml_stack:
+                    idx = len(dsml_stack) - 1
+                    while idx >= 0 and dsml_stack[idx] != tag_name:
+                        idx -= 1
+                    del dsml_stack[idx:]
+                else:
+                    dsml_stack.pop()
         else:
-            end_pat = _DSML_ANY_CLOSE_RE
-        end_m = end_pat.search(raw, gt_idx + 1)
-        if end_m is not None:
-            pos = end_m.end()
-            continue
-        break
+            dsml_stack.append(tag_name or "")
+        pos = after_pos
+
     return "".join(out).strip()
 
 
