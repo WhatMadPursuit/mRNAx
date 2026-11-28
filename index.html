@@ -10,7 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=2.5.1" />
+    <link rel="stylesheet" href="./styles.css?v=2.5.2" />
   </head>
   <body>
     <!-- Swiss-Grid Top Navigation & Session Status Bar -->
@@ -26,11 +26,11 @@
         </span>
         <button
           type="button"
-          class="auth-pill mono warn"
+          class="auth-pill mono muted"
           id="pill-agent-auth"
           title="配置 Agent 访问令牌或个人 API Key"
         >
-          Agent: 未解锁 · 点击配置
+          Agent: 配置密钥
         </button>
         <span class="mono meta-muted hide-sm" id="pill-engine">Engine: —</span>
       </div>
@@ -170,8 +170,27 @@
               <label class="inline-model-wrap mono" aria-label="Agent 模型选择">
                 <span class="meta-muted">Model</span>
                 <select id="sel-llm-model" class="ctrl-select ctrl-select-compact mono">
-                  <option value="deepseek-flash" selected>deepseek-flash (极速)</option>
-                  <option value="deepseek-v4-pro">deepseek-v4-pro (深度推理)</option>
+                  <optgroup label="DeepSeek">
+                    <option value="deepseek::deepseek-flash" selected>deepseek-flash (极速)</option>
+                    <option value="deepseek::deepseek-v4-pro">deepseek-v4-pro (深度推理)</option>
+                    <option value="deepseek::deepseek-chat">deepseek-chat</option>
+                  </optgroup>
+                  <optgroup label="OpenAI">
+                    <option value="openai::gpt-4.1-mini">gpt-4.1-mini</option>
+                    <option value="openai::gpt-5.4">gpt-5.4</option>
+                    <option value="openai::gpt-6.2-astra">gpt-6.2-astra</option>
+                  </optgroup>
+                  <optgroup label="Kimi">
+                    <option value="kimi::moonshot-v1-32k">moonshot-v1-32k</option>
+                    <option value="kimi::kimi-k3">kimi-k3</option>
+                  </optgroup>
+                  <optgroup label="Qwen">
+                    <option value="qwen::qwen-plus">qwen-plus</option>
+                    <option value="qwen::qwen3.8-max">qwen3.8-max</option>
+                  </optgroup>
+                  <optgroup label="Gemini">
+                    <option value="gemini::gemini-2.5-flash">gemini-2.5-flash</option>
+                  </optgroup>
                 </select>
               </label>
 
@@ -204,7 +223,7 @@
               DLL3×CD3 双链双抗
             </button>
             <button type="button" class="chip mono starter-chip" id="starter-circ">
-              circRNA (Anabaena PIE · HRV-B3)
+              circRNA (T4 td PIE · HRV-B3)
             </button>
             <button type="button" class="chip mono starter-chip" id="starter-sarna">
               saRNA (VEEV 复制子)
@@ -256,6 +275,8 @@
                 spellcheck="false"
               ></textarea>
 
+              <div id="box-extra-chains" class="ref-r-strip mono" hidden></div>
+
               <div id="box-ref-r" class="ref-r-strip mono" hidden>
                 <span class="kicker-inline">REF R:</span>
                 <span id="txt-ref-r-preview">加载预设参考构建 R...</span>
@@ -288,11 +309,14 @@
                 <label class="field-lbl">
                   <span>模态骨架模板</span>
                   <select id="sel-scaffold" class="ctrl-select mono">
-                    <option value="cap1_hba1_aes_mt_a30l70" selected>Cap1 · HBA1/AES-mtRNR1 · A30L70</option>
+                    <option value="cap1_hba1_aes_mt_a30l70" selected>Cap1 · HBA1/AES-mtRNR1 · poly(A)100</option>
                     <option value="cap1_minimal_structured_3utr">Cap1 · 极简高开放 5′UTR · HBB 3′UTR</option>
+                    <option value="circ_t4td_hrvb3">circRNA · T4 td PIE (IVT就绪) · HRV-B3 IRES</option>
+                    <option value="circ_t4td_cvb3">circRNA · T4 td PIE (IVT就绪) · CVB3 IRES</option>
                     <option value="circ_anabaena_hrvb3">circRNA · Anabaena PIE · HRV-B3 IRES</option>
                     <option value="circ_anabaena_cvb3">circRNA · Anabaena PIE · CVB3 IRES</option>
                     <option value="sarna_veev_tc83">saRNA · VEEV TC-83 nsP1-4 · 26S SGP</option>
+                    <option value="sarna_sinv">saRNA · SINV 复制子 · 26S SGP</option>
                   </select>
                 </label>
 
@@ -725,6 +749,18 @@
           </div>
         </section>
 
+        <!-- Two-Tier Compute Topology: Vultr Control Plane + Colab/Drive Heavy Pool -->
+        <section class="panel-surface subview-section" id="dh-compute-tier-panel">
+          <div class="panel-head">
+            <div>
+              <span class="sec-kicker">COMPUTE TIER TOPOLOGY</span>
+              <h2 class="panel-title">双层算力调度与保活拓扑（Vultr 控制面 + Colab/Drive 重算池）</h2>
+            </div>
+            <span class="badge mono" id="dh-compute-tier-badge">待同步运行态</span>
+          </div>
+          <div class="subview-body" id="dh-compute-tier-grid"></div>
+        </section>
+
         <!-- Compiled Engines & Surrogate v2 vs v1 OOD Scorecard -->
         <div class="two-col-equal">
           <section class="panel-surface subview-section">
@@ -1066,6 +1102,6 @@
       </div>
     </dialog>
 
-    <script src="./app.js?v=2.5.1"></script>
+    <script src="./app.js?v=2.5.2"></script>
   </body>
 </html>
