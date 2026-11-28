@@ -598,9 +598,12 @@ def _post_json_bounded(
 
 
 _MARKUP_START_RE = re.compile(
-    r"<\s*(/?)\s*(?:([｜|]+)\s*DSML\s*[｜|]+\s*([A-Za-z_][A-Za-z0-9_-]*)?|(tool_call)\b)",
+    r"<\s*(/?)\s*(?:([｜|]+)\s*DSML(?:[｜|]+\s*([A-Za-z_][A-Za-z0-9_-]*)?|\b)|(tool_call)\b)",
     re.IGNORECASE,
 )
+_TOOL_CALL_CLOSE_RE = re.compile(r"<\s*/\s*tool_call\s*>", re.IGNORECASE)
+_DSML_ANY_CLOSE_RE = re.compile(r"<\s*/\s*[｜|]+\s*DSML\s*[｜|]+[^>]*>", re.IGNORECASE)
+_DSML_TAG_CLOSE_RE_CACHE: dict[str, re.Pattern[str]] = {}
 _SAFE_GENE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$")
 _SAFE_ACC_RE = re.compile(r"^(?:UniProt:|GenBank:|RefSeq:)?[A-Za-z0-9][A-Za-z0-9_.-]{1,23}$")
 _SAFE_LABEL_RE = re.compile(r"^[A-Za-z0-9\u4e00-\u9fff][A-Za-z0-9\u4e00-\u9fff #_().+/:-]{0,47}$")
@@ -616,7 +619,7 @@ _MAX_HONORED_RETRY_AFTER_SEC = 30.0
 
 
 def _strip_leaked_tool_markup(text: str) -> str:
-    """Linear-time bounded removal of leaked XML/DSML tool-call markup without regex backtracking."""
+    """Strictly linear-time removal of leaked XML/DSML tool-call markup without slicing loops or backtracking."""
     raw = str(text or "")
     if not raw or "<" not in raw:
         return raw.strip()
@@ -639,26 +642,33 @@ def _strip_leaked_tool_markup(text: str) -> str:
             pos = gt_idx + 1
             continue
         if is_tool_call:
-            end_m = re.search(r"<\s*/\s*tool_call\s*>", raw[m.end() :], re.IGNORECASE)
+            if gt_idx == -1:
+                break
+            end_m = _TOOL_CALL_CLOSE_RE.search(raw, gt_idx + 1)
             if end_m is not None:
-                pos = m.end() + end_m.end()
+                pos = end_m.end()
                 continue
             break
-        # Opening DSML block (e.g. calls / invoke / parameter): consume paired end tag or drop unclosed tail
-        if gt_idx != -1 and gt_idx >= 2 and raw[gt_idx - 1] == "/":
+        # Opening DSML block: wait for closing </|DSML| ...> or drop truncated tail cleanly
+        if gt_idx == -1:
+            break
+        if gt_idx >= 2 and raw[gt_idx - 1] == "/":
             pos = gt_idx + 1
             continue
-        end_pat = (
-            re.compile(rf"<\s*/\s*[｜|]+\s*DSML\s*[｜|]+\s*{re.escape(dsml_tag)}\s*>", re.IGNORECASE)
-            if dsml_tag
-            else re.compile(r"<\s*/\s*[｜|]+\s*DSML\s*[｜|]+[^>]*>", re.IGNORECASE)
-        )
-        search_from = (gt_idx + 1) if gt_idx != -1 else m.end()
-        end_m = end_pat.search(raw, search_from)
+        if dsml_tag:
+            end_pat = _DSML_TAG_CLOSE_RE_CACHE.get(dsml_tag)
+            if end_pat is None:
+                end_pat = re.compile(
+                    rf"<\s*/\s*[｜|]+\s*DSML\s*[｜|]+\s*{re.escape(dsml_tag)}\s*>",
+                    re.IGNORECASE,
+                )
+                _DSML_TAG_CLOSE_RE_CACHE[dsml_tag] = end_pat
+        else:
+            end_pat = _DSML_ANY_CLOSE_RE
+        end_m = end_pat.search(raw, gt_idx + 1)
         if end_m is not None:
             pos = end_m.end()
             continue
-        # Unclosed trailing DSML invocation/parameter tail: drop remainder cleanly
         break
     return "".join(out).strip()
 
@@ -680,8 +690,10 @@ def _build_tool_trace_fallback_reply(tool_trace: list[dict[str, Any]], user_text
     cand_count: int | None = None
     top_label: str | None = None
     questions: list[str] = []
+    parts: list[str] = []
     had_success = False
     had_error = False
+    missing_approved_component = False
 
     for entry in tool_trace:
         if not isinstance(entry, dict):
@@ -703,14 +715,17 @@ def _build_tool_trace_fallback_reply(tool_trace: list[dict[str, Any]], user_text
                 seen_targets.add(lbl)
                 resolved_labels.append(lbl)
         cands = res.get("candidates")
+        raw_qc = res.get("qualified_count")
+        outcome_status = str(res.get("outcome_status") or "").strip().upper()
+        missing_approved = outcome_status == "FAILED_NO_APPROVED_COMPONENT"
         if isinstance(cands, list):
             cand_count = len(cands)
             c0 = cands[0] if cands and isinstance(cands[0], dict) else {}
             top_label = _sanitize_short_fallback_token(
                 c0.get("display_label") or c0.get("bundle_id"), _SAFE_LABEL_RE
             )
-        elif isinstance(res.get("qualified_count"), int):
-            cand_count = int(res["qualified_count"])
+        elif type(raw_qc) is int and raw_qc >= 0:
+            cand_count = raw_qc
             rec_ids = res.get("recommended_bundle_ids")
             if isinstance(rec_ids, list) and rec_ids:
                 top_label = _sanitize_short_fallback_token(rec_ids[0], _SAFE_LABEL_RE)
@@ -720,6 +735,9 @@ def _build_tool_trace_fallback_reply(tool_trace: list[dict[str, Any]], user_text
                 q_str = re.sub(r"[\r\n<>[\]{}|]+", " ", str(q or "")).strip()[:160]
                 if q_str and q_str not in questions:
                     questions.append(q_str)
+        if missing_approved:
+            missing_approved_component = True
+            cand_count = None
 
     if questions:
         joined = "；".join(questions) if is_zh else "; ".join(questions)
@@ -729,10 +747,15 @@ def _build_tool_trace_fallback_reply(tool_trace: list[dict[str, Any]], user_text
             else f"Additional confirmation is required before sequence compilation: {joined}"
         )
 
-    parts: list[str] = []
     if resolved_labels:
         joined_t = "、".join(resolved_labels[:4]) if is_zh else ", ".join(resolved_labels[:4])
         parts.append(f"已解析目标蛋白：{joined_t}" if is_zh else f"Resolved target protein assets: {joined_t}")
+    if missing_approved_component:
+        parts.append(
+            "当前合规轨下缺少已批准骨架组件（FAILED_NO_APPROVED_COMPONENT），请切换至 research_max 或补充已批准组件"
+            if is_zh
+            else "No approved scaffold component is available under the selected compliance track (FAILED_NO_APPROVED_COMPONENT)"
+        )
     if cand_count is not None:
         if cand_count == 0:
             parts.append(
@@ -987,10 +1010,12 @@ class LiveDialogueAgent:
         *,
         tools_spec: list[dict[str, Any]] | None,
         tool_choice: str | None,
+        extra_messages: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
+        msgs = [*self.messages, *extra_messages] if extra_messages else self.messages
         payload: dict[str, Any] = {
             "model": self.model,
-            "messages": self.messages,
+            "messages": msgs,
         }
         if _supports_zero_temperature(self.provider, self.model):
             payload["temperature"] = 0.0
@@ -1389,13 +1414,15 @@ class LiveDialogueAgent:
                     raw_choice, _ = self._extract_responses_choice(resp, allow_tool_calls=False)
                     choice = redact_secrets_in_obj(raw_choice, extra_secrets=active_secrets)
                 else:
-                    self.messages.append(
-                        {
-                            "role": "user",
-                            "content": "工具调用已达到本轮上限。请不要再调用任何工具或输出内部调用标签，直接基于以上工具结果给出简洁清晰的中文/用户语言总结与下一步建议。",
-                        }
+                    wrapup_msg = {
+                        "role": "user",
+                        "content": "工具调用已达到本轮上限。请不要再调用任何工具或输出内部调用标签，直接基于以上工具结果给出简洁清晰的中文/用户语言总结与下一步建议。",
+                    }
+                    final_payload = self._build_completion_payload(
+                        tools_spec=None,
+                        tool_choice=None,
+                        extra_messages=[wrapup_msg],
                     )
-                    final_payload = self._build_completion_payload(tools_spec=None, tool_choice=None)
                     resp = _post_json_with_429_retry(
                         client,
                         f"{self.base_url}/chat/completions",

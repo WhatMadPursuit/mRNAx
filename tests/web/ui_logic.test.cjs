@@ -2179,11 +2179,44 @@ test("v2.5.3 upgrades: rich markdown tables/headings, DSML strip, target import 
   })()`);
   assert.equal(document.getElementById("input-protein").value, "MIMPORTEDNEW");
 
-  // 8. Markdown cell caps bound pathological tables & research_max pure_seq_gc_approx badge avoids misleading commercial claim
+  // 8. Markdown cell caps bound pathological tables (headers + body <= 1000 cells) & research_max pure_seq_gc_approx badge avoids misleading commercial claim
   const hugeHeader = Array.from({ length: 24 }, (_, i) => `C${i}`).join("|");
   const hugeDiv = Array.from({ length: 24 }, () => "---").join("|");
   const hugeTableHtml = run(`formatSafeMarkdown("${hugeHeader}\\n${hugeDiv}\\n${hugeHeader}")`);
   assert.match(hugeTableHtml, /表格已按安全上限截断/);
+  const row16 = Array.from({ length: 16 }, (_, i) => `H${i}`).join("|");
+  const div16 = Array.from({ length: 16 }, () => "---").join("|");
+  const body16 = Array.from({ length: 70 }, () => row16).join("\\n");
+  const tbl16Html = run(`formatSafeMarkdown("${row16}\\n${div16}\\n${body16}")`);
+  const thTdCount = (tbl16Html.match(/<t[hd]>/g) || []).length;
+  assert.ok(thTdCount <= 1000 && thTdCount >= 900, `Expected bounded cells <= 1000, got ${thTdCount}`);
+  assert.equal(run('stripLeakedMarkupClient("Hi <|DSML")'), "Hi");
+
+  // 8b. Legacy gateway-advertised model (deepseek-reasoner) restores once status loads catalog
+  storageMap.clear();
+  storageMap.set("mrnax_llm_provider", "deepseek");
+  storageMap.set("mrnax_llm_model", "deepseek-reasoner");
+  run(`
+    initConfig();
+    state.activeVersion = 0;
+    window.fetch = async (url) => String(url).endsWith("/v1/system/status") ? ({
+      ok: true,
+      status: 200,
+      headers: { get: () => "application/json" },
+      text: async () => JSON.stringify({
+        hostname: "vultr-gpt",
+        default_profile: "research_max",
+        caller_token_authenticated: true,
+        default_llm_provider: "openai",
+        server_llm_providers_ready: ["openai", "deepseek"],
+        default_llm_models: { openai: "gpt-5.4", deepseek: "deepseek-flash" },
+        supported_llm_models: { openai: ["gpt-5.4"], deepseek: ["deepseek-flash", "deepseek-v4-pro", "deepseek-reasoner"] },
+      }),
+    }) : ({ ok: true, status: 200, headers: { get: () => "application/json" }, text: async () => "{}" });
+  `);
+  await run("refreshSystemStatus()");
+  assert.equal(run("state.llmProvider"), "deepseek");
+  assert.equal(run("state.llmModel"), "deepseek-reasoner");
 
   run(`
     document.getElementById("sel-profile").value = "research_max";

@@ -471,6 +471,7 @@ const state = {
   userChoseExecMode: false,
   userChoseModel: false,
   userChoseBenchChem: false,
+  pendingStoredModel: "",
   activeRequestCount: 0,
   inFlight: false,
   lastFailedTurn: null,
@@ -576,7 +577,7 @@ function extractSandboxedText(val) {
 function stripLeakedMarkupClient(rawText) {
   const raw = rawText == null ? "" : String(rawText);
   if (!raw || !raw.includes("<")) return raw.trim();
-  const startRe = /<\s*(\/?)\s*(?:([｜|]+)\s*DSML\s*[｜|]+\s*([A-Za-z_][A-Za-z0-9_-]*)?|(tool_call)\b)/gi;
+  const startRe = /<\s*(\/?)\s*(?:([｜|]+)\s*DSML(?:[｜|]+\s*([A-Za-z_][A-Za-z0-9_-]*)?|\b)|(tool_call)\b)/gi;
   let out = "";
   let pos = 0;
   while (pos < raw.length) {
@@ -597,8 +598,9 @@ function stripLeakedMarkupClient(rawText) {
       continue;
     }
     if (isToolCall) {
+      if (gtIdx === -1) break;
       const endRe = /<\s*\/\s*tool_call\s*>/gi;
-      endRe.lastIndex = startRe.lastIndex;
+      endRe.lastIndex = gtIdx + 1;
       const endM = endRe.exec(raw);
       if (endM) {
         pos = endRe.lastIndex;
@@ -606,14 +608,15 @@ function stripLeakedMarkupClient(rawText) {
       }
       break;
     }
-    if (gtIdx !== -1 && gtIdx >= 2 && raw[gtIdx - 1] === "/") {
+    if (gtIdx === -1) break;
+    if (gtIdx >= 2 && raw[gtIdx - 1] === "/") {
       pos = gtIdx + 1;
       continue;
     }
     const endRe = dsmlTag
       ? new RegExp(`<\\s*/\\s*[｜|]+\\s*DSML\\s*[｜|]+\\s*${dsmlTag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*>`, "gi")
       : /<\s*\/\s*[｜|]+\s*DSML\s*[｜|]+[^>]*>/gi;
-    endRe.lastIndex = gtIdx !== -1 ? gtIdx + 1 : startRe.lastIndex;
+    endRe.lastIndex = gtIdx + 1;
     const endM = endRe.exec(raw);
     if (endM) {
       pos = endRe.lastIndex;
@@ -664,7 +667,7 @@ function formatSafeMarkdown(rawText) {
       const allHeaders = splitTableCells(line);
       const headers = allHeaders.slice(0, MAX_TABLE_COLS);
       const colTruncated = allHeaders.length > headers.length;
-      const maxRowsByCells = Math.max(1, Math.floor(MAX_TABLE_CELLS / Math.max(1, headers.length)));
+      const maxRowsByCells = Math.max(0, Math.floor((MAX_TABLE_CELLS - headers.length) / Math.max(1, headers.length)));
       const rowCap = Math.min(MAX_TABLE_ROWS, maxRowsByCells);
       i += 2;
       const bodyRows = [];
@@ -1182,6 +1185,7 @@ function openSettingsModal(focusToken = false) {
   state.modalInitialProvider = state.llmProvider || "deepseek";
   state.modalInitialModel = state.llmModel || "";
   state.modalDraftChoseModel = false;
+  state.pendingStoredModel = "";
   setSettingsModalError("");
   const cfgApi = document.getElementById("cfg-api-base");
   const cfgToken = document.getElementById("cfg-access-token");
@@ -1284,6 +1288,7 @@ function initConfig() {
   const isUntouchedLegacyDefault =
     (!cleanStoredProv || cleanStoredProv === "deepseek") &&
     (!storedModel || storedModel === "deepseek-flash");
+  state.pendingStoredModel = storedModel || "";
   state.userChoseModel =
     safeStorageGet("local", "mrnax_user_chose_model") === "1" ||
     Boolean((isKnownStoredProv && !isUntouchedLegacyDefault) || (storedModel && storedModel !== "deepseek-flash"));
@@ -2699,8 +2704,12 @@ function renderStructureArcSvg(profile) {
   const enginesRaw = Array.isArray(profile.engines_used) ? profile.engines_used.join(" + ") : "";
   const isPureSeqApprox =
     profile.mfe_method === "pure_seq_gc_approx" || enginesRaw.toLowerCase().includes("pureseqapprox");
-  const profTrack = document.getElementById("sel-profile")?.value || "";
-  const isCommercialTrack = profTrack === "commercial_clean";
+  const activeIntentForStruct = state.intentHistory.length ? state.intentHistory[state.intentHistory.length - 1] : null;
+  const effStructTrack =
+    (state.candidates.some((c) => c.bundle_id === state.selectedBundleId) && activeIntentForStruct?.compliance_track) ||
+    document.getElementById("sel-profile")?.value ||
+    "";
+  const isCommercialTrack = effStructTrack === "commercial_clean";
   const emptyArcText = isPureSeqApprox
     ? isCommercialTrack
       ? "商业洁净轨已屏蔽非商用 ViennaRNA（仅展示纯序列滑窗）；切至 SOTA Open 可看配分函数弧图"
@@ -2821,8 +2830,12 @@ function renderStructureVisuals(profile, chain) {
     const isVienna = engines.toLowerCase().includes("viennarna");
     const isPureSeqApprox =
       profile.mfe_method === "pure_seq_gc_approx" || engines.toLowerCase().includes("pureseqapprox");
-    const profTrack = document.getElementById("sel-profile")?.value || "";
-    const isCommercialTrack = profTrack === "commercial_clean";
+    const activeIntentForBadge = state.intentHistory.length ? state.intentHistory[state.intentHistory.length - 1] : null;
+    const effBadgeTrack =
+      (state.candidates.some((c) => c.bundle_id === state.selectedBundleId) && activeIntentForBadge?.compliance_track) ||
+      document.getElementById("sel-profile")?.value ||
+      "";
+    const isCommercialTrack = effBadgeTrack === "commercial_clean";
     if (isVienna) {
       srcBadge.textContent = "ViennaRNA 精确配分函数";
       srcBadge.className = "badge mono ok";
@@ -3729,6 +3742,15 @@ async function refreshSystemStatus() {
     if (st.supported_llm_models && typeof st.supported_llm_models === "object") {
       state.supportedModels = { ...SUPPORTED_PROVIDER_MODELS, ...st.supported_llm_models };
     }
+    if (
+      state.pendingStoredModel &&
+      state.userChoseModel &&
+      getModelsForProvider(state.llmProvider).includes(state.pendingStoredModel)
+    ) {
+      state.llmModel = state.pendingStoredModel;
+      safeStorageSet("local", "mrnax_llm_model", state.llmModel);
+    }
+    state.pendingStoredModel = "";
     const serverDefProv = String(st.default_llm_provider || "").trim().toLowerCase();
     const readyProvs = Array.isArray(st.server_llm_providers_ready) ? st.server_llm_providers_ready : [];
     const dlgSettings = document.getElementById("modal-settings");
@@ -5498,7 +5520,14 @@ async function resolveTargetProteinInHub(customQuery = null) {
       state.selectedBundleId = null;
       state.lastCliCommand = "";
       state.cachedExports = {};
+      state.boundaryAdvisories = [];
+      state.logCount = 0;
       state.userChoseBenchChem = false;
+
+      const logCnt = document.getElementById("txt-log-count");
+      if (logCnt) logCnt.textContent = "0";
+      if (typeof renderBoundariesModal === "function") renderBoundariesModal();
+      if (typeof renderWelcomeCard === "function") renderWelcomeCard();
 
       const txtProj = document.getElementById("txt-project-id");
       if (txtProj) txtProj.textContent = state.projectId;
@@ -5567,13 +5596,13 @@ function syncBenchmarkSelectedLabel() {
   }
   const customSeq = (document.getElementById("bench-custom-seq")?.value || "").trim();
   const chemSel = document.getElementById("bench-chemistry");
-  if (chemSel && !customSeq && !state.userChoseBenchChem) {
-    const activeMod = cand?.modality || state.modality || "linear_mrna";
+  if (chemSel && cand && !customSeq && !state.userChoseBenchChem) {
+    const activeMod = cand.modality || state.modality || "linear_mrna";
     const latestIntent = state.intentHistory.length ? state.intentHistory[state.intentHistory.length - 1] : null;
     const effChem =
       activeMod === "circrna" || activeMod === "sarna"
         ? "unmodified_u"
-        : cand?.uridine_chemistry || latestIntent?.uridine_chemistry || document.getElementById("sel-chemistry")?.value || "m1psi";
+        : cand.uridine_chemistry || latestIntent?.uridine_chemistry || "";
     if (["m1psi", "pseudouridine", "unmodified_u"].includes(effChem)) {
       chemSel.value = effChem;
     }
@@ -6221,6 +6250,7 @@ function saveSettingsFromModal() {
   state.modalInitialProvider = null;
   state.modalInitialModel = null;
   state.modalDraftChoseModel = false;
+  state.pendingStoredModel = "";
 
   setProviderPreference(chosenProvider, { userInitiated: modelChangedInModal });
   setModelPreference(chosenModel, { userInitiated: modelChangedInModal });
@@ -6235,6 +6265,9 @@ function saveSettingsFromModal() {
     state.structureCache = {};
     resetProjectWorkspaceState({ silent: true });
     clearErrorBanner();
+    if (state.activeTab === "rules" && typeof loadScientificRules === "function") {
+      loadScientificRules();
+    }
   }
 
   if (state.accessToken || state.byoKey) {

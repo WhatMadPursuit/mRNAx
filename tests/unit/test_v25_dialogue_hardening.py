@@ -351,6 +351,14 @@ def test_audit_hardening_dsml_interrupted_intermediate_retry_after_and_fallback(
     assert len(payloads) == 2
     assert all("DSML" not in str(m.get("content") or "") and "secret_arg" not in str(m.get("content") or "") for m in payloads[1]["messages"])
     assert reply and "DSML" not in reply
+    # Wrap-up prompt must be transient (not persisted into agent.messages)
+    assert not any("工具调用已达到本轮上限" in str(m.get("content") or "") for m in agent.messages)
+    assert _strip_leaked_tool_markup("Hello <|DSML") == "Hello"
+    assert "未能成功完成" in _build_tool_trace_fallback_reply([{"name": "design_constructs", "result": {"qualified_count": True}}], "测试") or "工具检索" in _build_tool_trace_fallback_reply([{"name": "design_constructs", "result": {"qualified_count": True}}], "测试")
+    assert "FAILED_NO_APPROVED_COMPONENT" in _build_tool_trace_fallback_reply(
+        [{"name": "design_constructs", "result": {"outcome_status": "FAILED_NO_APPROVED_COMPONENT", "qualified_count": 0}}],
+        "设计",
+    )
 
     # 2. Fallback rejects errors, rejects prompt injection metadata, and handles qualified_count=0 honestly
     assert "未能成功完成" in _build_tool_trace_fallback_reply([{"name": "t", "result": {"error": "boom"}}], "测试")

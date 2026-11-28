@@ -2205,7 +2205,7 @@ def create_control_plane_app(
         req_key = _hash_client_request_id(req_id) if req_id else None
         digest_payload: dict[str, Any] = {
             "message": req.message,
-            "provider": effective_provider,
+            "provider": header_provider or req.provider or ("gemini" if byo_clean.startswith("AIza") else "deepseek"),
             "model": req.model or "",
         }
         for opt_k, opt_v in (
@@ -2318,12 +2318,18 @@ def create_control_plane_app(
             needs_clarification = bool(target_intent is not None and target_intent.status != "ready")
             out_status = "NEEDS_CLARIFICATION" if needs_clarification else "COMPLETED"
             clean_reply = redact_secrets_in_text(_strip_leaked_tool_markup(reply_text), extra_secrets=active_secrets)
-            if not clean_reply and (tool_calls_list or cards or (needs_clarification and target_intent is not None)):
+            if not clean_reply and (tool_calls_list or diff is not None or (needs_clarification and target_intent is not None)):
+                raw_trace = [
+                    tc for tc in tool_calls_list if isinstance(tc, dict) and isinstance(tc.get("result"), dict)
+                ]
                 synth_trace: list[dict[str, Any]] = []
-                if cards:
-                    synth_trace.append({"name": "design_constructs", "result": {"candidates": cards}})
-                if needs_clarification and target_intent is not None and target_intent.blocking_questions:
-                    synth_trace.append({"name": "clarify", "result": {"blocking_questions": list(target_intent.blocking_questions)}})
+                if raw_trace:
+                    synth_trace = raw_trace
+                else:
+                    if cards and (diff is not None or baseline_intent is None):
+                        synth_trace.append({"name": "design_constructs", "result": {"candidates": cards}})
+                    if needs_clarification and target_intent is not None and target_intent.blocking_questions:
+                        synth_trace.append({"name": "clarify", "result": {"blocking_questions": list(target_intent.blocking_questions)}})
                 clean_reply = redact_secrets_in_text(
                     _build_tool_trace_fallback_reply(synth_trace or tool_calls_out, str(req.message or "")),
                     extra_secrets=active_secrets,
