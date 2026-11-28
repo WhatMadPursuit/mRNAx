@@ -1865,3 +1865,233 @@ test("Gate B-R2 Round 3 (#10): syncControlsFromIntent resets linear modality/sca
   impBtnListeners.click();
   assert.equal(run("state.proteinAccession"), "UniProt:Q9XYZ1");
 });
+
+test("v2.5.3 upgrades: rich markdown tables/headings, DSML strip, target import reset, rules race guard, and server default openai", async () => {
+  const fields = new Map();
+  const listenerMap = new Map();
+  const makeNode = (id, tag = "DIV") => {
+    const node = {
+      id,
+      tagName: String(tag).toUpperCase(),
+      value: "",
+      innerHTML: "",
+      textContent: "",
+      className: "",
+      hidden: false,
+      open: false,
+      checked: false,
+      disabled: false,
+      dataset: {},
+      style: {},
+      children: [],
+      options: [],
+      listeners: {},
+      classList: {
+        _set: new Set(),
+        toggle(cls, force) {
+          if (force === undefined) {
+            if (this._set.has(cls)) this._set.delete(cls);
+            else this._set.add(cls);
+          } else if (force) this._set.add(cls);
+          else this._set.delete(cls);
+        },
+        add(cls) { this._set.add(cls); },
+        remove(cls) { this._set.delete(cls); },
+        contains(cls) { return this._set.has(cls); },
+      },
+      addEventListener(ev, fn) {
+        this.listeners[ev] = fn;
+        if (id) {
+          if (!listenerMap.has(id)) listenerMap.set(id, {});
+          listenerMap.get(id)[ev] = fn;
+        }
+      },
+      removeEventListener() {},
+      querySelector() { return null; },
+      querySelectorAll() { return []; },
+      insertBefore(c) { this.children.push(c); },
+      appendChild(c) { this.children.push(c); },
+      replaceChildren() { this.children = []; if (this.tagName === "SELECT") this.options = []; },
+      focus() {},
+      close() { this.open = false; },
+    };
+    return node;
+  };
+  for (const id of ["sel-llm-model", "cfg-llm-model", "cfg-llm-provider", "sel-scaffold", "sel-chemistry", "sel-profile", "sel-exec-mode"]) {
+    fields.set(id, makeNode(id, "select"));
+  }
+  fields.get("cfg-llm-provider").options = ["deepseek", "openai", "kimi", "qwen", "gemini"].map((value) => ({ value }));
+  const enzContainer = makeNode("enzyme-chips", "div");
+  for (const enz of ["BsaI", "BspQI"]) {
+    const chip = makeNode("", "button");
+    chip.className = "chip mono";
+    chip.classList.add("chip");
+    chip.classList.add("mono");
+    chip.dataset.enz = enz;
+    enzContainer.appendChild(chip);
+  }
+  fields.set("enzyme-chips", enzContainer);
+  const document = {
+    addEventListener() {},
+    documentElement: { dataset: {} },
+    querySelectorAll(sel) {
+      if (sel === "#enzyme-chips .chip") return enzContainer.children;
+      if (sel === "#enzyme-chips .chip.selected") return enzContainer.children.filter((c) => c.classList.contains("selected"));
+      return [];
+    },
+    querySelector() { return null; },
+    createElement(tag) { return makeNode("", tag); },
+    getElementById(id) {
+      if (!fields.has(id)) fields.set(id, makeNode(id, "div"));
+      return fields.get(id);
+    },
+  };
+  const storageMap = new Map();
+  const localStorage = {
+    getItem: (k) => (storageMap.has(k) ? storageMap.get(k) : null),
+    setItem: (k, v) => storageMap.set(k, String(v)),
+    removeItem: (k) => storageMap.delete(k),
+  };
+  const windowObj = {
+    location: new URL("http://localhost/#token=tok_srv_def"),
+    history: { replaceState() {} },
+    crypto: require("node:crypto").webcrypto,
+    localStorage,
+    fetch: async () => response(200, {}),
+  };
+  const context = vm.createContext({
+    window: windowObj,
+    history: windowObj.history,
+    localStorage,
+    document,
+    URL,
+    URLSearchParams,
+    fetch: (...args) => windowObj.fetch(...args),
+  });
+  vm.runInContext(source, context);
+  const run = (code) => vm.runInContext(code, context);
+
+  // 1. Upgraded formatSafeMarkdown handles headings, GFM table, ordered list, blockquote, DSML stripping, and XSS escaping
+  const richHtml = run(`formatSafeMarkdown("## 核心权衡\\n> 参考边界<script>x</script>\\n\\n| 候选 | 5′开放度 | MFE |\\n|---|---|---|\\n| pareto_05 | 0.584 | -32.5 |\\n\\n1. 首选 **pareto_05**\\n2. 避开 \`BspQI\`\\n<｜DSML｜ calls><｜DSML｜ invoke name='a'></｜DSML｜ invoke></｜DSML｜ calls>")`);
+  assert.match(richHtml, /<h4 class="md-h">核心权衡<\/h4>/);
+  assert.match(richHtml, /<blockquote class="md-quote">参考边界&lt;script&gt;x&lt;\/script&gt;<\/blockquote>/);
+  assert.match(richHtml, /<div class="md-table-wrap"><table class="md-table"><thead><tr><th>候选<\/th><th>5′开放度<\/th><th>MFE<\/th><\/tr><\/thead><tbody><tr><td>pareto_05<\/td><td>0.584<\/td><td>-32.5<\/td><\/tr><\/tbody><\/table><\/div>/);
+  assert.match(richHtml, /<ol><li>首选 <strong>pareto_05<\/strong><\/li><li>避开 <code>BspQI<\/code><\/li><\/ol>/);
+  assert.doesNotMatch(richHtml, /DSML|<script>/i);
+
+  // 2. Target Resolver import resets modality, chemistry, enzymes, clears stale candidates, and sets studio banner
+  run(`
+    wireEvents();
+    state.apiBase = "http://localhost";
+    window.fetch = async (url) => {
+      if (String(url).includes("/v1/evidence/resolve-protein")) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({
+            gene_symbol: "EPO",
+            uniprot_accession: "P01588",
+            protein_sequence: "MGVHECPAWL",
+            aa_length: 10,
+            starts_with_met: true,
+          }),
+        };
+      }
+      return { ok: true, status: 200, text: async () => "{}" };
+    };
+    state.modality = "circrna";
+    document.getElementById("sel-chemistry").value = "unmodified_u";
+    setSelectedEnzymes(["BspQI"]);
+    state.candidates = [{ bundle_id: "old_circ_1", pareto_rank: 1, full_gc_pct: 52, length_nt: 900 }];
+    state.selectedBundleId = "old_circ_1";
+  `);
+  await run('resolveTargetProteinInHub("EPO")');
+  const impHandlers = listenerMap.get("btn-import-resolved-protein");
+  assert.ok(impHandlers && typeof impHandlers.click === "function");
+  impHandlers.click();
+  assert.equal(run("state.modality"), "linear_mrna");
+  assert.equal(document.getElementById("sel-chemistry").value, "m1psi");
+  assert.deepEqual(Array.from(run("getSelectedEnzymes()")), ["BsaI"]);
+  assert.equal(run("state.candidates.length"), 0);
+  assert.equal(document.getElementById("banner-notes").hidden, false);
+  assert.match(document.getElementById("banner-notes").textContent, /EPO/);
+
+  // 3. loadScientificRules ignores out-of-order stale response
+  run(`
+    state.rulesCache = null;
+    window.__rulesResolvers = [];
+    window.fetch = (url) => new Promise((resolve) => {
+      window.__rulesResolvers.push({ url: String(url), resolve });
+    });
+    document.getElementById("rules-filter-q").value = "";
+    window.__p1 = loadScientificRules();
+    document.getElementById("rules-filter-q").value = "kozak";
+    window.__p2 = loadScientificRules();
+  `);
+  assert.equal(run("window.__rulesResolvers.length"), 2);
+  // Resolve req 2 (kozak) FIRST, then stale req 1 (all rules) SECOND
+  await run(`(async () => {
+    window.__rulesResolvers[1].resolve({
+      ok: true,
+      status: 200,
+      headers: { get: () => "application/json" },
+      text: async () => JSON.stringify({ total_available: 38, total_matched: 1, rules: [{ rule_id: "RUL-KOZAK", title_zh: "Kozak", title_en: "Kozak", evidence_grade: "conditional", modality: ["linear_mrna"], region: "5UTR" }] }),
+    });
+    await window.__p2;
+  })()`);
+  assert.equal(run("state.rulesCache.rules[0].rule_id"), "RUL-KOZAK");
+  await run(`(async () => {
+    window.__rulesResolvers[0].resolve({
+      ok: true,
+      status: 200,
+      headers: { get: () => "application/json" },
+      text: async () => JSON.stringify({ total_available: 38, total_matched: 1, rules: [{ rule_id: "RUL-STALE", title_zh: "Stale", title_en: "Stale", evidence_grade: "conditional", modality: ["linear_mrna"], region: "CDS" }] }),
+    });
+    await window.__p1;
+  })()`);
+  // Stale req 1 must NOT overwrite req 2's kozak results
+  assert.equal(run("state.rulesCache.rules.length"), 1);
+  assert.equal(run("state.rulesCache.rules[0].rule_id"), "RUL-KOZAK");
+
+  // 4. Server default_llm_provider=openai auto-applies when authenticated & userChoseModel is false, and respects manual override
+  run(`
+    initConfig();
+    state.activeVersion = 0;
+    window.fetch = async (url) => {
+      const u = String(url);
+      if (u.endsWith("/v1/system/status")) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({
+            hostname: "vultr-gpt",
+            default_profile: "research_max",
+            caller_token_authenticated: true,
+            default_llm_provider: "openai",
+            server_llm_providers_ready: ["openai", "deepseek"],
+            default_llm_models: { openai: "gpt-5.4", deepseek: "deepseek-flash" },
+            supported_llm_models: { openai: ["gpt-5.4", "gpt-6.2-astra"], deepseek: ["deepseek-flash"] },
+          }),
+        };
+      }
+      return { ok: true, status: 200, text: async () => "{}" };
+    };
+  `);
+  await run("refreshSystemStatus()");
+  assert.equal(run("state.llmProvider"), "openai");
+  assert.equal(run("state.llmModel"), "gpt-5.4");
+  assert.equal(document.getElementById("sel-llm-model").value, "openai::gpt-5.4");
+  assert.equal(document.getElementById("pill-agent-auth").textContent, "Agent: gpt-5.4 ✓");
+
+  // Manual user choice pins provider/model against subsequent server status refreshes
+  run(`
+    const sel = document.getElementById("sel-llm-model");
+    sel.value = "deepseek::deepseek-flash";
+    sel.listeners.change({ target: sel });
+  `);
+  assert.equal(run("state.userChoseModel"), true);
+  assert.equal(storageMap.get("mrnax_user_chose_model"), "1");
+  await run("refreshSystemStatus()");
+  assert.equal(run("state.llmProvider"), "deepseek");
+  assert.equal(run("state.llmModel"), "deepseek-flash");
+});

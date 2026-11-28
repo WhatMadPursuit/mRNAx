@@ -53,7 +53,9 @@ from mrnax.engine.profiles import resolve_default_seed_dir
 from mrnax.harness.auth_secrets import SecretVault
 from mrnax.harness.dialogue import (
     _REDACT_KEY_RE,
+    _build_tool_trace_fallback_reply,
     _project_llm_tool_payload,
+    _strip_leaked_tool_markup,
     DEFAULT_PROVIDER_MODELS,
     SUPPORTED_PROVIDER_MODELS,
     LiveDialogueAgent,
@@ -852,7 +854,20 @@ def _load_agent_chat_history(
         return []
     if not isinstance(raw, list):
         return []
-    entries = [redact_secrets_in_obj(item, extra_secrets=extra_secrets) for item in raw if isinstance(item, dict)]
+    entries = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        clean_item = redact_secrets_in_obj(item, extra_secrets=extra_secrets)
+        if isinstance(clean_item, dict) and isinstance(clean_item.get("assistant_reply"), str):
+            stripped_hist = _strip_leaked_tool_markup(clean_item["assistant_reply"])
+            if not stripped_hist and isinstance(clean_item.get("tool_calls"), list) and clean_item["tool_calls"]:
+                stripped_hist = _build_tool_trace_fallback_reply(
+                    clean_item["tool_calls"],
+                    str(clean_item.get("user_message") or ""),
+                )
+            clean_item["assistant_reply"] = stripped_hist
+        entries.append(clean_item)
     return entries[-max_turns:]
 
 
@@ -1611,6 +1626,13 @@ def create_control_plane_app(
         vault = SecretVault()
         prov = vault.provider_status()
         configured_providers = [k for k, v in prov.items() if v.get("configured")]
+        raw_default_provider = str(os.environ.get("MRNAX_DEFAULT_LLM_PROVIDER", "")).strip().lower()
+        if raw_default_provider not in DEFAULT_PROVIDER_MODELS:
+            default_llm_provider = "deepseek"
+        elif configured_providers and raw_default_provider not in configured_providers:
+            default_llm_provider = "deepseek" if "deepseek" in configured_providers else configured_providers[0]
+        else:
+            default_llm_provider = raw_default_provider
         token_valid = _is_valid_admin_token(x_mrnax_access_token)
         with enforce_local_heavy_binaries_policy(disable_local_heavy_binaries):
             engines_status = detect_available_engines(resolved_seed)
@@ -1657,7 +1679,7 @@ def create_control_plane_app(
                 },
             },
             "server_llm_providers_ready": configured_providers,
-            "default_llm_provider": "deepseek",
+            "default_llm_provider": default_llm_provider,
             "default_llm_models": dict(DEFAULT_PROVIDER_MODELS),
             "supported_llm_models": {k: list(v) for k, v in SUPPORTED_PROVIDER_MODELS.items()},
             "gateway_token_required_for_server_llm": bool(configured_token),
@@ -2282,6 +2304,17 @@ def create_control_plane_app(
             )
             needs_clarification = bool(target_intent is not None and target_intent.status != "ready")
             out_status = "NEEDS_CLARIFICATION" if needs_clarification else "COMPLETED"
+            clean_reply = redact_secrets_in_text(_strip_leaked_tool_markup(reply_text), extra_secrets=active_secrets)
+            if not clean_reply and (tool_calls_list or cards or (needs_clarification and target_intent is not None)):
+                synth_trace: list[dict[str, Any]] = []
+                if cards:
+                    synth_trace.append({"name": "design_constructs", "result": {"candidates": cards}})
+                if needs_clarification and target_intent is not None and target_intent.blocking_questions:
+                    synth_trace.append({"name": "clarify", "result": {"blocking_questions": list(target_intent.blocking_questions)}})
+                clean_reply = redact_secrets_in_text(
+                    _build_tool_trace_fallback_reply(synth_trace or tool_calls_out, str(req.message or "")),
+                    extra_secrets=active_secrets,
+                )
             out_payload: dict[str, Any] = {
                 "status": out_status,
                 "blocking_questions": (
@@ -2291,7 +2324,7 @@ def create_control_plane_app(
                 ),
                 "provider": redact_secrets_in_text(provider_name, extra_secrets=active_secrets),
                 "model": redact_secrets_in_text(model_name, extra_secrets=active_secrets),
-                "assistant_reply": redact_secrets_in_text(reply_text, extra_secrets=active_secrets),
+                "assistant_reply": clean_reply,
                 "tool_calls": tool_calls_out,
                 "intent": target_intent.model_dump(mode="json") if target_intent else None,
                 "intent_diff": diff,
