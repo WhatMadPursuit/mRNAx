@@ -387,7 +387,7 @@ def _verify_manifest_artifact(
             raise PermissionError(
                 f"Refusing to deserialize '{filename}' in commercial_clean loader: artifact license_track='{item_track}'"
             )
-        if schema_id not in _SUPPORTED_PROVENANCE_SCHEMAS:
+        if not isinstance(schema_id, str) or schema_id not in _SUPPORTED_PROVENANCE_SCHEMAS:
             raise PermissionError(
                 f"Refusing to deserialize '{filename}' in commercial_clean loader: unsupported or missing manifest schema '{schema_id}'"
             )

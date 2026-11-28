@@ -1188,6 +1188,75 @@ def test_gate_b_r2_round4_worker_fixes(
             work_dir=tmp_path / "w_tar_ws_r5",
         )
         assert cas_store.get_execution(res_ws["execution_id"]).request_digest == exp_ws_dig
+
+        # Round-6 Item 2: pre-existing default receipt symlink aliasing output_json fails BEFORE CAS submit/lease
+        implicit_out = tmp_path / "implicit_out_r6.json"
+        implicit_rcpt = tmp_path / "implicit_out_r6.commit_receipt.json"
+        implicit_rcpt.symlink_to(implicit_out)
+        with pytest.raises(ValueError, match="must be distinct from --output-json"):
+            worker_mod.run_worker(
+                protein_seq=egfp_prot,
+                compliance_track="research_max",
+                lambdas=(1.0,),
+                lineardesign_tar=ld_tar,
+                intent_id="int_implicit_alias_r6",
+                gateway_url=f"http://127.0.0.1:{port}",
+                drive_runs_root_id=runs_root_id,
+                drive_client=drive_client,
+                output_json=implicit_out,
+                work_dir=tmp_path / "w_implicit_alias_r6",
+            )
+
+        # Round-6 Addl 1: caller submission_id + matching digest with mismatched intent_id fails BEFORE lease,
+        # and explicit execution_id resume preserves exact whitespace intent_id distinction
+        sub_ws = worker_mod.run_worker(
+            protein_seq=egfp_prot,
+            compliance_track="research_max",
+            lambdas=(1.0,),
+            lineardesign_tar=ld_tar,
+            submission_id="sub_r6_intent_guard",
+            request_digest="dig_r6_intent_guard",
+            intent_id=" a ",
+            gateway_url=f"http://127.0.0.1:{port}",
+            drive_runs_root_id=runs_root_id,
+            drive_client=drive_client,
+            output_json=tmp_path / "r6_intent_a.json",
+            work_dir=tmp_path / "w_r6_intent_a",
+        )
+        assert sub_ws["status"] == "COMMITTED"
+        with httpx.Client(trust_env=False, timeout=5.0) as hc:
+            sub_mismatch = hc.post(
+                f"http://127.0.0.1:{port}/v1/executions",
+                headers={"X-MRNAX-Access-Token": secret_tok},
+                json={"submission_id": "sub_r6_ws_pend", "request_digest": "dig_r6_ws_pend", "intent_id": " a "},
+            )
+        assert sub_mismatch.status_code == 200
+        eid_ws_pend = sub_mismatch.json()["execution_id"]
+        with pytest.raises(ValueError, match="intent_id mismatch"):
+            worker_mod.run_worker(
+                protein_seq=egfp_prot,
+                lineardesign_tar=ld_tar,
+                submission_id="sub_r6_ws_pend",
+                request_digest="dig_r6_ws_pend",
+                intent_id="a",
+                gateway_url=f"http://127.0.0.1:{port}",
+                drive_runs_root_id=runs_root_id,
+                drive_client=drive_client,
+                work_dir=tmp_path / "w_r6_ws_sub_mismatch",
+            )
+        with pytest.raises(ValueError, match="intent_id mismatch"):
+            worker_mod.run_worker(
+                protein_seq=egfp_prot,
+                lineardesign_tar=ld_tar,
+                execution_id=eid_ws_pend,
+                request_digest="dig_r6_ws_pend",
+                intent_id="a",
+                gateway_url=f"http://127.0.0.1:{port}",
+                drive_runs_root_id=runs_root_id,
+                drive_client=drive_client,
+                work_dir=tmp_path / "w_r6_ws_exec_mismatch",
+            )
+        assert cas_store.get_execution(eid_ws_pend).lease_epoch == 0
     finally:
         server.should_exit = True
         srv_thread.join(timeout=5.0)

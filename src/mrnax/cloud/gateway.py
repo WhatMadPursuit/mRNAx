@@ -48,7 +48,7 @@ from mrnax.cloud.drive_rest_v3 import DriveRestV3Client, GdriveCliDriveV3Transpo
 from mrnax.constraints.frameshift_m1psi import remediate_m1psi_slippery_runs
 from mrnax.constraints.registry import ScopedConstraintEngine
 from mrnax.engine.lineardesign_adapter import enforce_local_heavy_binaries_policy
-from mrnax.engine.pareto_director import project_report_for_intent
+from mrnax.engine.pareto_director import UnsupportedModalityError, project_report_for_intent
 from mrnax.engine.profiles import resolve_default_seed_dir
 from mrnax.harness.auth_secrets import SecretVault
 from mrnax.harness.dialogue import (
@@ -2045,6 +2045,11 @@ def create_control_plane_app(
 
             try:
                 existing_rep = session.latest_report(intent.intent_id)
+            except UnsupportedModalityError as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail=redact_secrets_in_text(str(exc), extra_secrets=turn_secrets),
+                ) from exc
             except ValueError as exc:
                 raise HTTPException(
                     status_code=409,
@@ -2058,6 +2063,11 @@ def create_control_plane_app(
                 else:
                     latest_rep = existing_rep
                     bundles = list(session._bundles.values())
+            except UnsupportedModalityError as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail=redact_secrets_in_text(str(exc), extra_secrets=turn_secrets),
+                ) from exc
             except ValueError as exc:
                 raise HTTPException(
                     status_code=409,
@@ -2294,6 +2304,19 @@ def create_control_plane_app(
                         status_code=409,
                         detail="Idempotency conflict: client_request_id reused with a different request payload.",
                     )
+            if prior_req_record and prior_req_record.get("status") == "rejected_422":
+                if req_migrated:
+                    _save_agent_chat_requests(
+                        proj_dir,
+                        requests_map,
+                        legacy_hex=legacy_hex_map,
+                        extra_secrets=active_secrets,
+                    )
+                prior_err = redact_secrets_in_text(
+                    str(prior_req_record.get("error_detail") or "Rejected operation for active project."),
+                    extra_secrets=active_secrets,
+                )[:240]
+                raise HTTPException(status_code=422, detail=prior_err)
             if prior_req_record and prior_req_record.get("status") == "completed":
                 if req_migrated:
                     _save_agent_chat_requests(
@@ -2579,19 +2602,19 @@ def create_control_plane_app(
                         parsed_args = redact_secrets_in_obj(decoded, extra_secrets=active_secrets)
                         res = toolbox.dispatch_tool_call(fn_name, parsed_args)
                     except PermissionError as exc:
-                        pending_batch.pop(0)
+                        detail_422 = redact_secrets_in_text(str(exc), extra_secrets=active_secrets)[:240]
+                        pending_batch.clear()
                         if req_key and req_key in requests_map:
-                            requests_map[req_key]["pending_batch_tool_calls"] = [dict(x) for x in pending_batch]
+                            requests_map[req_key]["status"] = "rejected_422"
+                            requests_map[req_key]["error_detail"] = detail_422
+                            requests_map[req_key]["pending_batch_tool_calls"] = []
                             _save_agent_chat_requests(
                                 proj_dir,
                                 requests_map,
                                 legacy_hex=legacy_hex_map,
                                 extra_secrets=active_secrets,
                             )
-                        raise HTTPException(
-                            status_code=422,
-                            detail=redact_secrets_in_text(str(exc), extra_secrets=active_secrets)[:240],
-                        ) from exc
+                        raise HTTPException(status_code=422, detail=detail_422) from exc
                     except (json.JSONDecodeError, ValueError, KeyError, TypeError) as exc:
                         err_msg = redact_secrets_in_text(str(exc), extra_secrets=active_secrets)
                         if "Concurrent revision conflict" in err_msg:
@@ -2900,8 +2923,11 @@ def create_control_plane_app(
                 return _handle_agent_failure(f"Upstream LLM network error ({type(exc).__name__}).")
             except (TimeoutError, OSError) as exc:
                 if isinstance(exc, PermissionError):
+                    detail_422 = redact_secrets_in_text(str(exc), extra_secrets=active_secrets)[:240]
                     exec_tracker["pending_batch"] = []
                     if req_key and req_key in requests_map:
+                        requests_map[req_key]["status"] = "rejected_422"
+                        requests_map[req_key]["error_detail"] = detail_422
                         requests_map[req_key]["pending_batch_tool_calls"] = []
                         _save_agent_chat_requests(
                             proj_dir,
@@ -2909,10 +2935,7 @@ def create_control_plane_app(
                             legacy_hex=legacy_hex_map,
                             extra_secrets=active_secrets,
                         )
-                    raise HTTPException(
-                        status_code=422,
-                        detail=redact_secrets_in_text(str(exc), extra_secrets=active_secrets)[:240],
-                    ) from exc
+                    raise HTTPException(status_code=422, detail=detail_422) from exc
                 return _handle_agent_failure(f"Upstream LLM network error ({type(exc).__name__}).")
             except RuntimeError as exc:
                 return _handle_agent_failure(redact_secrets_in_text(str(exc), extra_secrets=active_secrets)[:240])

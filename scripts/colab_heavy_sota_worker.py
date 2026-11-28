@@ -1011,10 +1011,15 @@ def run_worker(
         raise ValueError("--sealed-file-id requires matching --sealed-sha256 of the uploaded SEALED.json")
     if clean_sealed_sha256 and not _SHA256_HEX_RE.fullmatch(clean_sealed_sha256):
         raise ValueError("--sealed-sha256 must be a 64-char lowercase hex SHA-256 digest")
+    eff_receipt_target = commit_receipt_json or (
+        output_json.with_name(f"{output_json.stem}.commit_receipt.json")
+        if output_json is not None
+        else None
+    )
     if (
         output_json is not None
-        and commit_receipt_json is not None
-        and _paths_alias(output_json, commit_receipt_json)
+        and eff_receipt_target is not None
+        and _paths_alias(output_json, eff_receipt_target)
     ):
         raise ValueError("--commit-receipt-json must be distinct from --output-json so the sealed artifact stays immutable")
     if defer_commit and output_json is None:
@@ -1070,6 +1075,11 @@ def run_worker(
                 f"Execution '{eff_exec_id}' (submission_id='{eff_sub_id}') is already COMMITTED "
                 f"(winning_attempt_id={sub_row.get('winning_attempt_id')})."
             )
+        if "intent_id" in sub_row and str(sub_row.get("intent_id") or "") != digest_intent_id:
+            raise ValueError(
+                f"Execution '{eff_exec_id}' (submission_id='{eff_sub_id}') intent_id mismatch: "
+                f"stored '{sub_row.get('intent_id')}', got '{digest_intent_id}'"
+            )
     elif cas_client is not None and not defer_commit and eff_exec_id is not None:
         existing_exec = cas_client.get_execution(eff_exec_id)
         if str(existing_exec.get("status") or "") == "COMMITTED":
@@ -1082,10 +1092,10 @@ def run_worker(
                 f"Execution '{eff_exec_id}' request_digest mismatch: stored '{existing_exec.get('request_digest')}', "
                 f"got '{request_digest.strip()}'"
             )
-        if intent_id is not None and str(existing_exec.get("intent_id") or "").strip() != intent_id.strip():
+        if intent_id is not None and str(existing_exec.get("intent_id") or "") != intent_id:
             raise ValueError(
                 f"Execution '{eff_exec_id}' intent_id mismatch: stored '{existing_exec.get('intent_id')}', "
-                f"got '{intent_id.strip()}'"
+                f"got '{intent_id}'"
             )
 
     lease_grant: dict[str, Any] | None = None

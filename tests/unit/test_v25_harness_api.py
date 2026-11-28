@@ -2004,14 +2004,27 @@ def test_gate_b_r2_round5_remaining_fixes(
     assert intent_b.protein_targets[0].accession_or_source == "user_supplied"
     assert intent_b.protein_targets[0].entry_version != "AAB02572.1"
 
-    # Additional Finding D: disabled surrogate_v2 skips v2 manifest check even when unused v2 manifest has artifacts=null
+    # Additional Finding D + Round-6 Item 8: disabled surrogate_v2 skips v2 manifest check cleanly at real registry_seed path
+    from mrnax.engine.surrogates import has_surrogate_v2_artifacts
+
     seed_copy = tmp_path / "seed_bad_v2"
     shutil.copytree(SEED_DIR, seed_copy)
-    v2_manifest = seed_copy / "checkpoints" / "surrogate_v2" / "TRAINING_PROVENANCE_MANIFEST.json"
-    if v2_manifest.is_file():
-        mdoc = json.loads(v2_manifest.read_text(encoding="utf-8"))
-        mdoc["artifacts"] = None
-        v2_manifest.write_text(json.dumps(mdoc), encoding="utf-8")
+    v2_manifest = seed_copy / "surrogate_v2" / "TRAINING_PROVENANCE_MANIFEST.json"
+    assert v2_manifest.is_file()
+    orig_mdoc = json.loads(v2_manifest.read_text(encoding="utf-8"))
+    mdoc = copy.deepcopy(orig_mdoc)
+    mdoc["artifacts"] = None
+    v2_manifest.write_text(json.dumps(mdoc), encoding="utf-8")
+    assert has_surrogate_v2_artifacts(seed_copy) is False
+    mdoc_bad_schema = copy.deepcopy(orig_mdoc)
+    mdoc_bad_schema["schema"] = ["not-a-string-schema"]
+    v2_manifest.write_text(json.dumps(mdoc_bad_schema), encoding="utf-8")
+    assert has_surrogate_v2_artifacts(seed_copy) is False
+    mdoc_bad_schema2 = copy.deepcopy(orig_mdoc)
+    mdoc_bad_schema2["schema"] = {"bad": 1}
+    v2_manifest.write_text(json.dumps(mdoc_bad_schema2), encoding="utf-8")
+    assert has_surrogate_v2_artifacts(seed_copy) is False
+    v2_manifest.write_text(json.dumps(mdoc), encoding="utf-8")
     intent_no_v2 = intent_b.model_copy_validated(
         runtime_policy=RuntimePolicySpec(enabled_evaluators=["surrogate_v1_clean"])
     )
@@ -2020,7 +2033,19 @@ def test_gate_b_r2_round5_remaining_fixes(
     bnds_no_v2, rep_no_v2 = pipe_out[0], pipe_out[1]
     assert rep_no_v2 is not None and len(bnds_no_v2) >= 1
 
-    # Additional Finding C: retrying a PermissionError-rejected agent tool keeps returning 422 cleanly (never 500)
+    # Round-6 Item 6: direct design_constructs & direct /turn with custom sequence (no defaults) yield user_supplied, NEVER GenBank:U55762.1 / AAB02572.1
+    tb_nodflt = AtomicToolbox(sess_b)
+    with enforce_local_heavy_binaries_policy(True):
+        des_nodflt = tb_nodflt.design_constructs(
+            user_utterance="Design custom human protein",
+            protein_sequence=alt_prot,
+        )
+    intent_nodflt = sess_b.intent_for_bundle(des_nodflt["recommended_bundle_ids"][0])
+    assert intent_nodflt.protein_targets[0].accession_or_source == "user_supplied"
+    assert intent_nodflt.protein_targets[0].entry_version != "AAB02572.1"
+
+    # Additional Finding C + Round-6 Item 7: retrying a PermissionError-rejected agent tool keeps returning 422
+    # EVEN IF the LLM switches to a normal 200 reply on retry, and clears trailing queued batch calls
     projects_root = tmp_path / "gw_r5_perm"
     admin_tok = "tok_r5_perm_admin"
     app_p = create_control_plane_app(
@@ -2031,36 +2056,72 @@ def test_gate_b_r2_round5_remaining_fixes(
     )
     client_p = TestClient(app_p, headers={"X-MRNAX-Access-Token": admin_tok})
 
-    def _mock_perm_tool_llm(self: httpx.Client, url: str, headers: dict[str, str], json: dict[str, Any]) -> Any:
+    # Round-6 Addl 2 & Item 6 (/turn): direct /turn custom sequence + tarna HTTP 422 leaving zero saved intents
+    r_turn_custom = client_p.post(
+        "/v1/projects/proj_r6_turn_prov/turn",
+        json={
+            "mode": "initial",
+            "user_utterance": "Design custom protein via turn",
+            "protein_sequence": alt_prot,
+        },
+    )
+    assert r_turn_custom.status_code == 200
+    assert r_turn_custom.json()["intent"]["protein_targets"][0]["accession_or_source"] == "user_supplied"
+    assert r_turn_custom.json()["intent"]["protein_targets"][0]["entry_version"] is None
+
+    r_tarna = client_p.post(
+        "/v1/projects/proj_r6_tarna/turn",
+        json={
+            "mode": "initial",
+            "user_utterance": "Design taRNA construct",
+            "protein_sequence": alt_prot,
+            "modality": "tarna",
+        },
+    )
+    assert r_tarna.status_code == 422
+    assert not (projects_root / "proj_r6_tarna" / "intents.json").is_file()
+
+    perm_calls = 0
+
+    def _mock_perm_then_normal_llm(self: httpx.Client, url: str, headers: dict[str, str], json: dict[str, Any]) -> Any:
+        nonlocal perm_calls
+        perm_calls += 1
+        if perm_calls == 1:
+            return httpx.Response(
+                200,
+                headers={"Content-Type": "application/json"},
+                json={
+                    "choices": [
+                        {
+                            "finish_reason": "tool_calls",
+                            "message": {
+                                "role": "assistant",
+                                "content": None,
+                                "tool_calls": [
+                                    {
+                                        "id": "tc_perm_r5",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "design_constructs",
+                                            "arguments": '{"user_utterance":"try research","compliance_track":"research_max"}',
+                                        },
+                                    }
+                                ],
+                            },
+                        }
+                    ]
+                },
+                request=httpx.Request("POST", url),
+            )
         return httpx.Response(
             200,
             headers={"Content-Type": "application/json"},
-            json={
-                "choices": [
-                    {
-                        "finish_reason": "tool_calls",
-                        "message": {
-                            "role": "assistant",
-                            "content": None,
-                            "tool_calls": [
-                                {
-                                    "id": "tc_perm_r5",
-                                    "type": "function",
-                                    "function": {
-                                        "name": "design_constructs",
-                                        "arguments": '{"user_utterance":"try research","compliance_track":"research_max"}',
-                                    },
-                                }
-                            ],
-                        },
-                    }
-                ]
-            },
+            json={"choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "ok"}}]},
             request=httpx.Request("POST", url),
         )
 
     with monkeypatch.context() as mp:
-        mp.setattr(httpx.Client, "post", _mock_perm_tool_llm)
+        mp.setattr(httpx.Client, "post", _mock_perm_then_normal_llm)
         r_perm1 = client_p.post(
             "/v1/projects/proj_r5_perm/agent-chat",
             json={
@@ -2081,8 +2142,79 @@ def test_gate_b_r2_round5_remaining_fixes(
             },
         )
         assert r_perm2.status_code == 422
+        assert perm_calls == 1
 
-    # Round-5 Item 9: HTTP 503 error response arriving past 90s budget raises ReadTimeout instead of HTTPStatusError
+    # Round-6 Item 7 crash-recovery batch clearing: [read, forbidden, trailing] clears trailing on PermissionError
+    rec_payload = {
+        "message": "recover perm batch",
+        "compliance_track": "commercial_clean",
+        "protein_sequence": alt_prot,
+        "client_request_id": "req_perm_rec_r6",
+    }
+    rec_proj_dir = projects_root / "proj_r6_perm_rec"
+    rec_llm_calls = 0
+
+    def _mock_batch_crash_llm(self: httpx.Client, url: str, headers: dict[str, str], json: dict[str, Any]) -> Any:
+        nonlocal rec_llm_calls
+        rec_llm_calls += 1
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={
+                "choices": [
+                    {
+                        "finish_reason": "tool_calls",
+                        "message": {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [
+                                {"id": "tc1", "type": "function", "function": {"name": "query_design_rules", "arguments": "{}"}},
+                                {
+                                    "id": "tc2",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "design_constructs",
+                                        "arguments": '{"user_utterance":"bad","compliance_track":"research_max"}',
+                                    },
+                                },
+                                {
+                                    "id": "tc3",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "design_constructs",
+                                        "arguments": '{"user_utterance":"trailing","compliance_track":"commercial_clean"}',
+                                    },
+                                },
+                            ],
+                        },
+                    }
+                ]
+            },
+            request=httpx.Request("POST", url),
+        )
+
+    orig_tb_dispatch = AtomicToolbox.dispatch_tool_call
+
+    def _crash_on_second_call(self_tb: AtomicToolbox, name: str, args: dict[str, Any]) -> dict[str, Any]:
+        if name == "design_constructs":
+            raise RuntimeError("simulated crash during tool batch")
+        return orig_tb_dispatch(self_tb, name, args)
+
+    with monkeypatch.context() as mp:
+        mp.setattr(httpx.Client, "post", _mock_batch_crash_llm)
+        mp.setattr(AtomicToolbox, "dispatch_tool_call", _crash_on_second_call)
+        r_crash = client_p.post("/v1/projects/proj_r6_perm_rec/agent-chat", json=rec_payload)
+        assert r_crash.status_code == 502
+
+    # Retry recovers [tc2, tc3]: tc2 raises PermissionError -> 422 and clears trailing tc3; next retry also returns 422 cleanly
+    r_rec1 = client_p.post("/v1/projects/proj_r6_perm_rec/agent-chat", json=rec_payload)
+    assert r_rec1.status_code == 422
+    r_rec2 = client_p.post("/v1/projects/proj_r6_perm_rec/agent-chat", json=rec_payload)
+    assert r_rec2.status_code == 422
+    assert rec_llm_calls == 1
+    assert not (rec_proj_dir / "intents.json").is_file()
+
+    # Round-5 Item 9 + Round-6 Item 4: HTTP 503 past 90s budget (even when payload prep crosses deadline) raises ReadTimeout
     fake_now = [3000.0]
     monkeypatch.setattr(dlg_mod._time, "monotonic", lambda: fake_now[0])
     tb_dlg = AtomicToolbox(sess_b)
@@ -2123,6 +2255,54 @@ def test_gate_b_r2_round5_remaining_fixes(
     )
     with pytest.raises(httpx.ReadTimeout, match="overall"):
         ag_503.send_user_message("late 503 check", max_tool_rounds=1)
+
+    # Also test payload-build taking 0.005s (reaching 89.995s) followed by 503 at 90.011s (> 90.000s absolute deadline)
+    fake_now_p = [4000.0]
+    monkeypatch.setattr(dlg_mod._time, "monotonic", lambda: fake_now_p[0])
+    calls_503_p = 0
+
+    def _mock_503_late_payload(_req: httpx.Request) -> httpx.Response:
+        nonlocal calls_503_p
+        calls_503_p += 1
+        if calls_503_p == 1:
+            return httpx.Response(
+                200,
+                headers={"Content-Type": "application/json"},
+                json={
+                    "choices": [
+                        {
+                            "finish_reason": "tool_calls",
+                            "message": {
+                                "role": "assistant",
+                                "content": "",
+                                "tool_calls": [
+                                    {"id": "c_503p", "type": "function", "function": {"name": "query_design_rules", "arguments": "{}"}}
+                                ],
+                            },
+                        }
+                    ]
+                },
+            )
+        fake_now_p[0] += 0.016  # 4089.995 + 0.016 = 4090.011 > 4090.000
+        return httpx.Response(503, content=b"")
+
+    tb_dlg_p = AtomicToolbox(sess_b)
+    orig_disp_p = tb_dlg_p.dispatch_tool_call
+    monkeypatch.setattr(tb_dlg_p, "dispatch_tool_call", lambda n, a: (fake_now_p.__setitem__(0, fake_now_p[0] + 89.99), orig_disp_p(n, a))[1])
+    ag_503_p = LiveDialogueAgent(
+        tb_dlg_p,
+        provider="deepseek",
+        transport=httpx.MockTransport(_mock_503_late_payload),
+        overall_timeout_sec=90.0,
+    )
+    orig_build = ag_503_p._build_completion_payload
+    def _slow_build(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        if calls_503_p >= 1:
+            fake_now_p[0] += 0.005
+        return orig_build(*args, **kwargs)
+    monkeypatch.setattr(ag_503_p, "_build_completion_payload", _slow_build)
+    with pytest.raises(httpx.ReadTimeout, match="overall"):
+        ag_503_p.send_user_message("late 503 after payload prep", max_tool_rounds=1)
 
 
 

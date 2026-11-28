@@ -3218,6 +3218,14 @@ function syncControlsFromIntent(intent) {
       if (protEl) protEl.value = seqs[0];
       state.additionalProteinSequences = seqs.slice(1);
       updateProteinBadge();
+    } else if (seqs.length === 1 && seqs[0].length >= 10) {
+      const protEl = document.getElementById("input-protein");
+      if (protEl) protEl.value = seqs[0];
+      state.additionalProteinSequences = [];
+      updateProteinBadge();
+    } else if (intent.protein_targets.length === 1 && state.additionalProteinSequences.length > 0) {
+      state.additionalProteinSequences = [];
+      updateProteinBadge();
     }
   }
   const nextMod = intent.modality || "linear_mrna";

@@ -1263,6 +1263,23 @@ class AtomicToolbox:
             eff_acc = self.default_accession_or_source
         elif self.default_protein_sequence is not None or self.default_additional_protein_sequences:
             eff_acc = "user_supplied"
+        elif eff_extra:
+            eff_acc = "user_supplied"
+        elif eff_prot is not None and entry_version is None:
+            # Explicit custom protein sequence without form defaults must not fall back to pEGFP-N1 GenBank:U55762.1 unless it matches seeded eGFP.
+            snap_path = self.session.seed_dir / "egfp_reporter_snapshot.json"
+            raw_eff = eff_prot.strip().upper()
+            is_seeded_egfp = False
+            if snap_path.is_file() and raw_eff:
+                egfp_seq_upper = (
+                    json.loads(snap_path.read_text(encoding="utf-8"))["mammalian_reporter_egfp"]["protein_sequence"]
+                    .strip()
+                    .upper()
+                )
+                is_seeded_egfp = raw_eff == egfp_seq_upper or (
+                    len(raw_eff) >= 10 and egfp_seq_upper.startswith(raw_eff)
+                )
+            eff_acc = accession_or_source if is_seeded_egfp else "user_supplied"
         else:
             eff_acc = accession_or_source
         eff_mod = modality if modality is not None else self.default_modality

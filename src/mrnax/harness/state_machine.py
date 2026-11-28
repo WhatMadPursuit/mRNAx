@@ -171,6 +171,13 @@ class InitialTurnInput(BaseModel):
     scaffold_id: StrictStr | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9_-]{1,63}$")
     random_seed: int = Field(default=42, ge=0, le=2_147_483_647)
 
+    @field_validator("modality")
+    @classmethod
+    def _validate_supported_modality(cls, v: Modality | None) -> Modality | None:
+        if v == "tarna":
+            raise ValueError("Unsupported modality 'tarna': v2 supports 'linear_mrna', 'sarna', and 'circrna'.")
+        return v
+
     @field_validator("random_seed", mode="before")
     @classmethod
     def _validate_seed_before(cls, v: Any) -> int:
@@ -212,6 +219,13 @@ class RefineTurnInput(BaseModel):
     use_commercial_surrogate: StrictBool | None = None
     modality: Modality | None = None
     scaffold_id: StrictStr | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9_-]{1,63}$")
+
+    @field_validator("modality")
+    @classmethod
+    def _validate_supported_modality(cls, v: Modality | None) -> Modality | None:
+        if v == "tarna":
+            raise ValueError("Unsupported modality 'tarna': v2 supports 'linear_mrna', 'sarna', and 'circrna'.")
+        return v
 
 
 def _detect_chemistry(utterance: str, default: UridineChemistry = "m1psi") -> UridineChemistry:
@@ -1382,9 +1396,20 @@ class ProjectHarnessSession:
         use_commercial_surrogate = validated.use_commercial_surrogate
         random_seed = validated.random_seed
         snap = json.loads((self.seed_dir / "egfp_reporter_snapshot.json").read_text(encoding="utf-8"))
+        egfp_seq_upper = snap["mammalian_reporter_egfp"]["protein_sequence"].strip().upper()
         raw_prot = (protein_sequence or "").strip()
         if raw_prot:
             prot_seq = raw_prot
+            is_seeded_egfp = (
+                raw_prot.upper() == egfp_seq_upper
+                or (len(raw_prot) >= 10 and egfp_seq_upper.startswith(raw_prot.upper()))
+            )
+            if (
+                accession_or_source == "GenBank:U55762.1"
+                and entry_version is None
+                and (validated.additional_protein_sequences is not None or not is_seeded_egfp)
+            ):
+                accession_or_source = "user_supplied"
         else:
             low_utt = user_utterance.lower()
             names_egfp = any(k in low_utt for k in ("egfp", "gfp", "p42212", "u55762"))

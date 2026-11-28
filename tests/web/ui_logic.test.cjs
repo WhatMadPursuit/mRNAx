@@ -1752,4 +1752,30 @@ test("Gate B-R2 Round 3 (#10): syncControlsFromIntent resets linear modality/sca
     });
   `);
   assert.equal(run("state.proteinAccession"), "user_supplied");
+  assert.equal(JSON.stringify(run("state.additionalProteinSequences")), '["MHLTPEEKSAVTALWGKV"]');
+
+  // Round-6 Item 5: subsequent single-chain intent resets additionalProteinSequences, updates input-protein, and submits cleanly
+  run(`
+    syncControlsFromIntent({
+      intent_id: "i_sc_r6",
+      intent_version: 4,
+      status: "ready",
+      compliance_track: "commercial_clean",
+      protein_targets: [
+        { protein_sequence: "MKTLLLLLAVVVAAVVAA", accession_or_source: "UniProt:P00001" }
+      ],
+      locked_scopes: {}
+    });
+  `);
+  assert.equal(run("state.proteinAccession"), "UniProt:P00001");
+  assert.equal(run("document.getElementById('input-protein').value"), "MKTLLLLLAVVVAAVVAA");
+  assert.equal(JSON.stringify(run("state.additionalProteinSequences")), "[]");
+  calls.length = 0;
+  await run(`runInitialTurn("Design single chain construct", { fromForm: true })`);
+  const scTurn = calls.find((c) => c.url.includes("/turn"));
+  assert.ok(scTurn);
+  const scBody = JSON.parse(scTurn.init.body);
+  assert.equal(scBody.protein_sequence, "MKTLLLLLAVVVAAVVAA");
+  assert.equal(scBody.accession_or_source, "UniProt:P00001");
+  assert.equal(scBody.additional_protein_sequences, undefined);
 });
