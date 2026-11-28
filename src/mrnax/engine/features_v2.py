@@ -539,10 +539,14 @@ def dict_list_to_matrix(dicts: Iterable[dict[str, float]], cols: list[str]) -> n
             )
         vals: list[float] = []
         for c in cols:
-            v = float(d[c])
-            if not math.isfinite(v):
-                raise ValueError(f"Non-finite feature '{c}'={v!r} in row {row_idx}")
-            vals.append(v)
+            raw_val = d[c]
+            if isinstance(raw_val, bool) or not isinstance(raw_val, (int, float, np.floating, np.integer)):
+                raise ValueError(f"Non-numeric feature '{c}'={raw_val!r} in row {row_idx}")
+            v = float(raw_val)
+            v32 = np.float32(v)
+            if not math.isfinite(v) or not bool(np.isfinite(v32)):
+                raise ValueError(f"Out-of-range or non-finite feature '{c}'={raw_val!r} in row {row_idx}")
+            vals.append(float(v32))
         rows.append(vals)
     if not rows:
         return np.empty((0, len(cols)), dtype=np.float32)

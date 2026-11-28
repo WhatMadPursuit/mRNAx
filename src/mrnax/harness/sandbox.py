@@ -125,37 +125,54 @@ def _assert_public_ip_obj(
         if not allow_localhost:
             raise SSRFBlockedError(f"Loopback IP '{ip}' blocked in gateway mode")
         return
-    if ip.is_private or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
-        raise SSRFBlockedError(f"Private/metadata/reserved IP '{ip}' blocked by SSRF policy")
+    if (
+        not ip.is_global
+        or ip.is_private
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    ):
+        raise SSRFBlockedError(f"Non-globally-routable/private/reserved IP '{ip}' blocked by SSRF policy")
 
 
-def assert_public_resolved_endpoint(url: str, *, allow_localhost: bool = False) -> str:
-    """Validate URL syntax AND verify every DNS-resolved address is public before connecting."""
+def resolve_verified_public_peer(
+    url: str, *, allow_localhost: bool = False
+) -> tuple[str, str, int, str]:
+    """Validate URL AND return `(validated_url, hostname, port, pinned_ip)` after verifying ALL DNS answers."""
     import socket
 
     validated = validate_byo_llm_base_url(url, allow_localhost=allow_localhost)
     parsed = urlparse(validated)
     host = (parsed.hostname or "").strip().lower()
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
     if host in {"localhost", "ip6-localhost"} and allow_localhost:
-        return validated
+        return validated, host, port, "127.0.0.1"
     try:
         ip = ipaddress.ip_address(host)
         _assert_public_ip_obj(ip, allow_localhost=allow_localhost)
-        return validated
+        return validated, host, port, str(ip)
     except ValueError:
         pass
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
     try:
         infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
     except OSError as exc:
         raise SSRFBlockedError(f"Unable to resolve outbound host '{host}': {exc}") from exc
     if not infos:
         raise SSRFBlockedError(f"Outbound host '{host}' resolved to zero addresses")
+    verified_ips: list[str] = []
     for info in infos:
         sockaddr = info[4]
         addr_str = str(sockaddr[0]).split("%", 1)[0]
         ip_obj = ipaddress.ip_address(addr_str)
         _assert_public_ip_obj(ip_obj, allow_localhost=allow_localhost)
+        verified_ips.append(str(ip_obj))
+    return validated, host, port, verified_ips[0]
+
+
+def assert_public_resolved_endpoint(url: str, *, allow_localhost: bool = False) -> str:
+    """Validate URL syntax AND verify every DNS-resolved address is globally routable before connecting."""
+    validated, _, _, _ = resolve_verified_public_peer(url, allow_localhost=allow_localhost)
     return validated
 
 

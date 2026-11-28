@@ -6,6 +6,7 @@ import functools
 import json
 import logging
 import random
+import threading
 from pathlib import Path
 
 from dnachisel import (
@@ -297,6 +298,9 @@ def mutate_cds_region_synonymously(
     return out
 
 
+_DNACHISEL_RNG_LOCK = threading.Lock()
+
+
 def generate_dnachisel_cds(
     protein_seq: str,
     constraints: list[ConstraintSpec],
@@ -343,19 +347,20 @@ def generate_dnachisel_cds(
     problem.max_random_iters = 1500
     import numpy as np
 
-    py_rng_state = random.getstate()
-    np_rng_state = np.random.get_state()
-    try:
-        random.seed(int(seed))
-        np.random.seed(int(seed) % (2**32))
-        problem.resolve_constraints()
-        problem.optimize()
-        solved_rna = str(problem.sequence).upper().replace("T", "U")
-    except Exception:
-        solved_rna = init_rna
-    finally:
-        random.setstate(py_rng_state)
-        np.random.set_state(np_rng_state)
+    with _DNACHISEL_RNG_LOCK:
+        py_rng_state = random.getstate()
+        np_rng_state = np.random.get_state()
+        try:
+            random.seed(int(seed))
+            np.random.seed(int(seed) % (2**32))
+            problem.resolve_constraints()
+            problem.optimize()
+            solved_rna = str(problem.sequence).upper().replace("T", "U")
+        except Exception:
+            solved_rna = init_rna
+        finally:
+            random.setstate(py_rng_state)
+            np.random.set_state(np_rng_state)
 
     if chemistry in {"m1psi", "pseudouridine"}:
         solved_rna, _ = remediate_m1psi_slippery_runs(solved_rna)

@@ -770,7 +770,14 @@ def _evaluate_molecule_eternafold(
         if not post.is_file():
             return [], []
         try:
-            raw_post = post.read_text(encoding="utf-8").splitlines()
+            max_post_bytes = 8 * 1024 * 1024
+            if post.stat().st_size > max_post_bytes:
+                return [], []
+            with post.open("rb") as fh_post:
+                raw_post_bytes = fh_post.read(max_post_bytes + 1)
+            if len(raw_post_bytes) > max_post_bytes:
+                return [], []
+            raw_post = raw_post_bytes.decode("utf-8").splitlines()
         except (OSError, UnicodeDecodeError):
             return [], []
         if not raw_post or n_len <= 0:

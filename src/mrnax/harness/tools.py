@@ -12,6 +12,7 @@ import math
 import os
 import re
 import shutil
+import threading
 from pathlib import Path
 from typing import Any, Literal
 
@@ -334,6 +335,13 @@ def _scan_rna_motifs_fallback(
     return motifs
 
 
+_STRUCTURE_JOB_SEM = threading.BoundedSemaphore(4)
+
+
+class StructureProfilerBusyError(RuntimeError):
+    """Raised when concurrent RNA structure profiler invocations saturate the process-wide bound."""
+
+
 def run_structure_and_motif_analysis(
     sequence: str,
     *,
@@ -343,6 +351,7 @@ def run_structure_and_motif_analysis(
     three_prime_start: int | None = None,
     three_prime_end: int | None = None,
     modality: str = "linear_mrna",
+    compliance_track: str = "research_max",
     include_eternafold: bool = False,
     seed_dir: Path | None = None,
 ) -> dict[str, Any]:
@@ -351,6 +360,12 @@ def run_structure_and_motif_analysis(
     Delegates to Wave 2A's `mrnax.engine.structure_profile.analyze_rna_structure` when present,
     with a complete ViennaRNA + Python fallback keeping peak RSS well below 180 MiB.
     """
+    if compliance_track not in ("research_max", "commercial_clean"):
+        raise ValueError(f"Unsupported compliance_track '{compliance_track}'")
+    if compliance_track == "commercial_clean" and include_eternafold:
+        raise PermissionError(
+            "EternaFold v1.3.1 has license_track='commercial_clearance_pending' and cannot run under commercial_clean."
+        )
     norm_seq = sequence.strip().upper().replace("T", "U")
     if len(norm_seq) < 3 or len(norm_seq) > 20_000:
         raise ValueError(f"RNA sequence length ({len(norm_seq)}) must be between 3 and 20000 nt")
@@ -370,176 +385,182 @@ def run_structure_and_motif_analysis(
         if cval is not None and (cval < 0 or cval > n):
             raise ValueError(f"Coordinate '{cname}' ({cval}) out of bounds [0, {n}]")
 
+    if not _STRUCTURE_JOB_SEM.acquire(timeout=3.0):
+        raise StructureProfilerBusyError("Structure profiler concurrency limit reached; please retry shortly.")
     try:
-        from mrnax.engine.structure_profile import analyze_rna_structure  # type: ignore[import-not-found]
-    except ImportError:
-        analyze_rna_structure = None
+        try:
+            from mrnax.engine.structure_profile import analyze_rna_structure  # type: ignore[import-not-found]
+        except ImportError:
+            analyze_rna_structure = None
 
-    if callable(analyze_rna_structure):
-        res = dict(
-            analyze_rna_structure(
-                norm_seq,
-                five_prime_end=five_prime_end,
-                cds_start=cds_start,
-                cds_end=cds_end,
-                three_prime_start=three_prime_start,
-                three_prime_end=three_prime_end,
-                modality=modality,
-                include_eternafold=include_eternafold,
-                seed_dir=seed_dir,
+        if callable(analyze_rna_structure):
+            res = dict(
+                analyze_rna_structure(
+                    norm_seq,
+                    five_prime_end=five_prime_end,
+                    cds_start=cds_start,
+                    cds_end=cds_end,
+                    three_prime_start=three_prime_start,
+                    three_prime_end=three_prime_end,
+                    modality=modality,
+                    compliance_track=compliance_track,
+                    include_eternafold=include_eternafold,
+                    seed_dir=seed_dir,
+                )
             )
-        )
-        init_win = res.get("initiation_window")
-        if "dot_bracket" not in res and isinstance(init_win, dict) and isinstance(init_win.get("dot_bracket"), str):
-            res["dot_bracket"] = init_win["dot_bracket"]
-        return res
+            init_win = res.get("initiation_window")
+            if "dot_bracket" not in res and isinstance(init_win, dict) and isinstance(init_win.get("dot_bracket"), str):
+                res["dot_bracket"] = init_win["dot_bracket"]
+            return res
 
-    # Clean deterministic fallback using ViennaRNA (bounded memory) + Python scanner
-    gc_pct = round(((norm_seq.count("G") + norm_seq.count("C")) / n) * 100.0, 2)
-    u_pct = round((norm_seq.count("U") / n) * 100.0, 2)
-    eff_aug = cds_start if cds_start is not None else (five_prime_end if five_prime_end is not None else max(0, norm_seq.find("AUG")))
-    eff_cds_end = cds_end if cds_end is not None else n
-    cds_slice = norm_seq[eff_aug:eff_cds_end] if eff_cds_end > eff_aug else norm_seq
-    cai_val = _compute_human_cai(cds_slice)
+        # Clean deterministic fallback using ViennaRNA (when permitted by track) + Python scanner
+        gc_pct = round(((norm_seq.count("G") + norm_seq.count("C")) / n) * 100.0, 2)
+        u_pct = round((norm_seq.count("U") / n) * 100.0, 2)
+        eff_aug = cds_start if cds_start is not None else (five_prime_end if five_prime_end is not None else max(0, norm_seq.find("AUG")))
+        eff_cds_end = cds_end if cds_end is not None else n
+        cds_slice = norm_seq[eff_aug:eff_cds_end] if eff_cds_end > eff_aug else norm_seq
+        cai_val = _compute_human_cai(cds_slice)
 
-    win_start = max(0, eff_aug - 30)
-    win_end = min(n, eff_aug + 45)
-    win_seq = norm_seq[win_start:win_end]
-    aug_in_win = eff_aug - win_start
+        win_start = max(0, eff_aug - 30)
+        win_end = min(n, eff_aug + 45)
+        win_seq = norm_seq[win_start:win_end]
+        aug_in_win = eff_aug - win_start
 
-    engines_used: list[str] = []
-    dot_bracket_full = "." * min(n, 600)
-    init_db = "." * len(win_seq)
-    arcs: list[dict[str, Any]] = []
-    mfe_val = 0.0
-    ens_div = 0.0
-    aup_mean = 0.5
-    kozak_up = 0.5
+        engines_used: list[str] = []
+        dot_bracket_full = "." * min(n, 600)
+        init_db = "." * len(win_seq)
+        arcs: list[dict[str, Any]] = []
+        mfe_val = 0.0
+        ens_div = 0.0
+        aup_mean = 0.5
+        kozak_up = 0.5
 
-    window_nt = min(120, n)
-    step_nt = max(10, min(40, window_nt // 3 or 1))
-    positions: list[int] = []
-    local_mfe: list[float] = []
-    local_gc: list[float] = []
-    local_u: list[float] = []
-    local_up: list[float] = []
+        window_nt = min(120, n)
+        step_nt = max(10, min(40, window_nt // 3 or 1))
+        positions: list[int] = []
+        local_mfe: list[float] = []
+        local_gc: list[float] = []
+        local_u: list[float] = []
+        local_up: list[float] = []
 
-    if importlib.util.find_spec("RNA") is not None:
-        import RNA  # type: ignore[import-untyped]
+        if compliance_track != "commercial_clean" and importlib.util.find_spec("RNA") is not None:
+            import RNA  # type: ignore[import-untyped]
 
-        engines_used.append("ViennaRNA")
-        # Bound global O(N^3) fold to <= 2500 nt so 20k nt saRNA stays < 50 MiB RSS and fast
-        if n <= 2500:
-            ss_full, e_full = RNA.fold(norm_seq)
-            dot_bracket_full = str(ss_full)
-            mfe_val = round(float(e_full), 2)
-        else:
-            ss_head, _ = RNA.fold(norm_seq[:600])
-            dot_bracket_full = str(ss_head)
+            engines_used.append("ViennaRNA")
+            # Bound global O(N^3) fold to <= 2500 nt so 20k nt saRNA stays < 50 MiB RSS and fast
+            if n <= 2500:
+                ss_full, e_full = RNA.fold(norm_seq)
+                dot_bracket_full = str(ss_full)
+                mfe_val = round(float(e_full), 2)
+            else:
+                ss_head, _ = RNA.fold(norm_seq[:600])
+                dot_bracket_full = str(ss_head)
 
-        if len(win_seq) >= 6:
-            fc = RNA.fold_compound(win_seq)
-            init_ss, _ = fc.mfe()
-            init_db = str(init_ss)
-            fc.pf()
-            ens_div = round(float(fc.mean_bp_distance()), 4)
-            bpp = fc.bpp()
-            wlen = len(win_seq)
-            paired_sum = [0.0] * wlen
-            for i in range(1, wlen + 1):
-                row = bpp[i]
-                for j in range(i + 1, wlen + 1):
-                    p = float(row[j])
-                    if p > 0.0:
-                        paired_sum[i - 1] += p
-                        paired_sum[j - 1] += p
-                    if p >= 0.15:
-                        arcs.append({"i": i - 1, "j": j - 1, "prob": round(p, 4)})
-            unpaired_win = [max(0.0, min(1.0, 1.0 - ps)) for ps in paired_sum]
-            k_lo = max(0, aug_in_win - 15)
-            k_hi = min(wlen, aug_in_win + 18)
-            if k_hi > k_lo:
-                kozak_up = round(sum(unpaired_win[k_lo:k_hi]) / (k_hi - k_lo), 4)
+            if len(win_seq) >= 6:
+                fc = RNA.fold_compound(win_seq)
+                init_ss, _ = fc.mfe()
+                init_db = str(init_ss)
+                fc.pf()
+                ens_div = round(float(fc.mean_bp_distance()), 4)
+                bpp = fc.bpp()
+                wlen = len(win_seq)
+                paired_sum = [0.0] * wlen
+                for i in range(1, wlen + 1):
+                    row = bpp[i]
+                    for j in range(i + 1, wlen + 1):
+                        p = float(row[j])
+                        if p > 0.0:
+                            paired_sum[i - 1] += p
+                            paired_sum[j - 1] += p
+                        if p >= 0.15:
+                            arcs.append({"i": i - 1, "j": j - 1, "prob": round(p, 4)})
+                unpaired_win = [max(0.0, min(1.0, 1.0 - ps)) for ps in paired_sum]
+                k_lo = max(0, aug_in_win - 15)
+                k_hi = min(wlen, aug_in_win + 18)
+                if k_hi > k_lo:
+                    kozak_up = round(sum(unpaired_win[k_lo:k_hi]) / (k_hi - k_lo), 4)
 
-        w_pfl = min(n, 80)
-        l_pfl = min(w_pfl, 60)
-        up_table = RNA.pfl_fold_up(norm_seq, 1, w_pfl, l_pfl) if n >= 12 else None
-        if up_table is not None:
-            per_nt_up = [float(up_table[idx + 1][1]) for idx in range(n)]
-            aup_mean = round(sum(per_nt_up) / n, 4)
-        else:
-            per_nt_up = [0.5] * n
+            w_pfl = min(n, 80)
+            l_pfl = min(w_pfl, 60)
+            up_table = RNA.pfl_fold_up(norm_seq, 1, w_pfl, l_pfl) if n >= 12 else None
+            if up_table is not None:
+                per_nt_up = [float(up_table[idx + 1][1]) for idx in range(n)]
+                aup_mean = round(sum(per_nt_up) / n, 4)
+            else:
+                per_nt_up = [0.5] * n
 
-        if n <= window_nt:
-            _, chunk_e = RNA.fold(norm_seq)
-            positions.append(0)
-            local_mfe.append(round(float(chunk_e), 2))
-            local_gc.append(gc_pct)
-            local_u.append(u_pct)
-            local_up.append(round(sum(per_nt_up) / max(1, len(per_nt_up)), 4))
-        else:
-            for start_i in range(0, n - window_nt + 1, step_nt):
-                chunk = norm_seq[start_i : start_i + window_nt]
-                _, chunk_e = RNA.fold(chunk)
-                positions.append(start_i)
+            if n <= window_nt:
+                _, chunk_e = RNA.fold(norm_seq)
+                positions.append(0)
                 local_mfe.append(round(float(chunk_e), 2))
-                local_gc.append(round(((chunk.count("G") + chunk.count("C")) / window_nt) * 100.0, 2))
-                local_u.append(round((chunk.count("U") / window_nt) * 100.0, 2))
-                local_up.append(round(sum(per_nt_up[start_i : start_i + window_nt]) / window_nt, 4))
-            if n > 2500 and local_mfe:
-                mfe_val = round((sum(local_mfe) / len(local_mfe)) * (n / window_nt), 2)
-    else:
-        engines_used.append("heuristic_sequence_scanner")
-        for start_i in range(0, max(1, n - window_nt + 1), step_nt):
-            chunk = norm_seq[start_i : start_i + window_nt]
-            clen = max(1, len(chunk))
-            positions.append(start_i)
-            local_mfe.append(0.0)
-            local_gc.append(round(((chunk.count("G") + chunk.count("C")) / clen) * 100.0, 2))
-            local_u.append(round((chunk.count("U") / clen) * 100.0, 2))
-            local_up.append(0.5)
+                local_gc.append(gc_pct)
+                local_u.append(u_pct)
+                local_up.append(round(sum(per_nt_up) / max(1, len(per_nt_up)), 4))
+            else:
+                for start_i in range(0, n - window_nt + 1, step_nt):
+                    chunk = norm_seq[start_i : start_i + window_nt]
+                    _, chunk_e = RNA.fold(chunk)
+                    positions.append(start_i)
+                    local_mfe.append(round(float(chunk_e), 2))
+                    local_gc.append(round(((chunk.count("G") + chunk.count("C")) / window_nt) * 100.0, 2))
+                    local_u.append(round((chunk.count("U") / window_nt) * 100.0, 2))
+                    local_up.append(round(sum(per_nt_up[start_i : start_i + window_nt]) / window_nt, 4))
+                if n > 2500 and local_mfe:
+                    mfe_val = round((sum(local_mfe) / len(local_mfe)) * (n / window_nt), 2)
+        else:
+            engines_used.append("heuristic_sequence_scanner")
+            for start_i in range(0, max(1, n - window_nt + 1), step_nt):
+                chunk = norm_seq[start_i : start_i + window_nt]
+                clen = max(1, len(chunk))
+                positions.append(start_i)
+                local_mfe.append(0.0)
+                local_gc.append(round(((chunk.count("G") + chunk.count("C")) / clen) * 100.0, 2))
+                local_u.append(round((chunk.count("U") / clen) * 100.0, 2))
+                local_up.append(0.5)
 
-    motifs = _scan_rna_motifs_fallback(
-        norm_seq,
-        five_prime_end=five_prime_end,
-        cds_start=cds_start,
-        cds_end=cds_end,
-        three_prime_start=three_prime_start,
-        three_prime_end=three_prime_end,
-        seed_dir=seed_dir,
-    )
-    return {
-        "length_nt": n,
-        "modality": modality,
-        "full_gc_pct": gc_pct,
-        "full_u_pct": u_pct,
-        "cai": cai_val,
-        "mfe_kcal_mol": mfe_val,
-        "mfe_per_nt": round(mfe_val / max(1, n), 4),
-        "ensemble_diversity": ens_div,
-        "aup_mean": aup_mean,
-        "kozak_unpaired_prob": kozak_up,
-        "dot_bracket": dot_bracket_full,
-        "initiation_window": {
-            "start": win_start,
-            "end": win_end,
-            "aug_index_in_window": aug_in_win,
-            "sequence": win_seq,
-            "dot_bracket": init_db,
-            "arcs": arcs,
-        },
-        "sliding_tracks": {
-            "window_nt": window_nt,
-            "step_nt": step_nt,
-            "positions": positions,
-            "local_mfe": local_mfe,
-            "local_gc_pct": local_gc,
-            "local_u_pct": local_u,
-            "local_unpaired_prob": local_up,
-        },
-        "motifs": motifs,
-        "engines_used": engines_used,
-    }
+        motifs = _scan_rna_motifs_fallback(
+            norm_seq,
+            five_prime_end=five_prime_end,
+            cds_start=cds_start,
+            cds_end=cds_end,
+            three_prime_start=three_prime_start,
+            three_prime_end=three_prime_end,
+            seed_dir=seed_dir,
+        )
+        return {
+            "length_nt": n,
+            "modality": modality,
+            "full_gc_pct": gc_pct,
+            "full_u_pct": u_pct,
+            "cai": cai_val,
+            "mfe_kcal_mol": mfe_val,
+            "mfe_per_nt": round(mfe_val / max(1, n), 4),
+            "ensemble_diversity": ens_div,
+            "aup_mean": aup_mean,
+            "kozak_unpaired_prob": kozak_up,
+            "dot_bracket": dot_bracket_full,
+            "initiation_window": {
+                "start": win_start,
+                "end": win_end,
+                "aug_index_in_window": aug_in_win,
+                "sequence": win_seq,
+                "dot_bracket": init_db,
+                "arcs": arcs,
+            },
+            "sliding_tracks": {
+                "window_nt": window_nt,
+                "step_nt": step_nt,
+                "positions": positions,
+                "local_mfe": local_mfe,
+                "local_gc_pct": local_gc,
+                "local_u_pct": local_u,
+                "local_unpaired_prob": local_up,
+            },
+            "motifs": motifs,
+            "engines_used": engines_used,
+        }
+    finally:
+        _STRUCTURE_JOB_SEM.release()
 
 
 def query_scientific_rules(
@@ -747,34 +768,52 @@ def render_ivt_synthesis_order(
         rna = mol.sequence
         dna_transcript = rna.replace("U", "T")
         cap = mol.chemistry_track.cap_chemistry
-        # Invariant: template_dna_5to3 MUST match the validated molecule transcript 1:1 (zero post-gate base insertion).
+        # Invariant: template_dna_5to3 MUST match the validated molecule transcript 1:1,
+        # AND promoter/capping metadata must follow mol.chemistry_track.cap_chemistry without prefix conflict.
         from mrnax.io_insdc.genbank_io import ExportConstraintViolationError
 
         core_dna = dna_transcript
-        if cap == "cap1_cleancap_ag" or rna.startswith("AG"):
-            promoter_dna = "TAATACGACTCACTATA"
+        promoter_dna = "TAATACGACTCACTATA"
+        if cap == "cap1_cleancap_ag":
             if rna.startswith("AG"):
                 promoter_type = "T7_CleanCap_AG_Phi6.5"
-                leader_check = "PASS (transcript starts with 5'-AG for CleanCap AG co-transcriptional capping)"
+                leader_check = "PASS (transcript starts with 5'-AG matching cap1_cleancap_ag)"
             elif mol.modality == "sarna" and rna.startswith("AU"):
                 promoter_type = "T7_CleanCap_AU_Alphavirus"
-                leader_check = "PASS (saRNA starts with 5'-AU for CleanCap AU co-transcriptional capping)"
+                leader_check = "PASS (saRNA starts with 5'-AU for alphavirus CleanCap AU replication)"
             else:
-                promoter_type = "T7_Enzymatic_Cap1_Exact_Transcript"
+                promoter_type = "T7_CleanCap_AG_Incompatible_Prefix"
                 leader_check = (
-                    f"ADVISORY: approved transcript starts with 5'-{rna[:2]} and is emitted verbatim without prepended bases; "
-                    "use enzymatic Cap-1 or refine/validate a new construct version if a 5'-AG CleanCap leader is desired"
+                    f"ADVISORY: bundle declares cap_chemistry='cap1_cleancap_ag' while transcript starts with 5'-{rna[:2]}; "
+                    "approved transcript emitted verbatim without prepended bases — revise and re-validate bundle for 5'-AG or enzymatic Cap-1"
                 )
+        elif cap == "cap1_arca_gg":
+            promoter_type = "T7_ARCA_GG_Standard"
+            if rna.startswith("GG"):
+                leader_check = "PASS (transcript starts with 5'-GG matching cap1_arca_gg)"
+            else:
+                leader_check = (
+                    f"ADVISORY: bundle declares cap_chemistry='cap1_arca_gg' while transcript starts with 5'-{rna[:2]}; "
+                    "approved transcript emitted verbatim without prepended bases"
+                )
+        elif cap == "cap1_enzymatic":
+            promoter_type = "T7_Vaccinia_Enzymatic_Cap1"
+            leader_check = (
+                "PASS (post-transcriptional enzymatic Cap-1 compatible with 5'-purine start)"
+                if rna[:1] in ("G", "A")
+                else f"ADVISORY: transcript starts with pyrimidine 5'-{rna[:1]} (lower T7 yield; preserved verbatim)"
+            )
         else:
-            promoter_type = "T7_Standard_GGG"
-            promoter_dna = "TAATACGACTCACTATA"
-            if rna.startswith("GGG"):
-                leader_check = "PASS (transcript starts with 5'-GGG)"
-            else:
-                leader_check = (
-                    "ADVISORY: approved transcript preserved verbatim without prepended bases; "
-                    "create a new versioned construct if a 5'-GGG T7 leader is required"
+            promoter_type = "T7_Uncapped_Circular_or_Custom" if mol.modality == "circrna" else "T7_Standard_Exact_Transcript"
+            leader_check = (
+                "PASS (cap-independent PIE circRNA precursor)"
+                if mol.modality == "circrna"
+                else (
+                    "PASS (transcript starts with 5'-GGG)"
+                    if rna.startswith("GGG")
+                    else "ADVISORY: approved transcript emitted verbatim without prepended bases"
                 )
+            )
         if core_dna.replace("T", "U") != rna:
             raise ExportConstraintViolationError("Internal invariant failure: exported IVT template diverged from approved bundle.")
 
@@ -827,7 +866,10 @@ def render_qc_dossier_html(
     """Render a clean, printable HTML5 scientific QC & compliance dossier (zero external assets, XSS-safe)."""
     eff_constraints = intent.constraints if intent is not None else default_m1_constraints()
     eff_track = intent.compliance_track if intent is not None else "research_max"
-    eff_chem = intent.uridine_chemistry if intent is not None else bundle.molecules[0].chemistry_track.uridine_chemistry
+    from mrnax.io_insdc.genbank_io import resolve_expected_chemistry_for_bundle
+
+    raw_chem = intent.uridine_chemistry if intent is not None else bundle.molecules[0].chemistry_track.uridine_chemistry
+    eff_chem = resolve_expected_chemistry_for_bundle(bundle, raw_chem)
     outcome = constraint_engine.evaluate_bundle(
         bundle,
         eff_constraints,
@@ -1069,12 +1111,15 @@ class AtomicToolbox:
         with self.session.current_state():
             bundle = self.session.get_bundle(bundle_id)
             intent = self.session.intent_for_bundle(bundle_id)
+        from mrnax.io_insdc.genbank_io import resolve_expected_chemistry_for_bundle
+
         effective_track = intent.compliance_track if compliance_track is None else compliance_track
+        eff_chem = resolve_expected_chemistry_for_bundle(bundle, intent.uridine_chemistry)
         outcome = self.constraint_engine.evaluate_bundle(
             bundle,
             intent.constraints,
             compliance_track=effective_track,
-            expected_chemistry=intent.uridine_chemistry,
+            expected_chemistry=eff_chem,
             locked_scopes=intent.locked_scopes,
             expected_protein_targets=intent.protein_targets,
         )
@@ -1301,13 +1346,18 @@ class AtomicToolbox:
                 raise ValueError(
                     f"Export out_dir '{out_dir}' must resolve inside project store_dir '{base_store}'"
                 )
-            checked_files = ["full_rna.fasta", "cds_only.fasta", "construct.gb", "chemistry_metadata.json"]
-            if include_dossier:
-                checked_files.extend(["ivt_synthesis_order.csv", "qc_dossier.html"])
+            checked_files = [
+                "full_rna.fasta",
+                "cds_only.fasta",
+                "construct.gb",
+                "chemistry_metadata.json",
+                "ivt_synthesis_order.csv",
+                "qc_dossier.html",
+            ]
             for fn in checked_files:
                 cand_f = target_dir / fn
                 if cand_f.is_symlink():
-                    raise ValueError(f"Refusing to overwrite symlinked export target '{cand_f}'")
+                    raise ValueError(f"Refusing to overwrite or remove symlinked export target '{cand_f}'")
             manifest = export_construct_package(
                 b,
                 target_dir,
@@ -1349,6 +1399,9 @@ class AtomicToolbox:
                 (target_dir / "chemistry_metadata.json").write_text(
                     json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
                 )
+            else:
+                (target_dir / "ivt_synthesis_order.csv").unlink(missing_ok=True)
+                (target_dir / "qc_dossier.html").unlink(missing_ok=True)
             return manifest
 
     # 10. resolve_target_protein
@@ -1373,6 +1426,15 @@ class AtomicToolbox:
         if bundle_id is not None:
             with self.session.current_state():
                 b = self.session.get_bundle(bundle_id)
+                try:
+                    b_intent = self.session.intent_for_bundle(bundle_id)
+                    eff_track = b_intent.compliance_track
+                except Exception:
+                    eff_track = (
+                        self.session._intents[-1].compliance_track
+                        if self.session._intents
+                        else "research_max"
+                    )
             if molecule_index < 0 or molecule_index >= len(b.molecules):
                 raise ValueError(f"molecule_index {molecule_index} out of range for bundle '{bundle_id}'")
             mol = b.molecules[molecule_index]
@@ -1387,6 +1449,7 @@ class AtomicToolbox:
                 three_prime_start=u3.start if u3 else None,
                 three_prime_end=u3.end if u3 else None,
                 modality=mol.modality,
+                compliance_track=eff_track,
                 include_eternafold=include_eternafold,
                 seed_dir=self.session.seed_dir,
             )
@@ -1394,9 +1457,16 @@ class AtomicToolbox:
             res["molecule_id"] = mol.molecule_id
             return res
         assert sequence is not None
+        with self.session.current_state():
+            seq_track = (
+                self.session._intents[-1].compliance_track
+                if self.session._intents
+                else "research_max"
+            )
         return run_structure_and_motif_analysis(
             sequence,
             modality=modality,
+            compliance_track=seq_track,
             include_eternafold=include_eternafold,
             seed_dir=self.session.seed_dir,
         )

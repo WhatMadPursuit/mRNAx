@@ -181,13 +181,18 @@ def _strictest_license_track(*tiers: str) -> LicenseTrack:
     return max(valid, key=_LICENSE_TRACK_ORDER.index)
 
 
+_FORBIDDEN_SCAFFOLD_LICENSE_RE = re.compile(
+    r"(?:non[-\s]?commercial|cc[-\s]?by[-\s]?nc|cc[-\s]?by[-\s]?sa|sharealike|\b(?:a?gpl|lgpl)\b|research[-\s_]?only|proprietary|pending|quarantine)",
+    re.IGNORECASE,
+)
+
+
 def _validate_scaffold_component(
     scaf: dict[str, Any],
     *,
     expected_modality: str,
     allowed_categories: tuple[str, ...],
     compliance_track: ComplianceProfile,
-    allow_quarantine_reference: bool = False,
 ) -> LicenseTrack:
     scaf_id = str(scaf.get("scaffold_id", "<unknown>"))
     actual_mod = str(scaf.get("modality", ""))
@@ -205,15 +210,25 @@ def _validate_scaffold_component(
     if not isinstance(raw_tier, str) or raw_tier not in _LICENSE_TRACK_ORDER:
         raise PermissionError(f"Scaffold '{scaf_id}' has missing or invalid license_track '{raw_tier}'")
     tier: LicenseTrack = raw_tier  # type: ignore[assignment]
-    fto_obj = scaf.get("patent_fto_tag")
-    fto_blocked_cc = isinstance(fto_obj, dict) and fto_obj.get("commercial_clean_allowed") is False
-    if tier == "quarantine_reference" and not allow_quarantine_reference:
+    if tier == "quarantine_reference":
         raise PermissionError(
             f"Scaffold '{scaf_id}' has license_track='quarantine_reference' and cannot be assembled into active designs."
         )
-    if compliance_track == "commercial_clean" and (tier != "commercial_clean" or fto_blocked_cc):
+    spdx_str = str(lic_obj.get("spdx") or "") if isinstance(lic_obj, dict) else ""
+    redist_ok = isinstance(lic_obj, dict) and (lic_obj.get("external_redistribution_allowed") is True)
+    spdx_clean = bool(spdx_str.strip()) and not bool(_FORBIDDEN_SCAFFOLD_LICENSE_RE.search(spdx_str))
+    fto_obj = scaf.get("patent_fto_tag")
+    fto_clean_ok = (
+        isinstance(fto_obj, dict)
+        and (fto_obj.get("commercial_clean_allowed") is True)
+        and str(fto_obj.get("status") or "").upper() != "BLOCKED_IN_COMMERCIAL_CLEAN"
+    )
+    # Never allow a segment to retain 'commercial_clean' when commercial redistribution or FTO clearance is denied/absent.
+    if tier == "commercial_clean" and not (redist_ok and spdx_clean and fto_clean_ok):
+        tier = "research_only"
+    if compliance_track == "commercial_clean" and tier != "commercial_clean":
         raise PermissionError(
-            f"Scaffold '{scaf_id}' (license_track='{tier}') is blocked under compliance_track='commercial_clean'."
+            f"Scaffold '{scaf_id}' (effective license_track='{tier}') is blocked under compliance_track='commercial_clean'."
         )
     return tier
 
@@ -287,6 +302,11 @@ def _inject_atlas_mirna_cassette(
     for entry in mirna_entries:
         site_rna = str(entry["mrna_full_complementary_ago2_cleavage_site_rna"]).upper()
         mir_id = str(entry["mirna_id"])
+        raw_mir_tier = entry.get("license_track")
+        if not isinstance(raw_mir_tier, str) or raw_mir_tier not in _LICENSE_TRACK_ORDER:
+            raise PermissionError(f"miRNA '{mir_id}' has missing or invalid license_track '{raw_mir_tier}'")
+        if raw_mir_tier == "quarantine_reference":
+            raise PermissionError(f"miRNA '{mir_id}' has license_track='quarantine_reference' and cannot be assembled")
         for cp in range(copies_per_mirna):
             if spacer_idx > 0:
                 sp = _CLEAN_MIRNA_SPACERS[spacer_idx % len(_CLEAN_MIRNA_SPACERS)]
@@ -303,7 +323,7 @@ def _inject_atlas_mirna_cassette(
                     qualifiers={
                         "bound_moiety": [mir_id],
                         "mrnax_origin_source": [f"tissue_mirna_atlas_v1:{mir_id}"],
-                        "mrnax_license_track": [str(entry.get("license_track", "commercial_clean"))],
+                        "mrnax_license_track": [raw_mir_tier],
                     },
                 )
             )
@@ -475,19 +495,22 @@ def build_linear_mrna_bundle(
         if detarget_tissues
         else []
     )
+    mir_tiers: list[LicenseTrack] = []
     for mir_e in mir_entries:
-        mir_tier = str(mir_e.get("license_track", "commercial_clean"))
-        if compliance_track == "commercial_clean" and mir_tier != "commercial_clean":
+        raw_mt = mir_e.get("license_track")
+        if not isinstance(raw_mt, str) or raw_mt not in _LICENSE_TRACK_ORDER:
+            raise PermissionError(f"miRNA '{mir_e.get('mirna_id')}' has missing or invalid license_track '{raw_mt}'")
+        if raw_mt == "quarantine_reference":
+            raise PermissionError(f"miRNA '{mir_e.get('mirna_id')}' has license_track='quarantine_reference' and is blocked")
+        if compliance_track == "commercial_clean" and raw_mt != "commercial_clean":
             raise PermissionError(
-                f"miRNA '{mir_e.get('mirna_id')}' (license_track='{mir_tier}') is blocked in commercial_clean"
+                f"miRNA '{mir_e.get('mirna_id')}' (license_track='{raw_mt}') is blocked in commercial_clean"
             )
+        mir_tiers.append(raw_mt)  # type: ignore[arg-type]
     u3_seq, u3_anns = _inject_atlas_mirna_cassette(
         u3_base, mir_entries, copies_per_mirna=mirna_copies
     )
-    u3_tier = _strictest_license_track(
-        u3_tier_base,
-        *(str(m.get("license_track", "commercial_clean")) for m in mir_entries),
-    )
+    u3_tier = _strictest_license_track(u3_tier_base, *mir_tiers)
     polya_seq = str(pa_scaf["sequence_rna"]).upper()
     stop_seq = "UGA"
 
@@ -675,8 +698,17 @@ def evaluate_linear_mrna_bundle(
                         }
                     )
         cds_seq = mol.get_segment_sequence("cds")
-        cds_dg: float | None = round(float(rna_mod.fold(cds_seq)[1]), 3) if (rna_mod is not None and cds_seq) else None
+        cds_dg: float | None = (
+            round(float(rna_mod.fold(cds_seq)[1]), 3)
+            if (rna_mod is not None and cds_seq and len(cds_seq) <= 3500)
+            else None
+        )
         full_dg: float | None = prof["mfe_kcal_mol"] if rna_mod is not None else None
+        mfe_scope = (
+            str(prof.get("mfe_method") or ("exact_vienna_mfe" if len(mol.sequence) <= 3500 else "windowed_vienna_mfe_estimate"))
+            if rna_mod is not None
+            else "unavailable_without_approved_thermo_backend"
+        )
         chain_reports.append(
             {
                 "molecule_id": mol.molecule_id,
@@ -684,7 +716,7 @@ def evaluate_linear_mrna_bundle(
                 "length_nt": prof["length_nt"],
                 "cds_mfe_kcal_mol": cds_dg,
                 "full_mfe_kcal_mol": full_dg,
-                "mfe_scope": "exact_vienna_mfe" if rna_mod is not None else "unavailable_without_approved_thermo_backend",
+                "mfe_scope": mfe_scope,
                 "cai": prof["cai"],
                 "kozak_unpaired_prob": prof["kozak_unpaired_prob"] if rna_mod is not None else None,
                 "aup_mean": prof["aup_mean"] if rna_mod is not None else None,

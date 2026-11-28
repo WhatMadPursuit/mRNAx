@@ -52,6 +52,7 @@ from mrnax.engine.profiles import resolve_default_seed_dir
 from mrnax.harness.auth_secrets import SecretVault
 from mrnax.harness.dialogue import (
     _REDACT_KEY_RE,
+    _project_llm_tool_payload,
     DEFAULT_PROVIDER_MODELS,
     SUPPORTED_PROVIDER_MODELS,
     LiveDialogueAgent,
@@ -71,6 +72,7 @@ from mrnax.harness.state_machine import (
 )
 from mrnax.harness.tools import (
     AtomicToolbox,
+    StructureProfilerBusyError,
     compare_construct_against_clinical_benchmarks,
     detect_available_engines,
     load_registry_json,
@@ -534,8 +536,11 @@ class _ExactDecimalAPIRoute(APIRoute):
             pre_gate = getattr(request.app.state, "pre_body_admission", None)
             if callable(pre_gate):
                 pre_gate(request)
+            wrapped = _DecimalJsonRequest(request.scope, request.receive)
             try:
-                return await orig(_DecimalJsonRequest(request.scope, request.receive))
+                if request.method in ("POST", "PUT", "PATCH"):
+                    await wrapped.body()
+                return await orig(wrapped)
             except _PayloadTooLargeError as exc:
                 return JSONResponse(status_code=413, content={"detail": str(exc)})
 
@@ -939,6 +944,35 @@ def _save_agent_chat_requests(
     )
 
 
+def _compact_recovery_result(obj: Any, budget: int) -> Any:
+    raw = json.dumps(obj, ensure_ascii=False)
+    if len(raw) <= budget:
+        return obj
+    if isinstance(obj, dict):
+        summary: dict[str, Any] = {"_recovery_summary": True}
+        for k in (
+            "intent_id",
+            "intent_version",
+            "parent_intent_id",
+            "status",
+            "outcome_status",
+            "recommended_bundle_ids",
+            "qualified_count",
+            "passed_all_hard_gates",
+            "matched",
+            "uniprot_accession",
+            "gene_symbol",
+            "aa_length",
+            "error",
+        ):
+            if k in obj and not isinstance(obj[k], dict):
+                summary[k] = obj[k]
+        summary["omitted_keys"] = [str(k) for k in obj.keys() if k not in summary][:16]
+        if len(json.dumps(summary, ensure_ascii=False)) <= budget:
+            return summary
+    return {"_recovery_summary": True, "omitted_large_payload": True}
+
+
 def _format_tool_calls_for_recovery_prompt(
     tool_calls: list[dict[str, Any]],
     *,
@@ -952,12 +986,11 @@ def _format_tool_calls_for_recovery_prompt(
     formatted: list[dict[str, Any]] = []
     for tc in items:
         name_s = redact_secrets_in_text(str(tc.get("name") or ""), extra_secrets=extra_secrets)
-        args_raw = redact_secrets_in_text(
-            json.dumps(tc.get("arguments", {}), ensure_ascii=False),
-            extra_secrets=extra_secrets,
+        args_obj = redact_secrets_in_obj(tc.get("arguments", {}), extra_secrets=extra_secrets)
+        args_raw = json.dumps(args_obj, ensure_ascii=False)
+        res_obj = _project_llm_tool_payload(
+            redact_secrets_in_obj(tc.get("result", {}), extra_secrets=extra_secrets, redact_keys=False)
         )
-        res_obj = redact_secrets_in_obj(tc.get("result", {}), extra_secrets=extra_secrets, redact_keys=False)
-        res_raw = json.dumps(res_obj, ensure_ascii=False)
         budget = max(80, per_item - len(name_s) - 64)
         args_budget = min(len(args_raw), max(40, budget // 3))
         res_budget = max(60, budget - args_budget)
@@ -965,15 +998,11 @@ def _format_tool_calls_for_recovery_prompt(
             {
                 "name": name_s,
                 "arguments": (
-                    tc.get("arguments", {})
+                    args_obj
                     if len(args_raw) <= args_budget
-                    else (args_raw[: args_budget - 3] + "...")
+                    else {"_truncated_keys": list(args_obj.keys())[:10] if isinstance(args_obj, dict) else []}
                 ),
-                "result": (
-                    res_obj
-                    if len(res_raw) <= res_budget
-                    else (res_raw[: res_budget - 3] + "...")
-                ),
+                "result": _compact_recovery_result(res_obj, res_budget),
             }
         )
     return json.dumps(formatted, ensure_ascii=False)
@@ -1113,17 +1142,26 @@ def create_control_plane_app(
     MAX_TRACKED_IPS = 2048
     ip_buckets: OrderedDict[str, deque[float]] = OrderedDict()
     rate_lock = threading.Lock()
-    structure_job_sem = threading.BoundedSemaphore(4)
 
     def _route_rate_limit_for_path(path: str, method: str) -> int:
-        if path == "/api/v1/rules":
+        if path == "/healthz":
+            return 240
+        if path in ("/api/v1/rules", "/v1/system/status", "/v1/presets"):
             return 90
-        if path in ("/api/v1/data-hub", "/v1/system/status", "/v1/presets"):
+        if path in ("/api/v1/data-hub", "/v1/executions", "/v1/webhooks/stage-check/latest"):
             return 60
+        if path.startswith("/v1/projects/") and path.endswith("/state"):
+            return 60
+        if path.startswith("/v1/executions/"):
+            if path.endswith(":commit"):
+                return 60
+            return 90
+        if path == "/v1/webhooks/stage-check":
+            return 30
         if path in ("/api/v1/structure/analyze", "/api/v1/evidence/resolve"):
             return 30
         if path.endswith("/agent-chat"):
-            return 25
+            return 20
         return 45
 
     def _enforce_rate_limit(req: Request, max_per_min: int = 45) -> None:
@@ -2774,6 +2812,12 @@ def create_control_plane_app(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         secrets_tuple = _collect_active_secrets(x_mrnax_access_token, x_mrnax_project_key)
         safe_csv = redact_secrets_in_text(csv_text, extra_secrets=secrets_tuple)
+        safe_rows = redact_secrets_in_obj(rows, extra_secrets=secrets_tuple)
+        if safe_csv != csv_text or safe_rows != rows:
+            raise HTTPException(
+                status_code=409,
+                detail="IVT synthesis order blocked: active credential marker collided with synthesis payload.",
+            )
         if format == "csv":
             return Response(content=safe_csv, media_type="text/csv; charset=utf-8", status_code=200)
         return JSONResponse(
@@ -2782,7 +2826,7 @@ def create_control_plane_app(
                 "version_digest": bundle.version_digest,
                 "content_type": "text/csv",
                 "ivt_synthesis_order_csv": safe_csv,
-                "rows": redact_secrets_in_obj(rows, extra_secrets=secrets_tuple),
+                "rows": safe_rows,
             }
         )
 
@@ -2888,11 +2932,6 @@ def create_control_plane_app(
     ) -> dict[str, Any]:
         _enforce_rate_limit(request, max_per_min=30)
         secrets_tuple = _collect_active_secrets()
-        if not structure_job_sem.acquire(timeout=2.0):
-            raise HTTPException(
-                status_code=503,
-                detail="Structure profiler concurrency limit reached; please retry shortly.",
-            )
         try:
             res = run_structure_and_motif_analysis(
                 req.sequence,
@@ -2905,13 +2944,16 @@ def create_control_plane_app(
                 include_eternafold=req.include_eternafold,
                 seed_dir=resolved_seed,
             )
-        except ValueError as exc:
+        except StructureProfilerBusyError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=redact_secrets_in_text(str(exc), extra_secrets=secrets_tuple),
+            ) from exc
+        except (ValueError, PermissionError) as exc:
             raise HTTPException(
                 status_code=422,
                 detail=redact_secrets_in_text(str(exc), extra_secrets=secrets_tuple),
             ) from exc
-        finally:
-            structure_job_sem.release()
         return redact_secrets_in_obj(res, extra_secrets=secrets_tuple)
 
     @app.post("/api/v1/evidence/resolve")

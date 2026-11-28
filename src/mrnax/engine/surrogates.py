@@ -283,17 +283,57 @@ _SUPPORTED_PROVENANCE_SCHEMAS = frozenset(
 )
 
 
+_APPROVED_ARTIFACT_LICENSE_TOKENS = (
+    "mit",
+    "apache-2.0",
+    "bsd",
+    "cc-by-4.0",
+    "cc by 4.0",
+    "cc0",
+    "public domain",
+)
+_FORBIDDEN_ARTIFACT_LICENSE_RE = re.compile(
+    r"(?:non[-\s]?commercial|cc[-\s]?by[-\s]?nc|cc[-\s]?by[-\s]?sa|sharealike|\b(?:a?gpl|lgpl)\b|research[-\s_]?only|proprietary|pending|quarantine)",
+    re.IGNORECASE,
+)
+
+
+def _assert_permissive_artifact_license(lic_raw: Any, *, filename: str) -> None:
+    lic_s = str(lic_raw or "").strip()
+    if not lic_s:
+        raise PermissionError(
+            f"Refusing to deserialize '{filename}' in commercial_clean loader: missing artifact license declaration"
+        )
+    low = lic_s.lower()
+    if _FORBIDDEN_ARTIFACT_LICENSE_RE.search(low) or not any(tok in low for tok in _APPROVED_ARTIFACT_LICENSE_TOKENS):
+        raise PermissionError(
+            f"Refusing to deserialize '{filename}' in commercial_clean loader: prohibited or unrecognized artifact license '{lic_s}'"
+        )
+
+
 def extract_circrna_ires_interval(mol: RNAMoleculeSpec) -> str:
-    """Resolve the canonical circRNA viral IRES slice identically across all evaluators."""
+    """Resolve the canonical circRNA viral IRES slice across compound intervals & validate sense strand."""
     u5_seq = mol.get_segment_sequence("five_prime_utr")
     ires_ann = next(
         (a for a in mol.annotations if a.feature_id.startswith("viral_ires_") and a.intervals),
         None,
     )
     if ires_ann is not None:
-        lo, hi = ires_ann.intervals[0]
-        if 0 <= lo < hi <= len(mol.sequence):
-            return mol.sequence[lo:hi]
+        if ires_ann.strand != 1:
+            raise ValueError(
+                f"circRNA annotation '{ires_ann.feature_id}' must lie on positive (+1) sense strand, got {ires_ann.strand}"
+            )
+        seq_len = len(mol.sequence)
+        pieces: list[str] = []
+        prev_hi = 0
+        for lo, hi in ires_ann.intervals:
+            if lo < prev_hi or hi <= lo or hi > seq_len:
+                raise ValueError(
+                    f"Invalid compound interval ({lo}, {hi}) on '{ires_ann.feature_id}' for molecule length {seq_len}"
+                )
+            pieces.append(mol.sequence[lo:hi])
+            prev_hi = hi
+        return "".join(pieces)
     return u5_seq[-600:]
 
 
@@ -352,14 +392,16 @@ def _load_verified_joblib(
             raise PermissionError(
                 f"Refusing to deserialize '{filename}' in commercial_clean loader: v2.0 artifact missing license_track='commercial_clean'"
             )
-        if schema_id == "mrnax.surrogate_training_provenance.v1.2" and not str(expected.get("license") or "").strip():
-            raise PermissionError(
-                f"Refusing to deserialize '{filename}' in commercial_clean loader: v1.2 artifact missing permissive license string"
-            )
+        _assert_permissive_artifact_license(expected.get("license"), filename=filename)
         if expected.get("uses_viennarna_features_or_labels") is not False:
             raise PermissionError(
                 f"Refusing to deserialize '{filename}' in commercial_clean loader: uses_viennarna_features_or_labels must be literal false"
             )
+    decl_feats = expected.get("n_features") if "n_features" in expected else expected.get("feature_count")
+    if isinstance(decl_feats, bool) or not isinstance(decl_feats, int) or decl_feats <= 0:
+        raise ValueError(
+            f"Refusing to deserialize '{filename}': manifest must declare a positive integer n_features / feature_count"
+        )
     fpath = weights_dir / filename
     raw_bytes = fpath.read_bytes()
     if len(raw_bytes) != int(expected["bytes"]):
@@ -384,9 +426,7 @@ def _load_verified_joblib(
 
         loaded = dict(joblib.load(io.BytesIO(raw_bytes)))
 
-    decl_feats = expected.get("n_features") if "n_features" in expected else expected.get("feature_count")
-    if isinstance(decl_feats, int) and not isinstance(decl_feats, bool):
-        loaded["_manifest_n_features"] = decl_feats
+    loaded["_manifest_n_features"] = decl_feats
     loaded["_manifest_filename"] = filename
     loaded["_manifest_schema"] = str(schema_id or "")
     loaded["_manifest_model_name"] = str(expected.get("model_name") or Path(filename).stem)
@@ -438,7 +478,9 @@ class CommercialCleanSurrogateV1:
         expected_w = bundle.get("_manifest_n_features")
         if X.ndim != 2:
             raise ValueError(f"Expected 2D feature matrix for '{bundle.get('_manifest_filename')}', got shape={X.shape}")
-        if isinstance(expected_w, int) and X.shape[1] != expected_w:
+        if isinstance(expected_w, bool) or not isinstance(expected_w, int) or expected_w <= 0:
+            raise ValueError(f"Missing verified manifest feature width for '{bundle.get('_manifest_filename')}'")
+        if X.shape[1] != expected_w:
             raise ValueError(
                 f"Feature width drift for '{bundle.get('_manifest_filename')}': assembled {X.shape[1]} columns != manifest n_features={expected_w}"
             )
@@ -852,7 +894,7 @@ class CommercialCleanSurrogateV2(CommercialCleanSurrogateV1):
     def _bundle_provenance(bundle: dict[str, Any], default_v1_tag: str) -> tuple[str, str]:
         schema = str(bundle.get("_manifest_schema") or "")
         mdl_name = str(bundle.get("_manifest_model_name") or default_v1_tag)
-        if schema == "mrnax.surrogate_training_provenance.v2.0" or "tab_features" in bundle or mdl_name.endswith("_v2"):
+        if schema == "mrnax.surrogate_training_provenance.v2.0" or "tab_features" in bundle:
             return f"CommercialCleanSurrogateV2:{mdl_name}", "2.0.0"
         return f"CommercialCleanSurrogateV1:{default_v1_tag}", "1.1.0"
 
@@ -959,7 +1001,7 @@ class CommercialCleanSurrogateV2(CommercialCleanSurrogateV1):
                     evaluated_scopes=["five_prime_utr"],
                     tool_name=ci_tool,
                     tool_version=ci_ver,
-                    chemistry_evaluation_mode="native_chemistry_validated",
+                    chemistry_evaluation_mode=schema_chem_mode,  # type: ignore[arg-type]
                     participated_in="display_only",
                 )
             )

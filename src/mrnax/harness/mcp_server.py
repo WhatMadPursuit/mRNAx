@@ -107,7 +107,9 @@ def handle_mcp_request(toolbox: AtomicToolbox, req: dict[str, Any]) -> dict[str,
         raw_args = params.get("arguments")
         args = {} if raw_args is None else raw_args
         try:
-            out = toolbox.dispatch_tool_call(name, args)
+            from mrnax.harness.dialogue import _project_llm_tool_payload
+
+            out = _project_llm_tool_payload(toolbox.dispatch_tool_call(name, args))
             return {
                 "jsonrpc": "2.0",
                 "id": req_id,

@@ -37,11 +37,17 @@ _WAVE1A_FALLBACK_ATLAS = Path(
 )
 
 
+_MAX_ETERNAFOLD_POST_BYTES = 8 * 1024 * 1024
+_STRICT_RNA_RE = re.compile(r"^[ACGU]+$")
+
+
 def _normalize_rna(sequence: str) -> str:
-    seq = re.sub(r"[^ACGTUacgtu]", "", str(sequence)).upper().replace("T", "U")
-    if not seq:
+    compact = re.sub(r"\s+", "", str(sequence)).upper().replace("T", "U")
+    if not compact:
         raise ValueError("RNA sequence must contain at least one valid nucleotide (A, C, G, U).")
-    return seq
+    if not _STRICT_RNA_RE.fullmatch(compact):
+        raise ValueError("RNA sequence contains invalid characters; only A, C, G, U/T nucleotides are permitted.")
+    return compact
 
 
 def _try_vienna() -> Any | None:
@@ -181,6 +187,13 @@ def _resolve_region_coordinates(
         else:
             u3_end = n
 
+    if not (0 <= u5_end <= c_start <= c_end <= u3_start <= u3_end <= n):
+        raise ValueError(
+            f"Resolved coordinates violate half-open ordering: u5_end={u5_end}, cds=[{c_start}, {c_end}), u3=[{u3_start}, {u3_end}), len={n}"
+        )
+    if (cds_start is not None or cds_end is not None) and c_end <= c_start:
+        raise ValueError(f"Invalid empty or reversed CDS interval [{c_start}, {c_end})")
+
     return u5_end, c_start, c_end, u3_start, u3_end
 
 
@@ -234,11 +247,21 @@ def _run_eternafold_window_metrics(
             return None
         if not post.is_file():
             return None
+        try:
+            if post.stat().st_size > _MAX_ETERNAFOLD_POST_BYTES:
+                return None
+            with post.open("rb") as fh:
+                raw_bytes = fh.read(_MAX_ETERNAFOLD_POST_BYTES + 1)
+            if len(raw_bytes) > _MAX_ETERNAFOLD_POST_BYTES:
+                return None
+            post_lines = raw_bytes.decode("utf-8").splitlines()
+        except (OSError, UnicodeDecodeError):
+            return None
         paired = [0.0] * n_len
         upper: dict[tuple[int, int], float] = {}
         lower: dict[tuple[int, int], float] = {}
         positions = 0
-        for line in post.read_text(encoding="utf-8").splitlines():
+        for line in post_lines:
             parts = line.strip().split()
             if not parts:
                 continue
@@ -689,9 +712,13 @@ def analyze_rna_structure(
         unp_slice = unpaired_per_nt[pos : pos + clen]
         local_unp_list.append(round(sum(unp_slice) / max(1, len(unp_slice)), 4))
 
-    # 5. Optional EternaFold v1.3.1 cross-check
+    # 5. Optional EternaFold v1.3.1 cross-check (blocked in commercial_clean while S-Processed data is pending clearance)
     eternafold_summary: dict[str, float] | None = None
     if include_eternafold:
+        if compliance_track == "commercial_clean":
+            raise PermissionError(
+                "EternaFold v1.3.1 has license_track='commercial_clearance_pending' and cannot run under commercial_clean."
+            )
         ef_found = discover_eternafold_binary()
         if ef_found is not None:
             ef_bin, ef_params = ef_found
@@ -711,6 +738,12 @@ def analyze_rna_structure(
         seed_dir=eff_seed,
     )
 
+    mfe_method = (
+        ("exact_vienna_mfe" if n <= 3500 else "windowed_vienna_mfe_estimate")
+        if rna_mod is not None
+        else "pure_seq_gc_approx"
+    )
+
     result: dict[str, Any] = {
         "length_nt": n,
         "modality": modality,
@@ -718,6 +751,7 @@ def analyze_rna_structure(
         "full_u_pct": full_u_pct,
         "cai": cai_val,
         "mfe_kcal_mol": dg_total,
+        "mfe_method": mfe_method,
         "mfe_per_nt": round(dg_total / max(1, n), 4),
         "ensemble_diversity": ensemble_diversity,
         "aup_mean": aup_mean,

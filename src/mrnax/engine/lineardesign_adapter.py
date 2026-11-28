@@ -793,7 +793,7 @@ def sweep_lineardesign_candidates(
     """Sweep `lambda` across `{0.0, 0.5, 1.0, 2.0, 4.0}` in parallel and polish each candidate."""
     _assert_research_track_allowed(compliance_track)
     sense_aa = _normalize_sense_protein(protein_seq)
-    lam_tuple = tuple(float(x) for x in lambdas)
+    lam_tuple = tuple(_validate_lambda_val(x) for x in lambdas)
     if not lam_tuple:
         return []
 

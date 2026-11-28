@@ -242,6 +242,8 @@ def test_surrogate_v2_loader_hooks_and_graceful_v1_fallback(tmp_path: Path) -> N
         "saluki_consensus_halflife_pure_seq_lgbm.joblib": "saluki_consensus_halflife_v2.joblib",
         "utr3_stability_pure_seq_lgbm.joblib": "utr3_stability_pure_seq_v2.joblib",
     }
+    v1_manifest = json.loads((v1_dir / "TRAINING_PROVENANCE_MANIFEST.json").read_text(encoding="utf-8"))
+    v1_by_name = {a["filename"]: a for a in v1_manifest["artifacts"]}
     manifest_artifacts = []
     for src_name, dst_name in copied_mapping.items():
         raw = (v1_dir / src_name).read_bytes()
@@ -251,6 +253,7 @@ def test_surrogate_v2_loader_hooks_and_graceful_v1_fallback(tmp_path: Path) -> N
                 "filename": dst_name,
                 "bytes": len(raw),
                 "sha256": hashlib.sha256(raw).hexdigest(),
+                "feature_count": v1_by_name[src_name]["feature_count"],
                 "license": "CC-BY-4.0",
                 "uses_viennarna_features_or_labels": False,
             }

@@ -83,12 +83,45 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
         )
 
 
-def _open_verified_public_request(req: urllib.request.Request, *, timeout: int) -> Any:
-    from mrnax.harness.sandbox import assert_public_resolved_endpoint
+class _PinnedHTTPSConnection(urllib.request.http.client.HTTPSConnection):  # type: ignore[attr-defined]
+    def __init__(self, host: str, *, pinned_ip: str, port: int = 443, timeout: int = 20, context: ssl.SSLContext | None = None) -> None:
+        super().__init__(host, port=port, timeout=timeout, context=context)
+        self._pinned_ip = pinned_ip
 
-    assert_public_resolved_endpoint(req.full_url, allow_localhost=False)
+    def connect(self) -> None:
+        import socket
+
+        raw_sock = socket.create_connection((self._pinned_ip, self.port), self.timeout)
+        ctx = self._context if hasattr(self, "_context") and self._context is not None else ssl.create_default_context()
+        self.sock = ctx.wrap_socket(raw_sock, server_hostname=self.host)
+
+
+class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
+    def __init__(self, *, pinned_ip: str, port: int, context: ssl.SSLContext | None) -> None:
+        super().__init__(context=context)
+        self._pinned_ip = pinned_ip
+        self._pinned_port = port
+        self._tls_ctx = context
+
+    def https_open(self, req: urllib.request.Request) -> Any:
+        def _factory(host: str, **kwargs: Any) -> _PinnedHTTPSConnection:
+            return _PinnedHTTPSConnection(
+                host.split(":", 1)[0],
+                pinned_ip=self._pinned_ip,
+                port=self._pinned_port,
+                timeout=kwargs.get("timeout", 20),
+                context=self._tls_ctx,
+            )
+
+        return self.do_open(_factory, req)
+
+
+def _open_verified_public_request(req: urllib.request.Request, *, timeout: int) -> Any:
+    from mrnax.harness.sandbox import resolve_verified_public_peer
+
+    _, _, port, pinned_ip = resolve_verified_public_peer(req.full_url, allow_localhost=False)
     ctx = _ssl_context()
-    https_handler = urllib.request.HTTPSHandler(context=ctx) if ctx is not None else urllib.request.HTTPSHandler()
+    https_handler = _PinnedHTTPSHandler(pinned_ip=pinned_ip, port=port, context=ctx)
     opener = urllib.request.build_opener(https_handler, _NoRedirectHandler())
     return opener.open(req, timeout=timeout)
 
@@ -1231,28 +1264,39 @@ class ExternalEvidenceAdapterV2:
                 (((live_entry.get("proteinDescription") or {}).get("recommendedName") or {}).get("fullName") or {}).get("value")
                 or str(live_entry.get("uniProtkbId") or acc)
             )
-            organism_name = ((live_entry.get("organism") or {}).get("scientificName")) or "Unknown"
+            organism_name = str(((live_entry.get("organism") or {}).get("scientificName")) or "Unknown")
+            organism_quarantined = wrap_untrusted_external_text(
+                organism_name, source_id=f"UniProt:{acc}", max_chars=160
+            ).model_dump(mode="json")
             seq_ver = str((live_entry.get("sequence") or {}).get("version") or "1")
             features = live_entry.get("features") or []
             sig_pep = [
-                {"start": f["location"]["start"]["value"], "end": f["location"]["end"]["value"]}
+                {"start": int(f["location"]["start"]["value"]), "end": int(f["location"]["end"]["value"])}
                 for f in features
                 if f.get("type") == "Signal" and isinstance(f.get("location"), dict)
             ]
             tm_doms = [
                 {
-                    "start": f["location"]["start"]["value"],
-                    "end": f["location"]["end"]["value"],
-                    "desc": str(f.get("description") or ""),
+                    "start": int(f["location"]["start"]["value"]),
+                    "end": int(f["location"]["end"]["value"]),
+                    "desc_quarantined": (
+                        wrap_untrusted_external_text(
+                            str(f.get("description") or ""), source_id=f"UniProt:{acc}", max_chars=240
+                        ).model_dump(mode="json")
+                        if f.get("description")
+                        else None
+                    ),
                 }
                 for f in features
                 if f.get("type") == "Transmembrane" and isinstance(f.get("location"), dict)
             ]
             disordered_doms = [
                 {
-                    "start": f["location"]["start"]["value"],
-                    "end": f["location"]["end"]["value"],
-                    "desc": str(f.get("description") or "Disordered"),
+                    "start": int(f["location"]["start"]["value"]),
+                    "end": int(f["location"]["end"]["value"]),
+                    "desc_quarantined": wrap_untrusted_external_text(
+                        str(f.get("description") or "Disordered"), source_id=f"UniProt:{acc}", max_chars=240
+                    ).model_dump(mode="json"),
                 }
                 for f in features
                 if f.get("type") == "Region"
@@ -1286,7 +1330,9 @@ class ExternalEvidenceAdapterV2:
                 "starts_with_met": seq.startswith("M"),
                 "has_signal_peptide": bool(sig_pep),
                 "signal_peptide_coords_1based": sig_pep,
-                "transmembrane_coords_1based": tm_doms,
+                "transmembrane_coords_1based": [
+                    {"start": d["start"], "end": d["end"]} for d in tm_doms
+                ],
                 "sequence_sha256": hashlib.sha256(seq.encode("utf-8")).hexdigest(),
             }
             cc_evidence.append(
@@ -1417,7 +1463,7 @@ class ExternalEvidenceAdapterV2:
                 "uniprot_accession": acc,
                 "accession_or_source": f"UniProt:{acc}",
                 "entry_version": seq_ver,
-                "organism": organism_name,
+                "organism_quarantined": organism_quarantined,
                 "protein_name_sandboxed": sandbox_untrusted_text(prot_name, f"UniProt:{acc}"),
                 "protein_name_quarantined": wrapped_pname.model_dump(mode="json"),
                 "protein_sequence": seq,

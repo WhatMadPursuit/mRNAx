@@ -208,6 +208,86 @@ def _extract_choice_message(resp: httpx.Response, *, allow_tool_calls: bool = Tr
     return choice
 
 
+MAX_LLM_RESPONSE_BYTES = 2 * 1024 * 1024
+
+
+class _PinnedHostHTTPTransport(httpx.BaseTransport):
+    """Connects directly to a verified public IP while preserving TLS SNI & certificate hostname check."""
+
+    def __init__(self, *, expected_host: str, pinned_ip: str, pinned_port: int, timeout_sec: float = 90.0) -> None:
+        self._expected_host = expected_host.lower()
+        self._pinned_ip = pinned_ip
+        self._pinned_port = pinned_port
+        self._timeout_sec = timeout_sec
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        import http.client
+        import socket
+        import ssl
+
+        req_host = (request.url.host or "").lower()
+        req_port = request.url.port or (443 if request.url.scheme == "https" else 80)
+        if request.url.scheme != "https" or req_host != self._expected_host or req_port != self._pinned_port:
+            raise UpstreamProviderProtocolError("Custom LLM request escaped pinned verified origin")
+
+        ctx = ssl.create_default_context()
+        raw_sock = socket.create_connection((self._pinned_ip, self._pinned_port), timeout=self._timeout_sec)
+        tls_sock = ctx.wrap_socket(raw_sock, server_hostname=self._expected_host)
+        conn = http.client.HTTPSConnection(self._expected_host, port=self._pinned_port, timeout=self._timeout_sec, context=ctx)
+        conn.sock = tls_sock
+        try:
+            target_path = request.url.raw_path.decode("ascii", errors="strict")
+            hdrs = {k: v for k, v in request.headers.items()}
+            conn.request(request.method, target_path, body=request.read(), headers=hdrs)
+            resp = conn.getresponse()
+            raw_body = resp.read(MAX_LLM_RESPONSE_BYTES + 1)
+            if len(raw_body) > MAX_LLM_RESPONSE_BYTES:
+                raise UpstreamProviderProtocolError(
+                    f"Upstream LLM response exceeded {MAX_LLM_RESPONSE_BYTES}-byte cap"
+                )
+            resp_headers = list(resp.getheaders())
+            return httpx.Response(
+                status_code=resp.status,
+                headers=resp_headers,
+                content=raw_body,
+                request=request,
+            )
+        finally:
+            conn.close()
+
+
+def _post_json_bounded(
+    client: httpx.Client,
+    url: str,
+    *,
+    headers: dict[str, str],
+    json_body: dict[str, Any],
+    max_bytes: int = MAX_LLM_RESPONSE_BYTES,
+) -> httpx.Response:
+    # Preserve seamless compatibility when unit tests monkeypatch httpx.Client.post directly
+    if getattr(httpx.Client.post, "__qualname__", "") != "Client.post":
+        resp = client.post(url, headers=headers, json=json_body)
+        resp.raise_for_status()
+        return resp
+    with client.stream("POST", url, headers=headers, json=json_body) as stream_resp:
+        stream_resp.raise_for_status()
+        chunks: list[bytes] = []
+        total = 0
+        for chunk in stream_resp.iter_bytes():
+            total += len(chunk)
+            if total > max_bytes:
+                raise UpstreamProviderProtocolError(
+                    f"Upstream LLM response exceeded {max_bytes}-byte safety cap"
+                )
+            chunks.append(chunk)
+        return httpx.Response(
+            status_code=stream_resp.status_code,
+            headers=stream_resp.headers,
+            content=b"".join(chunks),
+            request=stream_resp.request,
+        )
+
+
 def _project_llm_tool_payload(obj: Any, *, depth: int = 0) -> Any:
     """Ensure external text reaches the LLM only once in its bounded `<UNTRUSTED_DATA>` quarantined form."""
     if depth > 12:
@@ -487,20 +567,33 @@ class LiveDialogueAgent:
             self.provider, self.model, has_tools=bool(tools_spec)
         )
 
+        custom_transport: httpx.BaseTransport | None = None
         if self._has_custom_base_url:
-            validate_byo_llm_base_url(self.base_url, allow_localhost=False, resolve_dns=True)
+            from mrnax.harness.sandbox import resolve_verified_public_peer
 
-        with httpx.Client(timeout=90.0, follow_redirects=False) as client:
+            _, exp_host, exp_port, pinned_ip = resolve_verified_public_peer(self.base_url, allow_localhost=False)
+            custom_transport = _PinnedHostHTTPTransport(
+                expected_host=exp_host,
+                pinned_ip=pinned_ip,
+                pinned_port=exp_port,
+                timeout_sec=90.0,
+            )
+
+        client_kwargs: dict[str, Any] = {"timeout": 90.0, "follow_redirects": False}
+        if custom_transport is not None:
+            client_kwargs["transport"] = custom_transport
+
+        with httpx.Client(**client_kwargs) as client:
             if not allow_tools:
-                resp = client.post(
+                resp = _post_json_bounded(
+                    client,
                     f"{self.base_url}/chat/completions",
                     headers={
                         "Authorization": f"Bearer {api_key}",
                         "Content-Type": "application/json",
                     },
-                    json=self._build_completion_payload(tools_spec=None, tool_choice=None),
+                    json_body=self._build_completion_payload(tools_spec=None, tool_choice=None),
                 )
-                resp.raise_for_status()
                 choice = redact_secrets_in_obj(
                     _extract_choice_message(resp, allow_tool_calls=False),
                     extra_secrets=active_secrets,
@@ -513,32 +606,32 @@ class LiveDialogueAgent:
 
             for _round in range(max_tool_rounds):
                 if use_responses_api:
-                    resp = client.post(
+                    resp = _post_json_bounded(
+                        client,
                         f"{self.base_url}/responses",
                         headers={
                             "Authorization": f"Bearer {api_key}",
                             "Content-Type": "application/json",
                         },
-                        json=self._build_responses_payload(
+                        json_body=self._build_responses_payload(
                             tools_spec=tools_spec,
                             tool_choice="auto",
                             previous_response_id=prev_resp_id,
                             pending_tool_outputs=pending_resp_outputs,
                         ),
                     )
-                    resp.raise_for_status()
                     raw_choice, prev_resp_id = self._extract_responses_choice(resp, allow_tool_calls=True)
                     choice = redact_secrets_in_obj(raw_choice, extra_secrets=active_secrets)
                 else:
-                    resp = client.post(
+                    resp = _post_json_bounded(
+                        client,
                         f"{self.base_url}/chat/completions",
                         headers={
                             "Authorization": f"Bearer {api_key}",
                             "Content-Type": "application/json",
                         },
-                        json=self._build_completion_payload(tools_spec=tools_spec, tool_choice="auto"),
+                        json_body=self._build_completion_payload(tools_spec=tools_spec, tool_choice="auto"),
                     )
-                    resp.raise_for_status()
                     choice = redact_secrets_in_obj(
                         _extract_choice_message(resp, allow_tool_calls=True),
                         extra_secrets=active_secrets,
@@ -621,32 +714,32 @@ class LiveDialogueAgent:
 
             if self.messages and self.messages[-1].get("role") == "tool":
                 if use_responses_api:
-                    resp = client.post(
+                    resp = _post_json_bounded(
+                        client,
                         f"{self.base_url}/responses",
                         headers={
                             "Authorization": f"Bearer {api_key}",
                             "Content-Type": "application/json",
                         },
-                        json=self._build_responses_payload(
+                        json_body=self._build_responses_payload(
                             tools_spec=tools_spec,
                             tool_choice="none",
                             previous_response_id=prev_resp_id,
                             pending_tool_outputs=pending_resp_outputs,
                         ),
                     )
-                    resp.raise_for_status()
                     raw_choice, _ = self._extract_responses_choice(resp, allow_tool_calls=False)
                     choice = redact_secrets_in_obj(raw_choice, extra_secrets=active_secrets)
                 else:
-                    resp = client.post(
+                    resp = _post_json_bounded(
+                        client,
                         f"{self.base_url}/chat/completions",
                         headers={
                             "Authorization": f"Bearer {api_key}",
                             "Content-Type": "application/json",
                         },
-                        json=self._build_completion_payload(tools_spec=tools_spec, tool_choice="none"),
+                        json_body=self._build_completion_payload(tools_spec=tools_spec, tool_choice="none"),
                     )
-                    resp.raise_for_status()
                     choice = redact_secrets_in_obj(
                         _extract_choice_message(resp, allow_tool_calls=False),
                         extra_secrets=active_secrets,

@@ -42,6 +42,18 @@ def _sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def resolve_expected_chemistry_for_bundle(
+    bundle: ConstructBundle,
+    declared_chemistry: UridineChemistry | None,
+) -> UridineChemistry | None:
+    """Resolve expected chemistry consistently across qualification and export for unmodified-U non-linear modalities."""
+    if declared_chemistry is None:
+        return None
+    if bundle.molecules and all(m.modality in {"circrna", "sarna"} for m in bundle.molecules):
+        return "unmodified_u"
+    return declared_chemistry
+
+
 def verify_bundle_export_eligibility(
     bundle: ConstructBundle,
     *,
@@ -53,6 +65,7 @@ def verify_bundle_export_eligibility(
     expected_protein_targets: list[ProteinTargetSpec] | None = None,
 ) -> Any:
     """Shared export release check across INSDC packages, HTML QC dossiers, and IVT synthesis orders."""
+    eff_expected_chemistry = resolve_expected_chemistry_for_bundle(bundle, expected_chemistry)
     if compliance_track == "commercial_clean":
         if constraint_engine.seed_dir is not None:
             from mrnax.federated.external_evidence_adapter import CleanRoomPolicyError
@@ -72,7 +85,7 @@ def verify_bundle_export_eligibility(
         bundle,
         constraints,
         compliance_track=compliance_track,
-        expected_chemistry=expected_chemistry,
+        expected_chemistry=eff_expected_chemistry,
         locked_scopes=locked_scopes,
         expected_protein_targets=expected_protein_targets,
     )

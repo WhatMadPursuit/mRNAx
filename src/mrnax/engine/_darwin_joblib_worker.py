@@ -5,10 +5,10 @@ into the main `mrnax` process while keeping `mrnax/__init__.py` completely free 
 or process-wide `OMP_NUM_THREADS` mutations.
 
 Security & reliability invariants:
-- Worker -> parent replies use a strict data-only wire format (JSON metadata or raw `<f8` ndarray bytes;
-  zero `pickle.loads` in the parent process).
-- Every IPC read enforces `MAX_IPC_FRAME_BYTES` (32 MiB) and a monotonic wall-clock deadline, terminating
-  and resetting any stalled child process before releasing the client lock.
+- BOTH parent -> worker requests AND worker -> parent replies use a strict data-only wire format
+  (JSON metadata + raw bytes / typed `<f4`/`<f8` ndarrays; zero IPC `pickle.loads` in either process).
+- Every IPC exchange enforces `MAX_IPC_FRAME_BYTES` (32 MiB) and a shared monotonic wall-clock deadline
+  across non-blocking request writes AND reply reads, terminating any stalled child before releasing lock.
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ import atexit
 import io
 import json
 import os
-import pickle
 import selectors
 import struct
 import subprocess
@@ -37,14 +36,75 @@ _REPLY_NDARRAY_F64 = 2
 _REPLY_ERROR = 3
 _REPLY_NDARRAY_F32 = 4
 
+_REQ_SHUTDOWN = 10
+_REQ_LOAD = 11
+_REQ_NDARRAY = 12
+_REQ_STR_LIST = 13
 
-def _write_request_frame(stream: Any, obj: Any) -> None:
-    payload = pickle.dumps(obj, protocol=pickle.HIGHEST_PROTOCOL)
-    if len(payload) > MAX_IPC_FRAME_BYTES:
-        raise ValueError(f"Darwin worker request frame ({len(payload)} bytes) exceeds {MAX_IPC_FRAME_BYTES} cap")
-    stream.write(struct.pack(">I", len(payload)))
-    stream.write(payload)
-    stream.flush()
+
+def _to_json_safe(obj: Any) -> Any:
+    if obj is None or isinstance(obj, (str, int, float, bool)):
+        return obj
+    if isinstance(obj, (list, tuple)):
+        return [_to_json_safe(x) for x in obj]
+    if isinstance(obj, dict):
+        return {str(k): _to_json_safe(v) for k, v in obj.items() if isinstance(k, (str, int))}
+    return str(obj)
+
+
+def _encode_request_frame(req: tuple[Any, ...]) -> bytes:
+    op = str(req[0])
+    if op == "shutdown":
+        body = b""
+        kind = _REQ_SHUTDOWN
+    elif op == "load":
+        _, key, raw_bytes = req
+        hdr_json = json.dumps({"op": "load", "key": str(key)}, separators=(",", ":")).encode("utf-8")
+        body = struct.pack(">I", len(hdr_json)) + hdr_json + bytes(raw_bytes)
+        kind = _REQ_LOAD
+    elif op in ("transform", "predict", "predict_attr"):
+        if op == "predict_attr":
+            _, key, attr_key, payload = req
+        else:
+            _, key, payload = req
+            attr_key = "model"
+        if isinstance(payload, list) and (not payload or isinstance(payload[0], str)):
+            hdr_json = json.dumps(
+                {"op": op, "key": str(key), "attr": str(attr_key), "strings": [str(s) for s in payload]},
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            body = hdr_json
+            kind = _REQ_STR_LIST
+        else:
+            arr = np.asarray(payload)
+            if arr.dtype == np.float32:
+                typed = np.ascontiguousarray(arr, dtype="<f4")
+                dt_tag = "f4"
+            else:
+                typed = np.ascontiguousarray(arr, dtype="<f8")
+                dt_tag = "f8"
+            if typed.ndim > 8:
+                raise ValueError(f"Unsupported ndarray rank {typed.ndim}")
+            hdr_json = json.dumps(
+                {
+                    "op": op,
+                    "key": str(key),
+                    "attr": str(attr_key),
+                    "dtype": dt_tag,
+                    "shape": [int(d) for d in typed.shape],
+                },
+                separators=(",", ":"),
+            ).encode("utf-8")
+            body = struct.pack(">I", len(hdr_json)) + hdr_json + typed.tobytes(order="C")
+            kind = _REQ_NDARRAY
+    else:
+        raise ValueError(f"Unsupported Darwin worker op '{op}'")
+
+    total = 1 + len(body)
+    if total > MAX_IPC_FRAME_BYTES:
+        raise ValueError(f"Darwin worker request frame ({total} bytes) exceeds {MAX_IPC_FRAME_BYTES} cap")
+    return struct.pack(">IB", total, kind) + body
 
 
 def _read_exact_raw(stream: Any, n: int) -> bytes:
@@ -59,22 +119,57 @@ def _read_exact_raw(stream: Any, n: int) -> bytes:
     return b"".join(chunks)
 
 
-def _read_request_frame_in_worker(stream: Any) -> Any:
+def _read_request_frame_in_worker(stream: Any) -> tuple[Any, ...]:
     hdr = _read_exact_raw(stream, 4)
     (size,) = struct.unpack(">I", hdr)
-    if size > MAX_IPC_FRAME_BYTES:
-        raise ValueError(f"Oversized IPC request frame ({size} bytes)")
-    return pickle.loads(_read_exact_raw(stream, size))
-
-
-def _to_json_safe(obj: Any) -> Any:
-    if obj is None or isinstance(obj, (str, int, float, bool)):
-        return obj
-    if isinstance(obj, (list, tuple)):
-        return [_to_json_safe(x) for x in obj]
-    if isinstance(obj, dict):
-        return {str(k): _to_json_safe(v) for k, v in obj.items() if isinstance(k, (str, int))}
-    return str(obj)
+    if size < 1 or size > MAX_IPC_FRAME_BYTES:
+        raise ValueError(f"Invalid IPC request frame size ({size} bytes)")
+    frame = _read_exact_raw(stream, size)
+    kind = frame[0]
+    body = memoryview(frame)[1:]
+    if kind == _REQ_SHUTDOWN:
+        return ("shutdown",)
+    if kind == _REQ_LOAD:
+        if len(body) < 4:
+            raise ValueError("Truncated load request")
+        (hlen,) = struct.unpack(">I", bytes(body[:4]))
+        if hlen > len(body) - 4:
+            raise ValueError("Malformed load request header")
+        meta = json.loads(bytes(body[4 : 4 + hlen]).decode("utf-8"))
+        raw_bytes = bytes(body[4 + hlen :])
+        return ("load", str(meta["key"]), raw_bytes)
+    if kind == _REQ_STR_LIST:
+        meta = json.loads(bytes(body).decode("utf-8"))
+        op = str(meta["op"])
+        if op == "predict_attr":
+            return (op, str(meta["key"]), str(meta["attr"]), list(meta["strings"]))
+        return (op, str(meta["key"]), list(meta["strings"]))
+    if kind == _REQ_NDARRAY:
+        if len(body) < 4:
+            raise ValueError("Truncated ndarray request")
+        (hlen,) = struct.unpack(">I", bytes(body[:4]))
+        if hlen > len(body) - 4:
+            raise ValueError("Malformed ndarray request header")
+        meta = json.loads(bytes(body[4 : 4 + hlen]).decode("utf-8"))
+        raw_buf = bytes(body[4 + hlen :])
+        dt_tag = str(meta["dtype"])
+        wire_dt = "<f4" if dt_tag == "f4" else "<f8"
+        out_dt = np.float32 if dt_tag == "f4" else np.float64
+        item_sz = 4 if dt_tag == "f4" else 8
+        shape = tuple(int(x) for x in meta["shape"])
+        elems = 1
+        for d in shape:
+            elems *= d
+            if elems > (MAX_IPC_FRAME_BYTES // item_sz):
+                raise ValueError("Oversized ndarray element count")
+        if len(raw_buf) != elems * item_sz:
+            raise ValueError("Mismatched ndarray request byte count")
+        arr = np.frombuffer(raw_buf, dtype=wire_dt).astype(out_dt, copy=True).reshape(shape)
+        op = str(meta["op"])
+        if op == "predict_attr":
+            return (op, str(meta["key"]), str(meta["attr"]), arr)
+        return (op, str(meta["key"]), arr)
+    raise ValueError(f"Unsupported request frame kind {kind}")
 
 
 def _write_reply_json(stream: Any, data: dict[str, Any], *, kind: int = _REPLY_JSON) -> None:
@@ -109,6 +204,28 @@ def _write_reply_ndarray(stream: Any, arr: np.ndarray) -> None:
     stream.flush()
 
 
+def _write_all_fd_with_deadline(fd: int, data: bytes, deadline: float) -> None:
+    view = memoryview(data)
+    written = 0
+    total = len(data)
+    with selectors.DefaultSelector() as sel:
+        sel.register(fd, selectors.EVENT_WRITE)
+        while written < total:
+            rem_sec = deadline - time.monotonic()
+            if rem_sec <= 0.0:
+                raise TimeoutError("Darwin joblib worker timed out writing request")
+            events = sel.select(timeout=rem_sec)
+            if not events:
+                raise TimeoutError("Darwin joblib worker timed out writing request")
+            try:
+                n = os.write(fd, view[written : min(total, written + 65536)])
+            except BlockingIOError:
+                continue
+            if n <= 0:
+                raise BrokenPipeError("Darwin joblib worker stdin closed unexpectedly")
+            written += n
+
+
 def _read_exact_fd_with_deadline(fd: int, n: int, deadline: float) -> bytes:
     chunks: list[bytes] = []
     rem = n
@@ -121,7 +238,10 @@ def _read_exact_fd_with_deadline(fd: int, n: int, deadline: float) -> bytes:
             events = sel.select(timeout=remaining_sec)
             if not events:
                 raise TimeoutError("Darwin joblib worker timed out waiting for reply")
-            chunk = os.read(fd, min(rem, 65536))
+            try:
+                chunk = os.read(fd, min(rem, 65536))
+            except BlockingIOError:
+                continue
             if not chunk:
                 raise EOFError("Darwin joblib worker closed stdout unexpectedly")
             chunks.append(chunk)
@@ -129,8 +249,7 @@ def _read_exact_fd_with_deadline(fd: int, n: int, deadline: float) -> bytes:
     return b"".join(chunks)
 
 
-def _read_data_only_reply_in_parent(fd: int, timeout_sec: float) -> tuple[str, Any]:
-    deadline = time.monotonic() + timeout_sec
+def _read_data_only_reply_in_parent(fd: int, deadline: float) -> tuple[str, Any]:
     hdr = _read_exact_fd_with_deadline(fd, 4, deadline)
     (size,) = struct.unpack(">I", hdr)
     if size < 1 or size > MAX_IPC_FRAME_BYTES:
@@ -226,9 +345,11 @@ class _DarwinJoblibClient:
 
     def _exchange_unlocked(self, proc: subprocess.Popen[bytes], req: tuple[Any, ...]) -> Any:
         assert proc.stdin is not None and proc.stdout is not None
+        deadline = time.monotonic() + self._timeout_sec
         try:
-            _write_request_frame(proc.stdin, req)
-            status, payload = _read_data_only_reply_in_parent(proc.stdout.fileno(), self._timeout_sec)
+            wire_req = _encode_request_frame(req)
+            _write_all_fd_with_deadline(proc.stdin.fileno(), wire_req, deadline)
+            status, payload = _read_data_only_reply_in_parent(proc.stdout.fileno(), deadline)
         except Exception as exc:
             self._kill_proc_unlocked()
             raise RuntimeError(f"Darwin joblib worker IPC failure ({req[0]}): {exc}") from exc
@@ -252,6 +373,9 @@ class _DarwinJoblibClient:
             bufsize=0,
             env=env,
         )
+        assert proc.stdin is not None and proc.stdout is not None
+        os.set_blocking(proc.stdin.fileno(), False)
+        os.set_blocking(proc.stdout.fileno(), False)
         self._proc = proc
         for key, raw in self._loaded_bytes.items():
             self._exchange_unlocked(proc, ("load", key, raw))
@@ -280,7 +404,8 @@ class _DarwinJoblibClient:
             if self._proc is not None:
                 try:
                     if self._proc.stdin is not None and self._proc.poll() is None:
-                        _write_request_frame(self._proc.stdin, ("shutdown",))
+                        wire_stop = _encode_request_frame(("shutdown",))
+                        _write_all_fd_with_deadline(self._proc.stdin.fileno(), wire_stop, time.monotonic() + 1.5)
                         self._proc.wait(timeout=1.5)
                 except Exception:
                     pass

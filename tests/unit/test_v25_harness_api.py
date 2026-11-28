@@ -466,6 +466,12 @@ def test_14_tools_mcp_parity_and_6file_dossier_export(tmp_path: Path) -> None:
     )
     assert on_disk_meta["files"] == exp_full["files"]
 
+    # Re-exporting to the same directory with include_dossier=False removes stale IVT CSV & QC HTML
+    exp_reused = toolbox.export_bundle(bundle_id=top_bid, out_dir="exports/full_6", include_dossier=False)
+    assert sorted(exp_reused["files"].keys()) == ["cds_only.fasta", "construct.gb", "full_rna.fasta"]
+    files_after_reuse = sorted(p.name for p in (session.store_dir / "exports" / "full_6").iterdir() if p.is_file())
+    assert files_after_reuse == ["cds_only.fasta", "chemistry_metadata.json", "construct.gb", "full_rna.fasta"]
+
     # Fractional Decimal close to integer must be rejected by MCP integer validation
     from decimal import Decimal
 
@@ -579,6 +585,14 @@ def test_gateway_v25_endpoints_candidate_enrichment_auth_and_low_rss(tmp_path: P
     )
     assert (
         public_client.post("/api/v1/structure/analyze", json={"sequence": "AUGXYZ"}).status_code == 422
+    )
+    assert (
+        public_client.post(
+            "/api/v1/structure/analyze",
+            content=b'{"sequence":"' + (b"A" * 270000) + b'"}',
+            headers={"Content-Type": "application/json"},
+        ).status_code
+        == 413
     )
 
     # POST /api/v1/evidence/resolve

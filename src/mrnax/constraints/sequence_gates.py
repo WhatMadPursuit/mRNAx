@@ -85,23 +85,43 @@ def check_uaug(
                     (a for a in mol.annotations if a.feature_id.startswith("viral_ires_")),
                     None,
                 )
-                if ires_ann is not None:
+                if ires_ann is not None and ires_ann.intervals:
                     ires_end = ires_ann.intervals[-1][1]
                     rel = max(0, ires_end - offset)
                     scan_offset = offset + rel
                     scan_sub = sub[rel:]
                 else:
+                    out.append(
+                        FailedCandidateDiagnostic(
+                            candidate_ref=candidate_ref,
+                            violated_requirement_id=spec.requirement_id,
+                            violated_scope=scope,
+                            transcript_coordinates=(offset, offset + len(sub)),
+                            reason="Circular RNA five_prime_utr is missing required 'viral_ires_*' annotation to bound initiation scanning",
+                        )
+                    )
                     continue
             elif mol.modality == "sarna":
                 sgp_ann = next(
                     (a for a in mol.annotations if a.feature_id == "subgenomic_26s_promoter"),
                     None,
                 )
-                if sgp_ann is not None:
+                if sgp_ann is not None and sgp_ann.intervals:
                     sgp_end = sgp_ann.intervals[-1][1]
                     rel = max(0, sgp_end - offset)
                     scan_offset = offset + rel
                     scan_sub = sub[rel:]
+                else:
+                    out.append(
+                        FailedCandidateDiagnostic(
+                            candidate_ref=candidate_ref,
+                            violated_requirement_id=spec.requirement_id,
+                            violated_scope=scope,
+                            transcript_coordinates=(offset, offset + len(sub)),
+                            reason="saRNA five_prime_utr is missing required 'subgenomic_26s_promoter' annotation",
+                        )
+                    )
+                    continue
         start = 0
         while True:
             idx = scan_sub.find("AUG", start)
