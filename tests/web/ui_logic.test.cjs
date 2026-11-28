@@ -1730,4 +1730,9 @@ test("Gate B-R2 Round 3 (#10): syncControlsFromIntent resets linear modality/sca
   const starterTurn = calls.find((c) => c.url.includes("/turn"));
   assert.ok(starterTurn);
   assert.equal(JSON.parse(starterTurn.init.body).accession_or_source, "GenBank:U55762.1");
+
+  // Also verify preset-egfp menu item clears prior imported accession
+  run(`state.proteinAccession = "UniProt:P01588";`);
+  listenerMap.get("preset-egfp").click();
+  assert.equal(run("state.proteinAccession"), "GenBank:U55762.1");
 });

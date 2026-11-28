@@ -127,7 +127,10 @@ def _redact_obj(obj: Any, *secrets_to_scrub: str) -> Any:
 def _validate_env_token(raw: str, *, env_name: str) -> str:
     if any(ord(ch) < 32 or ord(ch) == 127 for ch in raw):
         raise ValueError(f"{env_name} contains invalid control characters")
-    return raw.strip()
+    tok = raw.strip()
+    if tok and len(tok) < 4:
+        raise ValueError(f"{env_name} token must be at least 4 characters so secret scrubbing cannot bypass")
+    return tok
 
 
 def _is_loopback_host(host: str) -> bool:
@@ -281,8 +284,11 @@ def verify_and_extract_tarball(
     validated_count = 0
     total_bytes = 0
 
+    import io
+
     with tar_path.open("rb") as fh:
         h = hashlib.sha256()
+        chunks: list[bytes] = []
         compressed_bytes = 0
         while True:
             chunk = fh.read(65536)
@@ -292,70 +298,71 @@ def verify_and_extract_tarball(
             if compressed_bytes > _MAX_TAR_BYTES:
                 raise ValueError(f"Archive '{tar_path.name}' exceeds compressed safety limit ({_MAX_TAR_BYTES} bytes)")
             h.update(chunk)
+            chunks.append(chunk)
         actual_sha = h.hexdigest()
         if not hmac.compare_digest(actual_sha, expected_norm):
             raise ValueError(
                 f"SHA-256 mismatch for '{tar_path.name}': got {actual_sha}, expected {expected_norm}"
             )
-        fh.seek(0)
+    archive_buf = io.BytesIO(b"".join(chunks))
 
-        # Pass 1: validate every member header incrementally on the same open file handle before writing anything
-        with tarfile.open(fileobj=fh, mode="r:*") as tf:
-            while True:
-                member = tf.next()
-                if member is None:
-                    break
-                validated_count += 1
-                if validated_count > _MAX_TAR_MEMBERS:
-                    raise ValueError(f"Archive '{tar_path.name}' exceeds member limit (> {_MAX_TAR_MEMBERS})")
-                raw_name = member.name
-                if not raw_name or "\x00" in raw_name or "\\" in raw_name:
-                    raise ValueError(f"Unsafe tar member name: {raw_name!r}")
-                if raw_name.startswith("/") or (len(raw_name) >= 2 and raw_name[1] == ":"):
-                    raise ValueError(f"Absolute path forbidden in tar archive: {raw_name!r}")
-                if ".." in Path(raw_name).parts:
-                    raise ValueError(f"Path traversal ('..') forbidden in tar archive: {raw_name!r}")
-                if member.issym() or member.islnk():
-                    raise ValueError(f"Symlink/hardlink forbidden in tar archive: {raw_name!r}")
-                if member.isdev() or not (member.isdir() or member.isreg()):
-                    raise ValueError(f"Unsupported non-regular tar member type for {raw_name!r}")
-                if member.size < 0:
-                    raise ValueError(f"Negative tar member size for {raw_name!r}")
-                total_bytes += member.size
-                if total_bytes > _MAX_TAR_BYTES:
-                    raise ValueError(f"Archive '{tar_path.name}' exceeds uncompressed safety limit ({_MAX_TAR_BYTES} bytes)")
-                target_path = (dest_root / raw_name).resolve()
-                if target_path != dest_root and not target_path.is_relative_to(dest_root):
-                    raise ValueError(f"Tar member escapes destination directory: {raw_name!r}")
+    # Pass 1: validate every member header incrementally from the exact hashed in-memory bytes
+    with tarfile.open(fileobj=archive_buf, mode="r:*") as tf:
+        while True:
+            member = tf.next()
+            if member is None:
+                break
+            validated_count += 1
+            if validated_count > _MAX_TAR_MEMBERS:
+                raise ValueError(f"Archive '{tar_path.name}' exceeds member limit (> {_MAX_TAR_MEMBERS})")
+            raw_name = member.name
+            if not raw_name or "\x00" in raw_name or "\\" in raw_name:
+                raise ValueError(f"Unsafe tar member name: {raw_name!r}")
+            if raw_name.startswith("/") or (len(raw_name) >= 2 and raw_name[1] == ":"):
+                raise ValueError(f"Absolute path forbidden in tar archive: {raw_name!r}")
+            if ".." in Path(raw_name).parts:
+                raise ValueError(f"Path traversal ('..') forbidden in tar archive: {raw_name!r}")
+            if member.issym() or member.islnk():
+                raise ValueError(f"Symlink/hardlink forbidden in tar archive: {raw_name!r}")
+            if member.isdev() or not (member.isdir() or member.isreg()):
+                raise ValueError(f"Unsupported non-regular tar member type for {raw_name!r}")
+            if member.size < 0:
+                raise ValueError(f"Negative tar member size for {raw_name!r}")
+            total_bytes += member.size
+            if total_bytes > _MAX_TAR_BYTES:
+                raise ValueError(f"Archive '{tar_path.name}' exceeds uncompressed safety limit ({_MAX_TAR_BYTES} bytes)")
+            target_path = (dest_root / raw_name).resolve()
+            if target_path != dest_root and not target_path.is_relative_to(dest_root):
+                raise ValueError(f"Tar member escapes destination directory: {raw_name!r}")
 
-        # Pass 2: create dest_root and extract using the exact same verified file handle
-        dest_root.mkdir(parents=True, exist_ok=True)
-        fh.seek(0)
-        with tarfile.open(fileobj=fh, mode="r:*") as tf:
-            while True:
-                member = tf.next()
-                if member is None:
-                    break
-                target_path = (dest_root / member.name).resolve()
-                if member.isdir():
-                    target_path.mkdir(parents=True, exist_ok=True)
-                    continue
-                target_path.parent.mkdir(parents=True, exist_ok=True)
-                src_fh = tf.extractfile(member)
-                if src_fh is None:
-                    raise ValueError(f"Failed to read tar member payload: {member.name!r}")
-                with src_fh, target_path.open("wb") as out_fh:
-                    remaining = member.size
-                    while True:
-                        buf = src_fh.read(min(65536, max(1, remaining)))
-                        if not buf:
-                            break
-                        remaining -= len(buf)
-                        if remaining < 0:
-                            raise ValueError(f"Tar member '{member.name}' payload exceeded declared size")
-                        out_fh.write(buf)
-                mode = 0o755 if (member.mode & 0o111) else 0o644
-                os.chmod(target_path, mode)
+    # Pass 2: create dest_root and extract from the exact same verified in-memory buffer
+    dest_root.mkdir(parents=True, exist_ok=True)
+    archive_buf.seek(0)
+    with tarfile.open(fileobj=archive_buf, mode="r:*") as tf:
+        while True:
+            member = tf.next()
+            if member is None:
+                break
+            target_path = (dest_root / member.name).resolve()
+            if member.isdir():
+                target_path.mkdir(parents=True, exist_ok=True)
+                continue
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            src_fh = tf.extractfile(member)
+            if src_fh is None:
+                raise ValueError(f"Failed to read tar member payload: {member.name!r}")
+            with src_fh, target_path.open("wb") as out_fh:
+                remaining = member.size
+                while True:
+                    buf = src_fh.read(min(65536, max(1, remaining)))
+                    if not buf:
+                        break
+                    remaining -= len(buf)
+                    if remaining < 0:
+                        raise ValueError(f"Tar member '{member.name}' payload exceeded declared size")
+                    out_fh.write(buf)
+            mode = 0o755 if (member.mode & 0o111) else 0o644
+            os.chmod(target_path, mode)
     return dest_root
 
 
@@ -858,23 +865,52 @@ def _copy_verified_raw_binary(
             f"LinearDesign binary SHA-256 mismatch: got {actual_sha}, expected {exp_bin_sha}"
         )
     os.chmod(staged_bin, 0o755)
-    for tbl in _RAW_SUPPORT_TABLES:
+    pinned_tables = dict(expected_support_sha256s or {})
+    for tbl, exp_tbl_sha in pinned_tables.items():
+        if tbl not in _RAW_SUPPORT_TABLES:
+            raise ValueError(f"Unsupported runtime table '{tbl}'")
         cand_tbl = src_bin.parent / tbl
-        if cand_tbl.is_file():
-            dst_tbl = dest_dir / tbl
-            th = hashlib.sha256()
-            with cand_tbl.open("rb") as sfh, dst_tbl.open("wb") as dfh:
-                while True:
-                    blk = sfh.read(65536)
-                    if not blk:
-                        break
-                    th.update(blk)
-                    dfh.write(blk)
-            if expected_support_sha256s and tbl in expected_support_sha256s:
-                if not hmac.compare_digest(th.hexdigest(), expected_support_sha256s[tbl]):
-                    dst_tbl.unlink(missing_ok=True)
-                    raise ValueError(f"LinearDesign runtime table '{tbl}' changed after pinning")
+        if not cand_tbl.is_file():
+            raise FileNotFoundError(f"Pinned LinearDesign runtime table '{tbl}' is missing before staging")
+        dst_tbl = dest_dir / tbl
+        th = hashlib.sha256()
+        with cand_tbl.open("rb") as sfh, dst_tbl.open("wb") as dfh:
+            while True:
+                blk = sfh.read(65536)
+                if not blk:
+                    break
+                th.update(blk)
+                dfh.write(blk)
+        if not hmac.compare_digest(th.hexdigest(), exp_tbl_sha):
+            dst_tbl.unlink(missing_ok=True)
+            raise ValueError(f"LinearDesign runtime table '{tbl}' changed after pinning")
+    for tbl in _RAW_SUPPORT_TABLES:
+        if tbl not in pinned_tables and (src_bin.parent / tbl).is_file():
+            raise ValueError(f"Unpinned LinearDesign runtime table '{tbl}' appeared after preflight pinning")
     return staged_bin.resolve(), dest_dir.resolve()
+
+
+def _paths_alias(p1: Path, p2: Path) -> bool:
+    r1, r2 = p1.resolve(), p2.resolve()
+    if r1 == r2:
+        return True
+    if r1.exists() and r2.exists():
+        try:
+            if os.path.samefile(r1, r2):
+                return True
+        except OSError:
+            pass
+    if r1.parent.exists() and r2.parent.exists():
+        try:
+            if os.path.samefile(r1.parent, r2.parent) and r1.name.lower() == r2.name.lower():
+                probe = r1.parent / f"{r1.name}"
+                if probe.exists() and (r1.parent / r2.name).exists():
+                    return True
+        except OSError:
+            pass
+    if sys.platform in ("darwin", "win32") and str(r1).lower() == str(r2).lower():
+        return True
+    return False
 
 
 def _seal_to_drive(
@@ -972,17 +1008,20 @@ def run_worker(
     if (
         output_json is not None
         and commit_receipt_json is not None
-        and output_json.resolve() == commit_receipt_json.resolve()
+        and _paths_alias(output_json, commit_receipt_json)
     ):
         raise ValueError("--commit-receipt-json must be distinct from --output-json so the sealed artifact stays immutable")
     if defer_commit and output_json is None:
         raise ValueError("--defer-commit requires --output-json so the computed artifact is persisted for external sealing")
 
     if cas_client is not None and not defer_commit and not cas_client.is_loopback:
-        if eff_drive_client is None and not (sealed_file_id and sealed_sha256):
+        has_drive_dest = eff_drive_client is not None and eff_drive_runs_root is not None
+        has_explicit_seal = bool(sealed_file_id and sealed_sha256)
+        if not (has_drive_dest or has_explicit_seal):
             raise ValueError(
                 "Remote HTTPS gateway commit requires Drive sealing (--drive-runs-root-id + MRNAX_DRIVE_ACCESS_TOKEN "
-                "or drive_client) or explicit (--sealed-file-id + --sealed-sha256); pass --defer-commit for compute-only."
+                "or both drive_client and drive_runs_root_id) or explicit (--sealed-file-id + --sealed-sha256); "
+                "pass --defer-commit for compute-only."
             )
 
     eff_exec_id = (execution_id or "").strip() or None
@@ -998,20 +1037,19 @@ def run_worker(
         if raw_bin_parent.is_dir():
             raw_support_shas = _hash_support_tables(raw_bin_parent)
     ef_identity = PINNED_ETERNAFOLD_TAR_SHA256 if include_eternafold else None
+    req_dig_doc: dict[str, Any] = {
+        "protein": sense_aa,
+        "lambdas": list(lambdas),
+        "ef": include_eternafold,
+        "track": compliance_track,
+        "intent_id": eff_intent_id,
+        "ld_sha": ld_identity,
+        "ef_sha": ef_identity,
+    }
+    if lineardesign_tar is None and raw_support_shas:
+        req_dig_doc["ld_support_sha"] = raw_support_shas
     eff_req_dig = (request_digest or "").strip() or hashlib.sha256(
-        json.dumps(
-            {
-                "protein": sense_aa,
-                "lambdas": list(lambdas),
-                "ef": include_eternafold,
-                "track": compliance_track,
-                "intent_id": eff_intent_id,
-                "ld_sha": ld_identity,
-                "ld_support_sha": raw_support_shas,
-                "ef_sha": ef_identity,
-            },
-            sort_keys=True,
-        ).encode("utf-8")
+        json.dumps(req_dig_doc, sort_keys=True).encode("utf-8")
     ).hexdigest()
     if cas_client is not None and not defer_commit and eff_exec_id is None:
         eff_sub_id = (submission_id or "").strip() or f"sub_colab_{eff_req_dig[:16]}"
@@ -1038,7 +1076,7 @@ def run_worker(
                 f"Execution '{eff_exec_id}' request_digest mismatch: stored '{existing_exec.get('request_digest')}', "
                 f"got '{request_digest.strip()}'"
             )
-        if intent_id is not None and existing_exec.get("intent_id") and str(existing_exec.get("intent_id")) != intent_id.strip():
+        if intent_id is not None and str(existing_exec.get("intent_id") or "") != intent_id.strip():
             raise ValueError(
                 f"Execution '{eff_exec_id}' intent_id mismatch: stored '{existing_exec.get('intent_id')}', "
                 f"got '{intent_id.strip()}'"
@@ -1238,6 +1276,8 @@ def run_worker(
                 else None
             )
             if receipt_target is not None:
+                if output_json is not None and _paths_alias(output_json, receipt_target):
+                    raise ValueError("--commit-receipt-json aliases --output-json and cannot overwrite the immutable output artifact")
                 receipt_doc = {
                     "execution_id": eff_exec_id,
                     "attempt_id": str(commit_grant["attempt_id"]),

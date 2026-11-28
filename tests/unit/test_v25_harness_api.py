@@ -1879,5 +1879,105 @@ def test_gate_b_r2_round3_remaining_findings(
     assert len(http_calls) == 1
 
 
+def test_gate_b_r2_round4_dialogue_record_and_deadline_precision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from mrnax.harness import dialogue as dlg_mod
+
+    session = ProjectHarnessSession(project_id="proj_r4_dlg", store_dir=tmp_path / "proj_r4_dlg", seed_dir=SEED_DIR)
+    toolbox = AtomicToolbox(session)
+    orig_dispatch = toolbox.dispatch_tool_call
+
+    # 1. Slow completed tool advancing clock past 90s MUST still record trace + invoke on_tool_executed before raising
+    fake_now = [1000.0]
+    monkeypatch.setattr(dlg_mod._time, "monotonic", lambda: fake_now[0])
+    executed_events: list[str] = []
+
+    def _advancing_95s(name: str, args: dict[str, Any]) -> Any:
+        fake_now[0] += 95.0
+        return orig_dispatch(name, args)
+
+    monkeypatch.setattr(toolbox, "dispatch_tool_call", _advancing_95s)
+    agent1 = LiveDialogueAgent(
+        toolbox,
+        provider="deepseek",
+        transport=httpx.MockTransport(
+            lambda _req: httpx.Response(
+                200,
+                headers={"Content-Type": "application/json"},
+                json={
+                    "choices": [
+                        {
+                            "finish_reason": "tool_calls",
+                            "message": {
+                                "role": "assistant",
+                                "content": "",
+                                "tool_calls": [
+                                    {"id": "call_r4_1", "type": "function", "function": {"name": "query_design_rules", "arguments": "{}"}}
+                                ],
+                            },
+                        }
+                    ]
+                },
+            )
+        ),
+        on_tool_executed=lambda ev: executed_events.append(ev["tool_call_id"]),
+        overall_timeout_sec=90.0,
+    )
+    with pytest.raises(httpx.ReadTimeout, match="overall"):
+        agent1.send_user_message("check rules", max_tool_rounds=1)
+    assert executed_events == ["call_r4_1"]
+    assert len(agent1.tool_call_trace) == 1
+
+    # 2. Final HTTP request starting at 89.99s and finishing at 90.03s MUST NOT succeed via a 50ms upward floor
+    fake_now[0] = 2000.0
+    round_n = 0
+
+    def _advancing_89_99(name: str, args: dict[str, Any]) -> Any:
+        fake_now[0] += 89.99
+        return orig_dispatch(name, args)
+
+    monkeypatch.setattr(toolbox, "dispatch_tool_call", _advancing_89_99)
+
+    def _mock_boundary_http(_req: httpx.Request) -> httpx.Response:
+        nonlocal round_n
+        round_n += 1
+        if round_n == 1:
+            return httpx.Response(
+                200,
+                headers={"Content-Type": "application/json"},
+                json={
+                    "choices": [
+                        {
+                            "finish_reason": "tool_calls",
+                            "message": {
+                                "role": "assistant",
+                                "content": "",
+                                "tool_calls": [
+                                    {"id": "call_r4_2", "type": "function", "function": {"name": "query_design_rules", "arguments": "{}"}}
+                                ],
+                            },
+                        }
+                    ]
+                },
+            )
+        fake_now[0] += 0.04  # pushes clock from 2089.99 -> 2090.03 (> 90.00s budget!)
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={"choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "overshot"}}]},
+        )
+
+    agent2 = LiveDialogueAgent(
+        toolbox,
+        provider="deepseek",
+        transport=httpx.MockTransport(_mock_boundary_http),
+        overall_timeout_sec=90.0,
+    )
+    with pytest.raises(httpx.ReadTimeout, match="overall"):
+        agent2.send_user_message("check rules near boundary", max_tool_rounds=1)
+
+
+
 
 

@@ -319,7 +319,7 @@ class _PinnedHostHTTPTransport(httpx.BaseTransport):
         self._expected_host = expected_host.lower()
         self._pinned_ip = pinned_ip
         self._pinned_port = pinned_port
-        self._timeout_sec = max(0.05, float(timeout_sec))
+        self._timeout_sec = max(0.001, float(timeout_sec))
 
     def handle_request(self, request: httpx.Request) -> httpx.Response:
         import http.client
@@ -469,8 +469,11 @@ def _post_json_bounded(
     timeout_sec: float = 90.0,
 ) -> httpx.Response:
     req_headers = {**headers, "Accept-Encoding": "identity"}
+    deadline = _time.monotonic() + max(1e-4, float(timeout_sec))
     if _is_direct_pytest_post_stub():
         resp = client.post(url, headers=req_headers, json=json_body)
+        if _time.monotonic() > deadline:
+            raise httpx.ReadTimeout("Upstream LLM response exceeded overall deadline")
         resp.raise_for_status()
         raw_chk = getattr(resp, "content", None)
         if isinstance(raw_chk, (bytes, bytearray)) and len(raw_chk) > max_bytes:
@@ -478,7 +481,6 @@ def _post_json_bounded(
                 f"Upstream LLM response exceeded {max_bytes}-byte decoded safety cap"
             )
         return resp
-    deadline = _time.monotonic() + max(0.05, float(timeout_sec))
     with client.stream("POST", url, headers=req_headers, json=json_body) as stream_resp:
         enc = stream_resp.headers.get("content-encoding")
         clean_headers = _strip_encoding_and_length_headers(stream_resp.headers.items())
@@ -539,6 +541,11 @@ def _post_json_bounded(
             max_bytes=max_bytes,
             truncate_on_cap=False,
         )
+        if _time.monotonic() > deadline:
+            raise httpx.ReadTimeout(
+                "Upstream LLM response exceeded overall deadline",
+                request=stream_resp.request,
+            )
         return httpx.Response(
             status_code=stream_resp.status_code,
             headers=clean_headers,
@@ -891,8 +898,10 @@ class LiveDialogueAgent:
                         "Content-Type": "application/json",
                     },
                     json_body=self._build_completion_payload(tools_spec=None, tool_choice=None),
-                    timeout_sec=max(0.05, rem_overall),
+                    timeout_sec=max(1e-4, rem_overall),
                 )
+                if _time.monotonic() > overall_deadline:
+                    raise httpx.ReadTimeout("Upstream LLM request exceeded overall deadline")
                 choice = redact_secrets_in_obj(
                     _extract_choice_message(resp, allow_tool_calls=False),
                     extra_secrets=active_secrets,
@@ -908,7 +917,7 @@ class LiveDialogueAgent:
                 if rem_round <= 0.0:
                     raise httpx.ReadTimeout("Upstream LLM request exceeded overall deadline")
                 if isinstance(custom_transport, _PinnedHostHTTPTransport):
-                    custom_transport._timeout_sec = max(0.05, rem_round)
+                    custom_transport._timeout_sec = max(1e-4, rem_round)
                 if use_responses_api:
                     resp = _post_json_bounded(
                         client,
@@ -923,8 +932,10 @@ class LiveDialogueAgent:
                             previous_response_id=prev_resp_id,
                             pending_tool_outputs=pending_resp_outputs,
                         ),
-                        timeout_sec=max(0.05, rem_round),
+                        timeout_sec=max(1e-4, rem_round),
                     )
+                    if _time.monotonic() > overall_deadline:
+                        raise httpx.ReadTimeout("Upstream LLM request exceeded overall deadline")
                     raw_choice, prev_resp_id = self._extract_responses_choice(resp, allow_tool_calls=True)
                     choice = redact_secrets_in_obj(raw_choice, extra_secrets=active_secrets)
                 else:
@@ -936,8 +947,10 @@ class LiveDialogueAgent:
                             "Content-Type": "application/json",
                         },
                         json_body=self._build_completion_payload(tools_spec=tools_spec, tool_choice="auto"),
-                        timeout_sec=max(0.05, rem_round),
+                        timeout_sec=max(1e-4, rem_round),
                     )
+                    if _time.monotonic() > overall_deadline:
+                        raise httpx.ReadTimeout("Upstream LLM request exceeded overall deadline")
                     choice = redact_secrets_in_obj(
                         _extract_choice_message(resp, allow_tool_calls=True),
                         extra_secrets=active_secrets,
@@ -986,8 +999,6 @@ class LiveDialogueAgent:
                                 f"{type(exc).__name__}: {exc}", extra_secrets=active_secrets
                             )
                         }
-                    if _time.monotonic() >= overall_deadline:
-                        raise httpx.ReadTimeout("Upstream LLM dialogue exceeded overall deadline")
                     safe_args = redact_secrets_in_obj(
                         parsed_args
                         if isinstance(parsed_args, dict)
@@ -1022,6 +1033,8 @@ class LiveDialogueAgent:
                             "output": serialized_tool_content,
                         }
                     )
+                    if _time.monotonic() >= overall_deadline:
+                        raise httpx.ReadTimeout("Upstream LLM dialogue exceeded overall deadline")
                 pending_resp_outputs = next_resp_outputs
 
             if self.messages and self.messages[-1].get("role") == "tool":
@@ -1029,7 +1042,7 @@ class LiveDialogueAgent:
                 if rem_final <= 0.0:
                     raise httpx.ReadTimeout("Upstream LLM request exceeded overall deadline")
                 if isinstance(custom_transport, _PinnedHostHTTPTransport):
-                    custom_transport._timeout_sec = max(0.05, rem_final)
+                    custom_transport._timeout_sec = max(1e-4, rem_final)
                 if use_responses_api:
                     resp = _post_json_bounded(
                         client,
@@ -1044,8 +1057,10 @@ class LiveDialogueAgent:
                             previous_response_id=prev_resp_id,
                             pending_tool_outputs=pending_resp_outputs,
                         ),
-                        timeout_sec=max(0.05, rem_final),
+                        timeout_sec=max(1e-4, rem_final),
                     )
+                    if _time.monotonic() > overall_deadline:
+                        raise httpx.ReadTimeout("Upstream LLM request exceeded overall deadline")
                     raw_choice, _ = self._extract_responses_choice(resp, allow_tool_calls=False)
                     choice = redact_secrets_in_obj(raw_choice, extra_secrets=active_secrets)
                 else:
@@ -1057,8 +1072,10 @@ class LiveDialogueAgent:
                             "Content-Type": "application/json",
                         },
                         json_body=self._build_completion_payload(tools_spec=tools_spec, tool_choice="none"),
-                        timeout_sec=max(0.05, rem_final),
+                        timeout_sec=max(1e-4, rem_final),
                     )
+                    if _time.monotonic() > overall_deadline:
+                        raise httpx.ReadTimeout("Upstream LLM request exceeded overall deadline")
                     choice = redact_secrets_in_obj(
                         _extract_choice_message(resp, allow_tool_calls=False),
                         extra_secrets=active_secrets,

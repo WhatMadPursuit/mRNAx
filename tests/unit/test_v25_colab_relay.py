@@ -961,3 +961,195 @@ def test_gate_b_r2_round3_worker_fixes(
         sock.close()
 
 
+def test_gate_b_r2_round4_worker_fixes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import hashlib
+    import importlib.util
+    import socket
+    import tarfile
+    import threading
+    import time
+    import uvicorn
+
+    from mrnax.cloud.cas_store import ExecutionCASStore
+    from mrnax.cloud.drive_rest_v3 import DRIVE_FOLDER_MIME, DriveRestV3Client, InMemoryDriveV3Transport
+    from mrnax.cloud.gateway import create_control_plane_app
+
+    spec = importlib.util.spec_from_file_location("colab_heavy_sota_worker_r4", WORKER_SCRIPT)
+    assert spec and spec.loader
+    worker_mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = worker_mod
+    spec.loader.exec_module(worker_mod)
+
+    egfp_prot = json.loads((REPO_ROOT / "registry_seed" / "egfp_reporter_snapshot.json").read_text(encoding="utf-8"))[
+        "mammalian_reporter_egfp"
+    ]["protein_sequence"]
+    secret_tok = "tok_r4_secret_key_998877"
+    monkeypatch.setenv("MRNAX_GATEWAY_ACCESS_TOKEN", secret_tok)
+
+    # #6: Reject short 1..3-char tokens so _redact_secrets cannot skip them
+    with pytest.raises(ValueError, match="at least 4"):
+        worker_mod._validate_env_token("abc", env_name="MRNAX_GATEWAY_ACCESS_TOKEN")
+
+    # Case-insensitive receipt collision detection & nondeferred remote preflight parity
+    out_a = tmp_path / "OutArtifact.json"
+    rec_a = tmp_path / "outartifact.json"
+    assert worker_mod._paths_alias(out_a, rec_a) is True
+    with pytest.raises(ValueError, match="distinct"):
+        worker_mod.run_worker(
+            protein_seq=egfp_prot,
+            lineardesign_bin=tmp_path / "missing",
+            output_json=out_a,
+            commit_receipt_json=rec_a,
+        )
+
+    transport = InMemoryDriveV3Transport()
+    runs_root_id = transport.create_file(parent_id="root", name="RunsR4", mime_type=DRIVE_FOLDER_MIME)["id"]
+    commits_id = transport.create_file(parent_id="root", name="CommitsR4", mime_type=DRIVE_FOLDER_MIME)["id"]
+    drive_client = DriveRestV3Client(transport)
+    cas_store = ExecutionCASStore(
+        tmp_path / "cas_r4.sqlite3",
+        drive_verifier=drive_client,
+        commits_snapshot_folder_id=commits_id,
+        runs_root_id=runs_root_id,
+        require_drive_verifier=True,
+    )
+
+    with pytest.raises(ValueError, match="Drive sealing"):
+        worker_mod.run_worker(
+            protein_seq=egfp_prot,
+            lineardesign_bin=tmp_path / "missing",
+            gateway_url="https://149-248-39-200.sslip.io:8443",
+            drive_client=drive_client,
+            drive_runs_root_id=None,
+        )
+
+    # #4: Missing pinned support table or unexpected newly appeared support table fails cleanly
+    sup_dir = tmp_path / "raw_sup_r4"
+    sup_dir.mkdir(parents=True, exist_ok=True)
+    raw_bin = sup_dir / "lineardesign"
+    raw_bin.write_text("#!/bin/sh\necho ok\n", encoding="utf-8")
+    raw_bin.chmod(0o755)
+    raw_sha = hashlib.sha256(raw_bin.read_bytes()).hexdigest()
+    (sup_dir / "coding_wheel.txt").write_text("w1\n", encoding="utf-8")
+    pinned = worker_mod._hash_support_tables(sup_dir)
+    (sup_dir / "coding_wheel.txt").unlink()
+    with pytest.raises(FileNotFoundError, match="missing before staging"):
+        worker_mod._copy_verified_raw_binary(
+            raw_bin,
+            tmp_path / "dest_missing",
+            expected_sha256=raw_sha,
+            expected_support_sha256s=pinned,
+        )
+    (sup_dir / "coding_wheel.txt").write_text("w1\n", encoding="utf-8")
+    (sup_dir / "codon_usage_freq_table_human.csv").write_text("unexpected\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="Unpinned LinearDesign runtime table"):
+        worker_mod._copy_verified_raw_binary(
+            raw_bin,
+            tmp_path / "dest_extra",
+            expected_sha256=raw_sha,
+            expected_support_sha256s=pinned,
+        )
+
+    # Pinned-tar submission ID parity & empty stored intent_id mismatch fail-closed check
+    fake_ld_py = (
+        f"#!{sys.executable}\n"
+        "import sys\n"
+        "CODON = dict(zip('ACDEFGHIKLMNPQRSTVWY', "
+        "'GCU UGU GAU GAA UUU GGU CAU AUU AAA CUU AUG AAU CCU CAA CGU UCU ACU GUU UGG UAU'.split()))\n"
+        "aa = ''.join(ch for ch in sys.stdin.read().strip().upper() if ch in CODON)\n"
+        "rna = ''.join(CODON[c] for c in aa)\n"
+        "print(f'mRNA sequence:  {rna}')\n"
+        "print('mRNA structure: ' + '.' * len(rna))\n"
+        "print('mRNA folding free energy: -42.50 kcal/mol; mRNA CAI: 0.910')\n"
+    )
+    tar_src = tmp_path / "tar_src"
+    tar_src.mkdir(parents=True, exist_ok=True)
+    (tar_src / "lineardesign").write_text(fake_ld_py, encoding="utf-8")
+    (tar_src / "lineardesign").chmod(0o755)
+    ld_tar = tmp_path / "ld_r4.tar.gz"
+    with tarfile.open(ld_tar, "w:gz") as tf:
+        tf.add(tar_src / "lineardesign", arcname="lineardesign")
+    ld_sha = hashlib.sha256(ld_tar.read_bytes()).hexdigest()
+    monkeypatch.setattr(worker_mod, "PINNED_LINEARDESIGN_TAR_SHA256", ld_sha)
+
+    app = create_control_plane_app(
+        cas_store,
+        projects_root=tmp_path / "proj_r4",
+        seed_dir=REPO_ROOT / "registry_seed",
+        access_token=secret_tok,
+    )
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error"))
+    srv_thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
+    srv_thread.start()
+    try:
+        for _ in range(50):
+            if server.started:
+                break
+            time.sleep(0.05)
+
+        exp_dig = hashlib.sha256(
+            json.dumps(
+                {
+                    "protein": egfp_prot,
+                    "lambdas": [1.0],
+                    "ef": False,
+                    "track": "research_max",
+                    "intent_id": "int_colab_sota",
+                    "ld_sha": ld_sha,
+                    "ef_sha": None,
+                },
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+        res_tar = worker_mod.run_worker(
+            protein_seq=egfp_prot,
+            compliance_track="research_max",
+            lambdas=(1.0,),
+            lineardesign_tar=ld_tar,
+            gateway_url=f"http://127.0.0.1:{port}",
+            drive_runs_root_id=runs_root_id,
+            drive_client=drive_client,
+            output_json=tmp_path / "tar_out_r4.json",
+            work_dir=tmp_path / "w_tar_r4",
+        )
+        row_tar = cas_store.get_execution(res_tar["execution_id"])
+        assert row_tar.request_digest == exp_dig
+        assert row_tar.submission_id == f"sub_colab_{exp_dig[:16]}"
+
+        # #5: Empty stored intent_id fails closed before lease when caller passes different intent_id + matching digest
+        import httpx
+
+        with httpx.Client(trust_env=False, timeout=5.0) as hc:
+            sub_empty_int = hc.post(
+                f"http://127.0.0.1:{port}/v1/executions",
+                headers={"X-MRNAX-Access-Token": secret_tok},
+                json={"submission_id": "sub_empty_int_r4", "request_digest": "same_dig_r4", "intent_id": ""},
+            )
+        assert sub_empty_int.status_code == 200
+        eid_empty = sub_empty_int.json()["execution_id"]
+        with pytest.raises(ValueError, match="intent_id mismatch"):
+            worker_mod.run_worker(
+                protein_seq=egfp_prot,
+                lineardesign_tar=ld_tar,
+                gateway_url=f"http://127.0.0.1:{port}",
+                execution_id=eid_empty,
+                request_digest="same_dig_r4",
+                intent_id="int_different_r4",
+                drive_runs_root_id=runs_root_id,
+                drive_client=drive_client,
+                work_dir=tmp_path / "w_empty_int",
+            )
+        assert cas_store.get_execution(eid_empty).lease_epoch == 0
+    finally:
+        server.should_exit = True
+        srv_thread.join(timeout=5.0)
+        sock.close()
+
+
+

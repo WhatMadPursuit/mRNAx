@@ -6039,6 +6039,8 @@ function wireEvents() {
     const seq = (state.presets?.egfp_reporter?.protein_sequence) || FALLBACK_EGFP;
     const protEl = document.getElementById("input-protein");
     if (protEl) protEl.value = seq;
+    state.proteinAccession = "GenBank:U55762.1";
+    state.userEditedProtein = false;
     state.additionalProteinSequences = [];
     setSelectedEnzymes(["BsaI"]);
     updateProteinBadge();
@@ -6050,6 +6052,8 @@ function wireEvents() {
     const seq = (state.presets?.egfp_reporter?.protein_sequence) || FALLBACK_EGFP;
     const protEl = document.getElementById("input-protein");
     if (protEl) protEl.value = seq.slice(1);
+    state.proteinAccession = "GenBank:U55762.1";
+    state.userEditedProtein = false;
     state.additionalProteinSequences = [];
     updateProteinBadge();
     setExecMode("deterministic");
@@ -6062,6 +6066,8 @@ function wireEvents() {
     const seq = (state.presets?.egfp_reporter?.protein_sequence) || FALLBACK_EGFP;
     const protEl = document.getElementById("input-protein");
     if (protEl) protEl.value = seq;
+    state.proteinAccession = "GenBank:U55762.1";
+    state.userEditedProtein = false;
     state.additionalProteinSequences = [];
     updateProteinBadge();
     setExecMode("deterministic");
