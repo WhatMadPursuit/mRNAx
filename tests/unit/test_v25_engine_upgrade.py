@@ -251,11 +251,32 @@ def test_surrogate_v2_loader_hooks_and_graceful_v1_fallback(tmp_path: Path) -> N
                 "filename": dst_name,
                 "bytes": len(raw),
                 "sha256": hashlib.sha256(raw).hexdigest(),
+                "license": "CC-BY-4.0",
+                "uses_viennarna_features_or_labels": False,
             }
         )
+    # Incomplete clearance manifest (missing schema / compliance_track / boolean attestations) must fail closed
     (v2_compat_dir / "TRAINING_PROVENANCE_MANIFEST.json").write_text(
         json.dumps({"artifacts": manifest_artifacts}, indent=2), encoding="utf-8"
     )
+    with pytest.raises(PermissionError):
+        CommercialCleanSurrogateV2(v2_compat_dir)
+
+    (v2_compat_dir / "TRAINING_PROVENANCE_MANIFEST.json").write_text(
+        json.dumps(
+            {
+                "schema": "mrnax.surrogate_training_provenance.v1.2",
+                "compliance_track": "commercial_clean",
+                "zero_viennarna_features_or_distilled_labels": True,
+                "zero_gpl_or_noncommercial_weights": True,
+                "artifacts": manifest_artifacts,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    load_surrogate_jury.cache_clear()
+    CommercialCleanSurrogateV2.from_seed_dir.cache_clear()
     jury_v2_compat = load_surrogate_jury(fake_seed, prefer_v2=True)
     assert isinstance(jury_v2_compat, CommercialCleanSurrogateV2)
     u5 = "GGGAAAUAAAGAGAGAAAAGAAGAGUAAGAAGAAAUAUAAGAGCCACC"
@@ -265,6 +286,12 @@ def test_surrogate_v2_loader_hooks_and_graceful_v1_fallback(tmp_path: Path) -> N
     assert float(jury_v2_compat.score_consensus_halflife(u5, cds, u3)) == pytest.approx(
         float(jury_v1.score_consensus_halflife(u5, cds, u3))
     )
+
+    # Feature drift guard: missing declared column raises KeyError instead of zero-filling
+    from mrnax.engine.features_v2 import dict_list_to_matrix
+
+    with pytest.raises(KeyError, match="Feature drift"):
+        dict_list_to_matrix([{"a_frac": 0.25}], ["a_frac", "missing_col"])
 
 
 def test_lineardesign_sweep_surgical_polisher_fallback_and_commercial_isolation(
@@ -329,16 +356,22 @@ def test_lineardesign_sweep_surgical_polisher_fallback_and_commercial_isolation(
     assert fb_dg < 0.0 and 0.3 <= fb_cai <= 1.0
 
     # Max-AA VPS memory safety guard (`MRNAX_MAX_LINEARDESIGN_AA`) routes oversized proteins to fallback
+    # AND cannot be overridden upward by caller `max_aa`
     monkeypatch.setenv("MRNAX_MAX_LINEARDESIGN_AA", "80")
     cap_cds, cap_dg, cap_cai, cap_backend = run_lineardesign_single(
         prot[:100],
         lambda_val=1.0,
         compliance_track="research_max",
+        max_aa=500,
     )
     assert cap_backend == "guided_bicodon_vienna_fallback"
     assert verify_exact_aa_translation(cap_cds, prot[:100])
     assert cap_dg < 0.0 and 0.3 <= cap_cai <= 1.0
     monkeypatch.delenv("MRNAX_MAX_LINEARDESIGN_AA", raising=False)
+    with pytest.raises(ValueError, match="lambda_val"):
+        run_lineardesign_single(prot[:30], lambda_val=float("nan"), compliance_track="research_max")
+    with pytest.raises(ValueError, match="timeout_sec"):
+        run_lineardesign_single(prot[:30], timeout_sec=-1.0, compliance_track="research_max")
 
     # Default 900-AA cap also routes >900-AA proteins without invoking C++ lattice parser
     long_prot = "M" + ("VSKGEELFTG" * 91)  # 911 AA > 900
@@ -427,6 +460,13 @@ def test_structure_profiler_arcs_tracks_motifs_and_eternafold() -> None:
     for m in prof["motifs"]:
         assert 0 <= m["start"] < m["end"] <= len(full_seq)
 
+    with pytest.raises(ValueError):
+        analyze_rna_structure(full_seq, cds_start=len(full_seq), seed_dir=SEED_DIR)
+    with pytest.raises(ValueError):
+        analyze_rna_structure(full_seq, cds_start=40, cds_end=30, seed_dir=SEED_DIR)
+    prof_cc = analyze_rna_structure(full_seq, compliance_track="commercial_clean", seed_dir=SEED_DIR)
+    assert "ViennaRNA" not in prof_cc["engines_used"]
+
 
 def test_multi_modality_builders_evaluators_and_pareto_director_integration() -> None:
     short_prot = "MVSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPT"
@@ -474,6 +514,39 @@ def test_multi_modality_builders_evaluators_and_pareto_director_integration() ->
         assert isinstance(circ_eval["surrogate_v2_ires_translation_pred"], float)
         assert np.isfinite(circ_eval["surrogate_v2_ires_translation_pred"])
         assert any("OOD disclaimer" in note for note in circ_eval["notes"])
+        jury_v2 = load_surrogate_jury(SEED_DIR, prefer_v2=True)
+        axes_circ = jury_v2.score_molecule_axes(circ_bnd.molecules[0])
+        assert axes_circ["circrna_ires_translation_pred"] == pytest.approx(
+            circ_eval["surrogate_v2_ires_translation_pred"], abs=1e-6
+        )
+        m_v2 = jury_v2.evaluate_molecule_metrics(circ_bnd.molecules[0])
+        assert any(m.tool_name.startswith("CommercialCleanSurrogateV2:") for m in m_v2)
+        assert any(m.metric_id == "circrna_ires_translation_pred" for m in m_v2)
+
+    # Quarantine or cross-category scaffold injection is blocked
+    with pytest.raises((PermissionError, ValueError)):
+        build_circrna_bundle(
+            short_prot,
+            spacer5_scaffold_id="SCAF-LIN-POLYA-SEG-A30L70-QUARANTINE",
+            compliance_track="commercial_clean",
+            seed_dir=SEED_DIR,
+        )
+    with pytest.raises(PermissionError):
+        build_linear_mrna_bundle(
+            [short_prot],
+            polya_scaffold_id="SCAF-LIN-POLYA-SEG-A30L70-QUARANTINE",
+            compliance_track="commercial_clean",
+            seed_dir=SEED_DIR,
+        )
+    lin_cc = build_linear_mrna_bundle(
+        [short_prot],
+        compliance_track="commercial_clean",
+        use_lineardesign=False,
+        seed_dir=SEED_DIR,
+    )
+    lin_cc_eval = evaluate_linear_mrna_bundle(lin_cc, compliance_track="commercial_clean", seed_dir=SEED_DIR)
+    assert lin_cc_eval["chains"][0]["cds_mfe_kcal_mol"] is None
+    assert lin_cc_eval["chains"][0]["mirna_interactions"] == []
 
     # 4. saRNA (VEEV TC-83 & SINV replicon CSE/26S-SGP conservation + innate sensing)
     for bb in ("VEEV_TC83", "SINV"):

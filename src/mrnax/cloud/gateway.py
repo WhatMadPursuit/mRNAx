@@ -81,7 +81,11 @@ from mrnax.harness.tools import (
     run_structure_and_motif_analysis,
 )
 from mrnax.federated.external_evidence_adapter import CleanRoomPolicyError, ExternalEvidenceAdapterV2
-from mrnax.io_insdc.genbank_io import ExportConstraintViolationError, export_construct_package
+from mrnax.io_insdc.genbank_io import (
+    ExportConstraintViolationError,
+    export_construct_package,
+    verify_bundle_export_eligibility,
+)
 from mrnax.schemas.common import ComplianceProfile, SegmentScope, UridineChemistry
 from mrnax.schemas.construct_bundle import (
     ChemistryTrackSpec,
@@ -488,7 +492,33 @@ def _sanitize_validation_errors(
     return redact_secrets_in_text(str(obj), extra_secrets=extra_secrets)[:128]
 
 
+MAX_REQUEST_BODY_BYTES = 256 * 1024
+
+
+class _PayloadTooLargeError(Exception):
+    """Raised when an incoming HTTP body exceeds MAX_REQUEST_BODY_BYTES before parsing."""
+
+
 class _DecimalJsonRequest(Request):
+    async def body(self) -> bytes:
+        if not hasattr(self, "_body"):
+            cl_hdr = self.headers.get("content-length")
+            if cl_hdr is not None:
+                try:
+                    if int(cl_hdr) > MAX_REQUEST_BODY_BYTES:
+                        raise _PayloadTooLargeError(f"Request body exceeds {MAX_REQUEST_BODY_BYTES} bytes.")
+                except ValueError as exc:
+                    raise _PayloadTooLargeError("Invalid Content-Length header.") from exc
+            chunks: list[bytes] = []
+            total = 0
+            async for chunk in self.stream():
+                total += len(chunk)
+                if total > MAX_REQUEST_BODY_BYTES:
+                    raise _PayloadTooLargeError(f"Request body exceeds {MAX_REQUEST_BODY_BYTES} bytes.")
+                chunks.append(chunk)
+            self._body = b"".join(chunks)
+        return self._body
+
     async def json(self) -> Any:
         if not hasattr(self, "_json"):
             raw = await self.body()
@@ -501,7 +531,13 @@ class _ExactDecimalAPIRoute(APIRoute):
         orig = super().get_route_handler()
 
         async def _handler(request: Request) -> Response:
-            return await orig(_DecimalJsonRequest(request.scope, request.receive))
+            pre_gate = getattr(request.app.state, "pre_body_admission", None)
+            if callable(pre_gate):
+                pre_gate(request)
+            try:
+                return await orig(_DecimalJsonRequest(request.scope, request.receive))
+            except _PayloadTooLargeError as exc:
+                return JSONResponse(status_code=413, content={"detail": str(exc)})
 
         return _handler
 
@@ -1073,11 +1109,26 @@ def create_control_plane_app(
         expose_headers=["X-MRNAX-Project-Key"],
     )
 
-    # Bounded LRU sliding-window IP rate limiter across all gateway endpoints
+    # Bounded LRU sliding-window IP rate limiter across all gateway endpoints (enforced BEFORE body allocation)
     MAX_TRACKED_IPS = 2048
     ip_buckets: OrderedDict[str, deque[float]] = OrderedDict()
     rate_lock = threading.Lock()
+    structure_job_sem = threading.BoundedSemaphore(4)
+
+    def _route_rate_limit_for_path(path: str, method: str) -> int:
+        if path == "/api/v1/rules":
+            return 90
+        if path in ("/api/v1/data-hub", "/v1/system/status", "/v1/presets"):
+            return 60
+        if path in ("/api/v1/structure/analyze", "/api/v1/evidence/resolve"):
+            return 30
+        if path.endswith("/agent-chat"):
+            return 25
+        return 45
+
     def _enforce_rate_limit(req: Request, max_per_min: int = 45) -> None:
+        if getattr(req.state, "_mrnax_rate_checked", False):
+            return
         client_ip = req.client.host if req.client else "local"
         now = time.time()
         with rate_lock:
@@ -1097,6 +1148,22 @@ def create_control_plane_app(
                     detail=f"Rate limit exceeded (max {max_per_min} requests/min per IP).",
                 )
             dq.append(now)
+            req.state._mrnax_rate_checked = True
+
+    def _pre_body_admission(req: Request) -> None:
+        cl_hdr = req.headers.get("content-length")
+        if cl_hdr is not None:
+            try:
+                if int(cl_hdr) > MAX_REQUEST_BODY_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Request body exceeds {MAX_REQUEST_BODY_BYTES} bytes.",
+                    )
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="Invalid Content-Length header.") from exc
+        _enforce_rate_limit(req, max_per_min=_route_rate_limit_for_path(req.url.path, req.method))
+
+    app.state.pre_body_admission = _pre_body_admission
 
     def _is_valid_admin_token(header_token: str | None) -> bool:
         return bool(
@@ -2632,23 +2699,15 @@ def create_control_plane_app(
 
             constraint_engine = ScopedConstraintEngine.from_seed_dir(resolved_seed)
             try:
-                if intent.compliance_track == "commercial_clean":
-                    ExternalEvidenceAdapterV2().filter_and_export_commercial_records(bundle.external_evidence)
-                outcome = constraint_engine.evaluate_bundle(
+                verify_bundle_export_eligibility(
                     bundle,
-                    intent.constraints,
+                    constraint_engine=constraint_engine,
+                    constraints=intent.constraints,
                     compliance_track=intent.compliance_track,
                     expected_chemistry=intent.uridine_chemistry,
                     locked_scopes=intent.locked_scopes,
                     expected_protein_targets=intent.protein_targets,
                 )
-                if not outcome.passed_all_hard_gates:
-                    reasons = "; ".join(
-                        f"{v.violated_requirement_id}@{v.violated_scope}:{v.reason}" for v in outcome.violations
-                    )
-                    raise ExportConstraintViolationError(
-                        f"Export blocked by shared ScopedConstraintEngine: {reasons}"
-                    )
             except (CleanRoomPolicyError, ExportConstraintViolationError) as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -2709,7 +2768,10 @@ def create_control_plane_app(
         _, bundle, intent, _ = _load_authorized_bundle_for_export(
             project_id, bundle_id, request, x_mrnax_project_key, x_mrnax_access_token
         )
-        csv_text, rows = render_ivt_synthesis_order(bundle, intent=intent)
+        try:
+            csv_text, rows = render_ivt_synthesis_order(bundle, intent=intent)
+        except ExportConstraintViolationError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         secrets_tuple = _collect_active_secrets(x_mrnax_access_token, x_mrnax_project_key)
         safe_csv = redact_secrets_in_text(csv_text, extra_secrets=secrets_tuple)
         if format == "csv":
@@ -2826,6 +2888,11 @@ def create_control_plane_app(
     ) -> dict[str, Any]:
         _enforce_rate_limit(request, max_per_min=30)
         secrets_tuple = _collect_active_secrets()
+        if not structure_job_sem.acquire(timeout=2.0):
+            raise HTTPException(
+                status_code=503,
+                detail="Structure profiler concurrency limit reached; please retry shortly.",
+            )
         try:
             res = run_structure_and_motif_analysis(
                 req.sequence,
@@ -2843,6 +2910,8 @@ def create_control_plane_app(
                 status_code=422,
                 detail=redact_secrets_in_text(str(exc), extra_secrets=secrets_tuple),
             ) from exc
+        finally:
+            structure_job_sem.release()
         return redact_secrets_in_obj(res, extra_secrets=secrets_tuple)
 
     @app.post("/api/v1/evidence/resolve")

@@ -50,14 +50,20 @@ def sha256_canonical(obj: Any) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+MAX_UPSTREAM_RESPONSE_BYTES = 2 * 1024 * 1024
+
+
 def sandbox_untrusted_text(text: str, source_id: str) -> dict[str, Any]:
     """Wrap external text in a strict read-only untrusted envelope per mRNAx v2 §5.1."""
-    sanitized = str(text).replace("</UNTRUSTED_DATA>", "[ESCAPED_TAG]")[:2000]
+    from mrnax.harness.sandbox import wrap_untrusted_external_text
+
+    quarantined = wrap_untrusted_external_text(str(text)[:2000], source_id=str(source_id), max_chars=2000)
     return {
         "untrusted_external_data": True,
         "must_not_modify_locked_constraints": True,
-        "source_id": source_id,
-        "text_excerpt": sanitized,
+        "source_id": quarantined.source_id,
+        "sha256": quarantined.sha256,
+        "text_excerpt": quarantined.wrapped_payload,
     }
 
 
@@ -70,25 +76,47 @@ def _ssl_context() -> ssl.SSLContext | None:
         return None
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str) -> Any:
+        raise urllib.error.HTTPError(
+            req.full_url, code, f"Outbound redirect blocked by SSRF policy ({code})", headers, fp
+        )
+
+
+def _open_verified_public_request(req: urllib.request.Request, *, timeout: int) -> Any:
+    from mrnax.harness.sandbox import assert_public_resolved_endpoint
+
+    assert_public_resolved_endpoint(req.full_url, allow_localhost=False)
+    ctx = _ssl_context()
+    https_handler = urllib.request.HTTPSHandler(context=ctx) if ctx is not None else urllib.request.HTTPSHandler()
+    opener = urllib.request.build_opener(https_handler, _NoRedirectHandler())
+    return opener.open(req, timeout=timeout)
+
+
+def _read_bounded_bytes(resp: Any, *, max_bytes: int = MAX_UPSTREAM_RESPONSE_BYTES) -> bytes:
+    raw = resp.read(max_bytes + 1)
+    if len(raw) > max_bytes:
+        raise ValueError(f"Upstream response exceeded {max_bytes}-byte safety cap")
+    return raw
+
+
 def _http_json(url: str, method: str = "GET", payload: dict | None = None, timeout: int = 20) -> Any:
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
     headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
     if data is not None:
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
-    ctx = _ssl_context()
-    with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+    with _open_verified_public_request(req, timeout=timeout) as resp:
         if resp.status == 204:
             return {}
-        raw = resp.read().decode("utf-8").strip()
+        raw = _read_bounded_bytes(resp).decode("utf-8").strip()
         return json.loads(raw) if raw else {}
 
 
 def _http_text(url: str, timeout: int = 20) -> str:
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    ctx = _ssl_context()
-    with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
-        return resp.read().decode("utf-8", errors="replace")
+    with _open_verified_public_request(req, timeout=timeout) as resp:
+        return _read_bounded_bytes(resp).decode("utf-8", errors="replace")
 
 
 class ExternalEvidenceAdapterV2:
@@ -1587,6 +1615,7 @@ class ExternalEvidenceAdapterV2:
                     )
                     title_raw = str(r.get("title") or "")
                     abstract_raw = str(r.get("abstractText") or "")[:600]
+                    journal_raw = str(((r.get("journalInfo") or {}).get("journal") or {}).get("title") or "").strip()
                     src_tag = f"EuropePMC:{pmid_s or pmcid_s or doi_s or 'entry'}"
                     papers.append(
                         {
@@ -1594,7 +1623,11 @@ class ExternalEvidenceAdapterV2:
                             "pmcid": pmcid_s or None,
                             "doi": doi_s or None,
                             "pub_year": r.get("pubYear"),
-                            "journal": (((r.get("journalInfo") or {}).get("journal") or {}).get("title")),
+                            "journal_quarantined": (
+                                wrap_untrusted_external_text(journal_raw, source_id=src_tag, max_chars=240).model_dump(mode="json")
+                                if journal_raw
+                                else None
+                            ),
                             "is_open_access": is_oa,
                             "license_raw": lic or None,
                             "commercial_clean_article_eligible": bool(cc_ok and not restricted_dataset_linked),
@@ -1605,6 +1638,11 @@ class ExternalEvidenceAdapterV2:
                             ),
                             "title_sandboxed": sandbox_untrusted_text(title_raw, src_tag),
                             "title_quarantined": wrap_untrusted_external_text(title_raw, source_id=src_tag).model_dump(mode="json"),
+                            "abstract_quarantined": (
+                                wrap_untrusted_external_text(abstract_raw, source_id=src_tag, max_chars=600).model_dump(mode="json")
+                                if abstract_raw
+                                else None
+                            ),
                             "abstract_sandboxed": sandbox_untrusted_text(abstract_raw, src_tag) if abstract_raw else None,
                         }
                     )
@@ -1629,6 +1667,11 @@ class ExternalEvidenceAdapterV2:
                             "phases": ((ps.get("designModule") or {}).get("phases")) or [],
                             "brief_title_sandboxed": sandbox_untrusted_text(btitle, src_tag),
                             "brief_title_quarantined": wrap_untrusted_external_text(btitle, source_id=src_tag).model_dump(mode="json"),
+                            "conditions_quarantined": (
+                                wrap_untrusted_external_text(conds, source_id=src_tag, max_chars=400).model_dump(mode="json")
+                                if conds
+                                else None
+                            ),
                             "conditions_sandboxed": sandbox_untrusted_text(conds, src_tag) if conds else None,
                         }
                     )
@@ -1651,13 +1694,16 @@ class ExternalEvidenceAdapterV2:
                         "pmcid": item["pmcid"],
                         "doi": item["doi"],
                         "pub_year": item["pub_year"],
-                        "journal": item["journal"],
+                        "journal_quarantined": wrap_untrusted_external_text(
+                            str(item["journal"]), source_id=src_tag, max_chars=240
+                        ).model_dump(mode="json"),
                         "is_open_access": item["is_open_access"],
                         "license_raw": item["license_raw"],
                         "commercial_clean_article_eligible": item["commercial_clean_article_eligible"],
                         "restricted_dataset_governance_notice": None,
                         "title_sandboxed": sandbox_untrusted_text(item["title"], src_tag),
                         "title_quarantined": wrap_untrusted_external_text(item["title"], source_id=src_tag).model_dump(mode="json"),
+                        "abstract_quarantined": None,
                         "abstract_sandboxed": None,
                     }
                 )

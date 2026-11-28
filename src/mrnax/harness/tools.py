@@ -386,6 +386,7 @@ def run_structure_and_motif_analysis(
                 three_prime_end=three_prime_end,
                 modality=modality,
                 include_eternafold=include_eternafold,
+                seed_dir=seed_dir,
             )
         )
         init_win = res.get("initiation_window")
@@ -461,8 +462,8 @@ def run_structure_and_motif_analysis(
                 kozak_up = round(sum(unpaired_win[k_lo:k_hi]) / (k_hi - k_lo), 4)
 
         w_pfl = min(n, 80)
-        l_pfl = min(n, 60)
-        up_table = RNA.pfl_fold_up(norm_seq, 1, l_pfl, w_pfl) if n >= 12 else None
+        l_pfl = min(w_pfl, 60)
+        up_table = RNA.pfl_fold_up(norm_seq, 1, w_pfl, l_pfl) if n >= 12 else None
         if up_table is not None:
             per_nt_up = [float(up_table[idx + 1][1]) for idx in range(n)]
             aup_mean = round(sum(per_nt_up) / n, 4)
@@ -746,25 +747,36 @@ def render_ivt_synthesis_order(
         rna = mol.sequence
         dna_transcript = rna.replace("U", "T")
         cap = mol.chemistry_track.cap_chemistry
+        # Invariant: template_dna_5to3 MUST match the validated molecule transcript 1:1 (zero post-gate base insertion).
+        from mrnax.io_insdc.genbank_io import ExportConstraintViolationError
+
+        core_dna = dna_transcript
         if cap == "cap1_cleancap_ag" or rna.startswith("AG"):
-            promoter_type = "T7_CleanCap_AG_Phi6.5"
-            # CleanCap AG initiates directly on +1/+2 AG of the DNA template downstream of TAATACGACTCACTATA
             promoter_dna = "TAATACGACTCACTATA"
             if rna.startswith("AG"):
+                promoter_type = "T7_CleanCap_AG_Phi6.5"
                 leader_check = "PASS (transcript starts with 5'-AG for CleanCap AG co-transcriptional capping)"
-                core_dna = dna_transcript
+            elif mol.modality == "sarna" and rna.startswith("AU"):
+                promoter_type = "T7_CleanCap_AU_Alphavirus"
+                leader_check = "PASS (saRNA starts with 5'-AU for CleanCap AU co-transcriptional capping)"
             else:
-                leader_check = "ADVISORY: prepend 5'-AG dinucleotide upstream of 5'UTR for CleanCap AG compatibility"
-                core_dna = "AG" + dna_transcript
+                promoter_type = "T7_Enzymatic_Cap1_Exact_Transcript"
+                leader_check = (
+                    f"ADVISORY: approved transcript starts with 5'-{rna[:2]} and is emitted verbatim without prepended bases; "
+                    "use enzymatic Cap-1 or refine/validate a new construct version if a 5'-AG CleanCap leader is desired"
+                )
         else:
             promoter_type = "T7_Standard_GGG"
             promoter_dna = "TAATACGACTCACTATA"
             if rna.startswith("GGG"):
                 leader_check = "PASS (transcript starts with 5'-GGG)"
-                core_dna = dna_transcript
             else:
-                leader_check = "ADVISORY: T7 standard initiation prefers 5'-GGG leader"
-                core_dna = ("GGG" if not dna_transcript.startswith("G") else "") + dna_transcript
+                leader_check = (
+                    "ADVISORY: approved transcript preserved verbatim without prepended bases; "
+                    "create a new versioned construct if a 5'-GGG T7 leader is required"
+                )
+        if core_dna.replace("T", "U") != rna:
+            raise ExportConstraintViolationError("Internal invariant failure: exported IVT template diverged from approved bundle.")
 
         full_cassette_dna = promoter_dna + core_dna + lin_adapter_dna
         gc_pct = round(((full_cassette_dna.count("G") + full_cassette_dna.count("C")) / max(1, len(full_cassette_dna))) * 100.0, 2)
@@ -773,6 +785,7 @@ def render_ivt_synthesis_order(
         rows.append(
             {
                 "bundle_id": bundle.bundle_id,
+                "version_digest": bundle.version_digest,
                 "molecule_id": mol.molecule_id,
                 "modality": mol.modality,
                 "topology": mol.topology,
@@ -1333,6 +1346,9 @@ class AtomicToolbox:
                     "sha256": hashlib.sha256(html_path.read_bytes()).hexdigest(),
                     "bytes": html_path.stat().st_size,
                 }
+                (target_dir / "chemistry_metadata.json").write_text(
+                    json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+                )
             return manifest
 
     # 10. resolve_target_protein

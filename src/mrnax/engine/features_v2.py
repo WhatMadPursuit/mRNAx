@@ -528,4 +528,22 @@ def cds_to_bicodon_tokens(cds: str) -> str:
 
 
 def dict_list_to_matrix(dicts: Iterable[dict[str, float]], cols: list[str]) -> np.ndarray:
-    return np.array([[float(d.get(c, 0.0)) for c in cols] for d in dicts], dtype=np.float32)
+    if not cols:
+        raise ValueError("Feature column specification 'cols' must be non-empty.")
+    rows: list[list[float]] = []
+    for row_idx, d in enumerate(dicts):
+        missing = [c for c in cols if c not in d]
+        if missing:
+            raise KeyError(
+                f"Feature drift in row {row_idx}: missing {len(missing)} declared feature(s): {missing[:5]}"
+            )
+        vals: list[float] = []
+        for c in cols:
+            v = float(d[c])
+            if not math.isfinite(v):
+                raise ValueError(f"Non-finite feature '{c}'={v!r} in row {row_idx}")
+            vals.append(v)
+        rows.append(vals)
+    if not rows:
+        return np.empty((0, len(cols)), dtype=np.float32)
+    return np.asarray(rows, dtype=np.float32)

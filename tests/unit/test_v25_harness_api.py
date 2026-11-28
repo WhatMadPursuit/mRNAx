@@ -168,8 +168,24 @@ def test_multi_provider_models_temperature_rules_responses_api_and_system_prompt
     assert outbound_calls[0][1]["reasoning"] == {"effort": "low"}
     assert len(outbound_calls[0][1]["tools"]) == 14
     assert outbound_calls[1][1]["previous_response_id"] == "resp_round_1"
+    assert outbound_calls[1][1]["instructions"] == SYSTEM_PROMPT
     assert outbound_calls[1][1]["input"][0]["type"] == "function_call_output"
     assert outbound_calls[1][1]["input"][0]["call_id"] == "call_astra_1"
+
+    # Simultaneous assistant prose + tool_calls replay preserves both message and function_call items
+    astra_agent.messages.append(
+        {
+            "role": "assistant",
+            "content": "Running status tool.",
+            "tool_calls": [
+                {"id": "call_mix_1", "type": "function", "function": {"name": "get_job_status", "arguments": "{}"}}
+            ],
+        }
+    )
+    astra_agent.messages.append({"role": "tool", "tool_call_id": "call_mix_1", "content": "{}"})
+    replay_payload = astra_agent._build_responses_payload(tools_spec=tb.openai_tool_schemas(), tool_choice="auto")
+    assert any(it.get("type") == "function_call" and it.get("call_id") == "call_mix_1" for it in replay_payload["input"])
+    assert any(it.get("role") == "assistant" and it.get("content") == "Running status tool." for it in replay_payload["input"])
 
 
 def test_universal_protein_and_literature_resolver_offline_live_and_guardrails(
@@ -442,6 +458,30 @@ def test_14_tools_mcp_parity_and_6file_dossier_export(tmp_path: Path) -> None:
     assert csv_rows[0]["promoter_dna_5to3"] == "TAATACGACTCACTATA"
     assert csv_rows[0]["linearization_enzyme"] == "BspQI"
     assert "U" not in csv_rows[0]["full_ivt_insert_cassette_dna_5to3"]
+    approved_bundle = session.get_bundle(top_bid)
+    assert csv_rows[0]["template_dna_5to3"].replace("T", "U") == approved_bundle.molecules[0].sequence
+    assert csv_rows[0]["version_digest"] == approved_bundle.version_digest
+    on_disk_meta = json.loads(
+        (session.store_dir / "exports" / "full_6" / "chemistry_metadata.json").read_text(encoding="utf-8")
+    )
+    assert on_disk_meta["files"] == exp_full["files"]
+
+    # Fractional Decimal close to integer must be rejected by MCP integer validation
+    from decimal import Decimal
+
+    r_frac_mcp = handle_mcp_request(
+        toolbox,
+        {
+            "jsonrpc": "2.0",
+            "id": 99,
+            "method": "tools/call",
+            "params": {
+                "name": "search_literature_and_trials",
+                "arguments": {"query": "mRNA", "max_results": Decimal("3.00000000000000001"), "allow_network": False},
+            },
+        },
+    )
+    assert r_frac_mcp is not None and r_frac_mcp["result"]["isError"] is True
 
 
 def test_gateway_v25_endpoints_candidate_enrichment_auth_and_low_rss(tmp_path: Path) -> None:
@@ -452,15 +492,20 @@ def test_gateway_v25_endpoints_candidate_enrichment_auth_and_low_rss(tmp_path: P
             sys.executable,
             "-c",
             (
-                "import resource, sys; "
-                "import mrnax.cloud.gateway; "
+                "import resource, sys, tempfile; "
+                "from pathlib import Path; "
+                "from mrnax.cloud.cas_store import ExecutionCASStore; "
+                "from mrnax.cloud.gateway import create_control_plane_app; "
+                "td = Path(tempfile.mkdtemp()); "
+                "app = create_control_plane_app(ExecutionCASStore(td / 'cp.sqlite3'), projects_root=td / 'p', access_token='tok_rss_test'); "
+                "assert app is not None; "
                 "assert 'torch' not in sys.modules, 'torch imported at startup!'; "
                 "assert 'transformers' not in sys.modules, 'transformers imported at startup!'; "
                 "rss_bytes = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss; "
                 # macOS ru_maxrss is bytes; Linux is KiB
                 "rss_mib = rss_bytes / (1024*1024) if sys.platform == 'darwin' else rss_bytes / 1024; "
                 "print(f'RSS_MIB={rss_mib:.1f}'); "
-                "assert rss_mib < 180.0, f'Gateway startup RSS {rss_mib:.1f} MiB >= 180 MiB'"
+                "assert rss_mib < 180.0, f'Gateway factory RSS {rss_mib:.1f} MiB >= 180 MiB'"
             ),
         ],
         capture_output=True,

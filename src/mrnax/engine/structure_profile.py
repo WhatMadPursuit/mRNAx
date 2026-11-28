@@ -93,6 +93,17 @@ def _load_tissue_mirna_entries(seed_dir_str: str) -> tuple[dict[str, Any], ...]:
     return ()
 
 
+def _validate_coord_int(name: str, val: int | None, n: int, *, allow_end: bool = True) -> int | None:
+    if val is None:
+        return None
+    if isinstance(val, bool) or not isinstance(val, int):
+        raise ValueError(f"Coordinate '{name}' must be an integer, got {val!r}")
+    upper = n if allow_end else (n - 1)
+    if val < 0 or val > upper:
+        raise ValueError(f"Coordinate '{name}' ({val}) out of bounds [0, {upper}]")
+    return val
+
+
 def _resolve_region_coordinates(
     seq: str,
     *,
@@ -103,12 +114,29 @@ def _resolve_region_coordinates(
     three_prime_end: int | None,
 ) -> tuple[int, int, int, int, int]:
     n = len(seq)
-    if cds_start is not None:
-        c_start = max(0, min(n, int(cds_start)))
-        u5_end = c_start if five_prime_end is None else max(0, min(c_start, int(five_prime_end)))
-    elif five_prime_end is not None:
-        u5_end = max(0, min(n, int(five_prime_end)))
-        c_start = u5_end
+    v_u5_end = _validate_coord_int("five_prime_end", five_prime_end, n, allow_end=True)
+    v_c_start = _validate_coord_int("cds_start", cds_start, n, allow_end=False)
+    v_c_end = _validate_coord_int("cds_end", cds_end, n, allow_end=True)
+    v_u3_start = _validate_coord_int("three_prime_start", three_prime_start, n, allow_end=True)
+    v_u3_end = _validate_coord_int("three_prime_end", three_prime_end, n, allow_end=True)
+
+    if v_u5_end is not None and v_c_start is not None and v_u5_end > v_c_start:
+        raise ValueError(f"Invalid coordinates: five_prime_end ({v_u5_end}) > cds_start ({v_c_start})")
+    if v_c_start is not None and v_c_end is not None and v_c_end <= v_c_start:
+        raise ValueError(f"Invalid half-open CDS interval [{v_c_start}, {v_c_end}): cds_end must exceed cds_start")
+    if v_c_end is not None and v_u3_start is not None and v_c_end > v_u3_start:
+        raise ValueError(f"Invalid coordinates: cds_end ({v_c_end}) > three_prime_start ({v_u3_start})")
+    if v_u3_start is not None and v_u3_end is not None and v_u3_end < v_u3_start:
+        raise ValueError(f"Invalid coordinates: three_prime_end ({v_u3_end}) < three_prime_start ({v_u3_start})")
+    if v_c_start is not None and v_u3_start is not None and v_u3_start <= v_c_start:
+        raise ValueError(f"Invalid coordinates: three_prime_start ({v_u3_start}) <= cds_start ({v_c_start})")
+
+    if v_c_start is not None:
+        c_start = v_c_start
+        u5_end = c_start if v_u5_end is None else v_u5_end
+    elif v_u5_end is not None:
+        u5_end = v_u5_end
+        c_start = min(u5_end, max(0, n - 1))
     else:
         if seq.startswith("AUG"):
             u5_end = 0
@@ -123,10 +151,10 @@ def _resolve_region_coordinates(
             u5_end = kozak_hit
             c_start = kozak_hit
 
-    if cds_end is not None:
-        c_end = max(c_start, min(n, int(cds_end)))
-    elif three_prime_start is not None:
-        cand_end = max(c_start, min(n, int(three_prime_start)))
+    if v_c_end is not None:
+        c_end = v_c_end
+    elif v_u3_start is not None:
+        cand_end = v_u3_start
         if cand_end - c_start >= 3 and seq[cand_end - 3 : cand_end] in _STOP_CODONS_RNA:
             c_end = cand_end - 3
         else:
@@ -138,14 +166,14 @@ def _resolve_region_coordinates(
                 c_end = q
                 break
 
-    if three_prime_start is not None:
-        u3_start = max(c_end, min(n, int(three_prime_start)))
+    if v_u3_start is not None:
+        u3_start = v_u3_start
     else:
         u3_start = c_end + 3 if seq[c_end : c_end + 3] in _STOP_CODONS_RNA else c_end
         u3_start = min(n, u3_start)
 
-    if three_prime_end is not None:
-        u3_end = max(u3_start, min(n, int(three_prime_end)))
+    if v_u3_end is not None:
+        u3_end = v_u3_end
     else:
         polya_m = re.search(r"A{20,}$", seq)
         if polya_m is not None and polya_m.start() >= u3_start:
@@ -156,15 +184,17 @@ def _resolve_region_coordinates(
     return u5_end, c_start, c_end, u3_start, u3_end
 
 
-def _compute_cai(cds_rna: str) -> float:
+def _compute_cai(cds_rna: str) -> float | None:
     dna = cds_rna.replace("U", "T")
     n_cod = len(dna) // 3
+    if n_cod < 1:
+        return None
     logs = [
         math.log(CODON_W[dna[3 * i : 3 * i + 3]])
         for i in range(n_cod)
         if dna[3 * i : 3 * i + 3] in CODON_W
     ]
-    return round(math.exp(sum(logs) / len(logs)), 4) if logs else 0.5
+    return round(math.exp(sum(logs) / len(logs)), 4) if logs else None
 
 
 def _run_eternafold_window_metrics(
@@ -176,7 +206,8 @@ def _run_eternafold_window_metrics(
     win_lo = max(0, cds_start - 35)
     win_hi = min(len(seq), cds_start + 55)
     sub = seq[win_lo:win_hi]
-    if len(sub) < 6:
+    n_len = len(sub)
+    if n_len < 6:
         return None
     with tempfile.TemporaryDirectory() as td:
         fa = Path(td) / "in.fa"
@@ -203,37 +234,55 @@ def _run_eternafold_window_metrics(
             return None
         if not post.is_file():
             return None
-        paired = [0.0] * len(sub)
+        paired = [0.0] * n_len
         upper: dict[tuple[int, int], float] = {}
+        lower: dict[tuple[int, int], float] = {}
+        positions = 0
         for line in post.read_text(encoding="utf-8").splitlines():
             parts = line.strip().split()
-            if len(parts) < 2 or not parts[0].isdigit():
+            if not parts:
                 continue
-            i = int(parts[0]) - 1
-            if not (0 <= i < len(sub)):
-                continue
+            if len(parts) < 2 or not re.fullmatch(r"[0-9]+", parts[0]):
+                return None
+            i = positions
+            base_ch = parts[1].upper().replace("T", "U")
+            if i >= n_len or parts[0] != str(i + 1) or base_ch != sub[i]:
+                return None
+            positions += 1
             for tok in parts[2:]:
                 if ":" not in tok:
-                    continue
+                    return None
                 j_s, p_s = tok.split(":", 1)
-                if not j_s.isdigit():
-                    continue
+                if not re.fullmatch(r"[1-9][0-9]*", j_s) or len(j_s) > len(str(n_len)):
+                    return None
                 j = int(j_s) - 1
-                p = float(p_s)
-                if 0 <= j < len(sub) and i != j and 0.0 <= p <= 1.0:
-                    pair = (i, j) if i < j else (j, i)
-                    upper[pair] = p
+                try:
+                    p = float(p_s)
+                except ValueError:
+                    return None
+                if not (0 <= j < n_len) or j == i or not math.isfinite(p) or p < 0.0 or p > 1.0:
+                    return None
+                triangle, pair = (upper, (i, j)) if i < j else (lower, (j, i))
+                if pair in triangle:
+                    return None
+                triangle[pair] = p
+        if positions != n_len or (lower and lower != upper):
+            return None
         for (i, j), prob in upper.items():
             paired[i] += prob
             paired[j] += prob
+        if any(pv > 1.001 for pv in paired):
+            return None
         unpaired = [max(0.0, min(1.0, 1.0 - pv)) for pv in paired]
         rel_aug = cds_start - win_lo
         k_lo = max(0, rel_aug - 15)
-        k_hi = min(len(sub), rel_aug + 18)
-        k_vals = unpaired[k_lo:k_hi] or unpaired
+        k_hi = min(n_len, rel_aug + 18)
+        if k_hi <= k_lo:
+            return None
+        k_vals = unpaired[k_lo:k_hi]
         return {
-            "kozak_unpaired_prob": round(sum(k_vals) / max(1, len(k_vals)), 5),
-            "aup_mean": round(sum(unpaired) / max(1, len(unpaired)), 5),
+            "kozak_unpaired_prob": round(sum(k_vals) / len(k_vals), 5),
+            "aup_mean": round(sum(unpaired) / n_len, 5),
         }
 
 
@@ -489,6 +538,7 @@ def analyze_rna_structure(
     three_prime_start: int | None = None,
     three_prime_end: int | None = None,
     modality: str = "linear_mrna",
+    compliance_track: str = "research_max",
     include_eternafold: bool = False,
     seed_dir: Path | None = None,
 ) -> dict[str, Any]:
@@ -507,10 +557,9 @@ def analyze_rna_structure(
 
     full_gc_pct = round(100.0 * (seq.count("G") + seq.count("C")) / n, 2)
     full_u_pct = round(100.0 * seq.count("U") / n, 2)
-    cds_for_cai = seq[c_start:c_end] if c_end - c_start >= 3 else seq
-    cai_val = _compute_cai(cds_for_cai)
+    cai_val = _compute_cai(seq[c_start:c_end]) if c_end - c_start >= 3 else None
 
-    rna_mod = _try_vienna()
+    rna_mod = _try_vienna() if compliance_track != "commercial_clean" else None
     engines_used: list[str] = []
 
     init_lo = max(0, c_start - 30)
@@ -543,7 +592,9 @@ def analyze_rna_structure(
         k_win_hi = min(n, c_start + 55)
         k_sub = seq[k_win_lo:k_win_hi]
         if len(k_sub) >= 12:
-            up_k = rna_mod.pfl_fold_up(k_sub, 1, min(len(k_sub), 50), min(len(k_sub), 70))
+            w_k = min(len(k_sub), 70)
+            l_k = min(w_k, 50)
+            up_k = rna_mod.pfl_fold_up(k_sub, 1, w_k, l_k)
             rel_aug = c_start - k_win_lo
             p_lo = max(0, rel_aug - 15)
             p_hi = min(len(k_sub), rel_aug + 18)
@@ -576,7 +627,9 @@ def analyze_rna_structure(
                         paired_full[j - 1] += p
             unpaired_per_nt = [max(0.0, min(1.0, 1.0 - pv)) for pv in paired_full]
         else:
-            up_global = rna_mod.pfl_fold_up(seq, 1, min(n, 80), min(n, 120))
+            w_g = min(n, 120)
+            l_g = min(w_g, 80)
+            up_global = rna_mod.pfl_fold_up(seq, 1, w_g, l_g)
             unpaired_per_nt = [max(0.0, min(1.0, float(up_global[idx + 1][1]))) for idx in range(n)]
             if n <= 3500:
                 if is_circ:
@@ -588,9 +641,15 @@ def analyze_rna_structure(
             else:
                 chunk_w = 400
                 chunk_s = 200
-                chunks = [seq[i : i + chunk_w] for i in range(0, n - chunk_w + 1, chunk_s)]
-                mean_dg = sum(float(rna_mod.fold(ch)[1]) for ch in chunks) / max(1, len(chunks))
-                full_dg = mean_dg * (n / chunk_w)
+                starts = list(range(0, n - chunk_w + 1, chunk_s))
+                last_cov = starts[-1] + chunk_w if starts else 0
+                w_sum = sum(float(rna_mod.fold(seq[i : i + chunk_w])[1]) for i in starts)
+                w_tot = float(len(starts) * chunk_w)
+                if last_cov < n:
+                    rem_nt = n - last_cov
+                    w_sum += float(rna_mod.fold(seq[n - chunk_w :])[1]) * (rem_nt / chunk_w)
+                    w_tot += float(rem_nt)
+                full_dg = w_sum * (n / max(1.0, w_tot))
             # Local pairing entropy proxy for ultra-long constructs (>1800 nt)
             ens_div = sum(4.0 * u * (1.0 - u) for u in unpaired_per_nt) * 0.25
 

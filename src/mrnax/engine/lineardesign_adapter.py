@@ -87,14 +87,26 @@ def _compute_folding_dg_kcal(seq_rna: str) -> float:
     if rna_mod is None or not seq_rna:
         gc = seq_rna.count("G") + seq_rna.count("C")
         return round(-0.45 * gc, 3)
-    if len(seq_rna) <= 2800:
+    n_len = len(seq_rna)
+    if n_len <= 2800:
         _, dg_val = rna_mod.fold(seq_rna)
         return round(float(dg_val), 3)
     win = 400
     step = 200
-    chunks = [seq_rna[i : i + win] for i in range(0, len(seq_rna) - win + 1, step)]
-    mean_chunk = sum(float(rna_mod.fold(ch)[1]) for ch in chunks) / max(1, len(chunks))
-    return round(mean_chunk * (len(seq_rna) / win), 3)
+    starts = list(range(0, n_len - win + 1, step))
+    last_covered = starts[-1] + win if starts else 0
+    weighted_sum = 0.0
+    total_weight = 0.0
+    for s_idx in starts:
+        ch = seq_rna[s_idx : s_idx + win]
+        weighted_sum += float(rna_mod.fold(ch)[1])
+        total_weight += float(win)
+    if last_covered < n_len:
+        rem = n_len - last_covered
+        tail_ch = seq_rna[n_len - win :]
+        weighted_sum += float(rna_mod.fold(tail_ch)[1]) * (rem / win)
+        total_weight += float(rem)
+    return round(weighted_sum * (n_len / max(1.0, total_weight)), 3)
 
 
 def compute_5prime_initiation_openness(
@@ -116,8 +128,8 @@ def compute_5prime_initiation_openness(
     rna_mod = _try_vienna()
     if rna_mod is not None:
         w_size = min(len(ctx), 70)
-        l_span = min(len(ctx), 50)
-        up = rna_mod.pfl_fold_up(ctx, 1, l_span, w_size)
+        l_span = min(w_size, 50)
+        up = rna_mod.pfl_fold_up(ctx, 1, w_size, l_span)
         probs = [float(up[pos + 1][1]) for pos in range(lo, hi)]
         return round(sum(probs) / max(1, len(probs)), 6)
     window_slice = ctx[lo:hi]
@@ -179,6 +191,98 @@ def verify_exact_aa_translation(cds_rna: str, expected_protein: str, *, transl_t
     return translated == expected_protein
 
 
+_MAX_LD_STDOUT_BYTES = 262_144
+_MAX_LD_STDERR_BYTES = 65_536
+_MAX_LD_TIMEOUT_SEC = 120.0
+_HARD_MAX_LINEARDESIGN_AA = 5000
+
+
+def _validate_lambda_val(lambda_val: float) -> float:
+    if isinstance(lambda_val, bool) or not isinstance(lambda_val, (int, float)):
+        raise ValueError("lambda_val must be a finite numeric value")
+    val = float(lambda_val)
+    if not math.isfinite(val) or val < 0.0 or val > 100.0:
+        raise ValueError(f"lambda_val ({lambda_val!r}) must be finite and within [0.0, 100.0]")
+    return val
+
+
+def _validate_timeout_sec(timeout_sec: float) -> float:
+    if isinstance(timeout_sec, bool) or not isinstance(timeout_sec, (int, float)):
+        raise ValueError("timeout_sec must be a finite positive number")
+    val = float(timeout_sec)
+    if not math.isfinite(val) or val <= 0.0:
+        raise ValueError(f"timeout_sec ({timeout_sec!r}) must be finite and > 0")
+    return min(max(0.1, val), _MAX_LD_TIMEOUT_SEC)
+
+
+def _run_bounded_subprocess(
+    argv: list[str],
+    *,
+    stdin_text: str,
+    cwd_str: str,
+    timeout_sec: float,
+    max_stdout_bytes: int = _MAX_LD_STDOUT_BYTES,
+    max_stderr_bytes: int = _MAX_LD_STDERR_BYTES,
+) -> str:
+    import selectors
+
+    deadline = time.monotonic() + timeout_sec
+    proc = subprocess.Popen(
+        argv,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=cwd_str,
+    )
+    out_chunks: list[bytes] = []
+    err_chunks: list[bytes] = []
+    out_len = 0
+    err_len = 0
+    try:
+        assert proc.stdin is not None and proc.stdout is not None and proc.stderr is not None
+        proc.stdin.write(stdin_text.encode("ascii"))
+        proc.stdin.close()
+        with selectors.DefaultSelector() as sel:
+            sel.register(proc.stdout, selectors.EVENT_READ, data="out")
+            sel.register(proc.stderr, selectors.EVENT_READ, data="err")
+            while sel.get_map():
+                rem = deadline - time.monotonic()
+                if rem <= 0.0:
+                    raise subprocess.TimeoutExpired(argv, timeout_sec)
+                events = sel.select(timeout=rem)
+                if not events:
+                    raise subprocess.TimeoutExpired(argv, timeout_sec)
+                for key, _ in events:
+                    stream = key.fileobj
+                    chunk = os.read(stream.fileno(), 16384)  # type: ignore[union-attr]
+                    if not chunk:
+                        sel.unregister(stream)
+                        continue
+                    if key.data == "out":
+                        out_len += len(chunk)
+                        if out_len > max_stdout_bytes:
+                            raise RuntimeError("LinearDesign stdout exceeded byte cap")
+                        out_chunks.append(chunk)
+                    else:
+                        err_len += len(chunk)
+                        if err_len <= max_stderr_bytes:
+                            err_chunks.append(chunk)
+        rem_wait = max(0.05, deadline - time.monotonic())
+        rc = proc.wait(timeout=rem_wait)
+    except Exception:
+        try:
+            proc.kill()
+            proc.wait(timeout=1.0)
+        except Exception:
+            pass
+        raise
+    stdout_text = b"".join(out_chunks).decode("utf-8", errors="replace")
+    stderr_text = b"".join(err_chunks).decode("utf-8", errors="replace")
+    if rc != 0:
+        raise subprocess.CalledProcessError(rc, argv, output=stdout_text, stderr=stderr_text)
+    return stdout_text
+
+
 @functools.lru_cache(maxsize=256)
 def _cached_cpp_lineardesign_call(
     bin_path_str: str,
@@ -187,19 +291,16 @@ def _cached_cpp_lineardesign_call(
     lam_rounded: float,
     timeout_sec: float,
 ) -> tuple[str, float, float]:
-    proc = subprocess.run(
+    stdout_text = _run_bounded_subprocess(
         [bin_path_str, "-l", f"{lam_rounded:g}"],
-        input=f"{sense_aa}\n",
-        cwd=cwd_str,
-        capture_output=True,
-        text=True,
-        check=True,
-        timeout=timeout_sec,
+        stdin_text=f"{sense_aa}\n",
+        cwd_str=cwd_str,
+        timeout_sec=timeout_sec,
     )
-    seq_m = _SEQ_LINE_RE.search(proc.stdout)
-    ec_m = _ENERGY_CAI_RE.search(proc.stdout)
+    seq_m = _SEQ_LINE_RE.search(stdout_text)
+    ec_m = _ENERGY_CAI_RE.search(stdout_text)
     if seq_m is None:
-        raise RuntimeError(f"LinearDesign stdout missing 'mRNA sequence:' line: {proc.stdout[-300:]!r}")
+        raise RuntimeError(f"LinearDesign stdout missing 'mRNA sequence:' line: {stdout_text[-300:]!r}")
     cds_rna = seq_m.group(1).upper().replace("T", "U")
     if ec_m is not None:
         dg_kcal = float(ec_m.group(1))
@@ -242,16 +343,19 @@ def _fallback_guided_cds(
 
 
 def _resolve_max_lineardesign_aa(max_aa: int | None = None) -> int:
-    """Resolve maximum protein length permitted for C++ LinearDesign before low-memory fallback."""
-    if max_aa is not None:
-        return max(1, int(max_aa))
+    """Resolve maximum protein length permitted for C++ LinearDesign, never exceeding deployment cap."""
+    env_cap = DEFAULT_MAX_LINEARDESIGN_AA
     raw_env = os.environ.get("MRNAX_MAX_LINEARDESIGN_AA", "").strip()
     if raw_env:
         try:
-            return max(1, int(raw_env))
+            env_cap = min(_HARD_MAX_LINEARDESIGN_AA, max(1, int(raw_env)))
         except ValueError:
-            return DEFAULT_MAX_LINEARDESIGN_AA
-    return DEFAULT_MAX_LINEARDESIGN_AA
+            env_cap = DEFAULT_MAX_LINEARDESIGN_AA
+    if max_aa is not None:
+        if isinstance(max_aa, bool) or int(max_aa) < 1:
+            raise ValueError(f"max_aa ({max_aa!r}) must be a positive integer")
+        return min(env_cap, int(max_aa))
+    return env_cap
 
 
 def run_lineardesign_single(
@@ -269,6 +373,8 @@ def run_lineardesign_single(
 ) -> tuple[str, float, float, str]:
     """Run LinearDesign for a single `lambda_val` with 100% AA verification, max-AA VPS guard, and clean fallback."""
     _assert_research_track_allowed(compliance_track)
+    valid_lam = _validate_lambda_val(lambda_val)
+    valid_timeout = _validate_timeout_sec(timeout_sec)
     sense_aa = _normalize_sense_protein(protein_seq)
     exceeds_max_aa = len(sense_aa) > _resolve_max_lineardesign_aa(max_aa)
     discovered = None if (force_fallback or exceeds_max_aa) else discover_lineardesign_binary()
@@ -279,14 +385,14 @@ def run_lineardesign_single(
                 str(bin_path),
                 str(runtime_cwd),
                 sense_aa,
-                round(float(lambda_val), 4),
-                float(timeout_sec),
+                round(valid_lam, 4),
+                valid_timeout,
             )
             backend = "lineardesign_cpp_binary"
         except (subprocess.SubprocessError, OSError, RuntimeError):
             cds_rna, dg_kcal, cai_val = _fallback_guided_cds(
                 sense_aa,
-                lambda_val=lambda_val,
+                lambda_val=valid_lam,
                 chemistry=chemistry,
                 constraints=constraints,
                 seed=seed,
@@ -295,7 +401,7 @@ def run_lineardesign_single(
     else:
         cds_rna, dg_kcal, cai_val = _fallback_guided_cds(
             sense_aa,
-            lambda_val=lambda_val,
+            lambda_val=valid_lam,
             chemistry=chemistry,
             constraints=constraints,
             seed=seed,

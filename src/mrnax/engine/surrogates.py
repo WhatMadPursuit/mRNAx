@@ -275,6 +275,28 @@ def extract_3utr_features(seq: str) -> dict[str, float]:
     return feats
 
 
+_SUPPORTED_PROVENANCE_SCHEMAS = frozenset(
+    {
+        "mrnax.surrogate_training_provenance.v2.0",
+        "mrnax.surrogate_training_provenance.v1.2",
+    }
+)
+
+
+def extract_circrna_ires_interval(mol: RNAMoleculeSpec) -> str:
+    """Resolve the canonical circRNA viral IRES slice identically across all evaluators."""
+    u5_seq = mol.get_segment_sequence("five_prime_utr")
+    ires_ann = next(
+        (a for a in mol.annotations if a.feature_id.startswith("viral_ires_") and a.intervals),
+        None,
+    )
+    if ires_ann is not None:
+        lo, hi = ires_ann.intervals[0]
+        if 0 <= lo < hi <= len(mol.sequence):
+            return mol.sequence[lo:hi]
+    return u5_seq[-600:]
+
+
 def _load_verified_joblib(
     weights_dir: Path,
     filename: str,
@@ -288,10 +310,17 @@ def _load_verified_joblib(
             f"Refusing to deserialize '{filename}': missing provenance manifest '{manifest_path}'"
         )
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    by_name = {str(item["filename"]): item for item in manifest.get("artifacts", [])}
+    if not isinstance(manifest, dict):
+        raise ValueError(f"Refusing to deserialize '{filename}': provenance manifest must be a JSON object")
+    by_name = {
+        str(item["filename"]): item
+        for item in manifest.get("artifacts", [])
+        if isinstance(item, dict) and "filename" in item
+    }
     if filename not in by_name:
         raise ValueError(f"Refusing to deserialize '{filename}': not registered in TRAINING_PROVENANCE_MANIFEST.json")
     expected = by_name[filename]
+    schema_id = manifest.get("schema")
     if require_commercial_clean:
         top_track = manifest.get("compliance_track")
         item_track = expected.get("license_track")
@@ -303,9 +332,33 @@ def _load_verified_joblib(
             raise PermissionError(
                 f"Refusing to deserialize '{filename}' in commercial_clean loader: artifact license_track='{item_track}'"
             )
-        if expected.get("uses_viennarna_features_or_labels") is True:
+        if schema_id not in _SUPPORTED_PROVENANCE_SCHEMAS:
             raise PermissionError(
-                f"Refusing to deserialize '{filename}' in commercial_clean loader: uses_viennarna_features_or_labels=True"
+                f"Refusing to deserialize '{filename}' in commercial_clean loader: unsupported or missing manifest schema '{schema_id}'"
+            )
+        if top_track != "commercial_clean":
+            raise PermissionError(
+                f"Refusing to deserialize '{filename}' in commercial_clean loader: missing manifest compliance_track='commercial_clean'"
+            )
+        if manifest.get("zero_viennarna_features_or_distilled_labels") is not True:
+            raise PermissionError(
+                f"Refusing to deserialize '{filename}' in commercial_clean loader: zero_viennarna_features_or_distilled_labels must be true"
+            )
+        if manifest.get("zero_gpl_or_noncommercial_weights") is not True:
+            raise PermissionError(
+                f"Refusing to deserialize '{filename}' in commercial_clean loader: zero_gpl_or_noncommercial_weights must be true"
+            )
+        if schema_id == "mrnax.surrogate_training_provenance.v2.0" and item_track != "commercial_clean":
+            raise PermissionError(
+                f"Refusing to deserialize '{filename}' in commercial_clean loader: v2.0 artifact missing license_track='commercial_clean'"
+            )
+        if schema_id == "mrnax.surrogate_training_provenance.v1.2" and not str(expected.get("license") or "").strip():
+            raise PermissionError(
+                f"Refusing to deserialize '{filename}' in commercial_clean loader: v1.2 artifact missing permissive license string"
+            )
+        if expected.get("uses_viennarna_features_or_labels") is not False:
+            raise PermissionError(
+                f"Refusing to deserialize '{filename}' in commercial_clean loader: uses_viennarna_features_or_labels must be literal false"
             )
     fpath = weights_dir / filename
     raw_bytes = fpath.read_bytes()
@@ -321,11 +374,22 @@ def _load_verified_joblib(
     if sys.platform == "darwin":
         from mrnax.engine._darwin_joblib_worker import get_darwin_joblib_client
 
-        return get_darwin_joblib_client().load_verified_bytes(f"{weights_dir.resolve()}::{filename}::{actual_sha}", raw_bytes)
+        loaded = dict(
+            get_darwin_joblib_client().load_verified_bytes(
+                f"{weights_dir.resolve()}::{filename}::{actual_sha}", raw_bytes
+            )
+        )
+    else:
+        import joblib
 
-    import joblib
+        loaded = dict(joblib.load(io.BytesIO(raw_bytes)))
 
-    loaded = joblib.load(io.BytesIO(raw_bytes))
+    decl_feats = expected.get("n_features") if "n_features" in expected else expected.get("feature_count")
+    if isinstance(decl_feats, int) and not isinstance(decl_feats, bool):
+        loaded["_manifest_n_features"] = decl_feats
+    loaded["_manifest_filename"] = filename
+    loaded["_manifest_schema"] = str(schema_id or "")
+    loaded["_manifest_model_name"] = str(expected.get("model_name") or Path(filename).stem)
     return loaded
 
 
@@ -371,6 +435,13 @@ class CommercialCleanSurrogateV1:
 
     @staticmethod
     def _predict_bundle(bundle: dict[str, Any], X: np.ndarray) -> np.ndarray:
+        expected_w = bundle.get("_manifest_n_features")
+        if X.ndim != 2:
+            raise ValueError(f"Expected 2D feature matrix for '{bundle.get('_manifest_filename')}', got shape={X.shape}")
+        if isinstance(expected_w, int) and X.shape[1] != expected_w:
+            raise ValueError(
+                f"Feature width drift for '{bundle.get('_manifest_filename')}': assembled {X.shape[1]} columns != manifest n_features={expected_w}"
+            )
         return np.asarray(bundle["model"].predict(X), dtype=np.float64)
 
     def score_5utr_mrl(self, utr5_seqs: list[str]) -> np.ndarray:
@@ -771,10 +842,128 @@ class CommercialCleanSurrogateV2(CommercialCleanSurrogateV1):
                 float(self.score_rmdb_aup_proxy([u5 + cds + u3])[0]), 6
             )
         if mol.modality == "circrna" and self._circ_ires_bundle is not None:
+            ires_slice = extract_circrna_ires_interval(mol)
             out["circrna_ires_translation_pred"] = round(
-                float(self.score_circrna_ires([u5[-600:]])[0]), 6
+                float(self.score_circrna_ires([ires_slice])[0]), 6
             )
         return out
+
+    @staticmethod
+    def _bundle_provenance(bundle: dict[str, Any], default_v1_tag: str) -> tuple[str, str]:
+        schema = str(bundle.get("_manifest_schema") or "")
+        mdl_name = str(bundle.get("_manifest_model_name") or default_v1_tag)
+        if schema == "mrnax.surrogate_training_provenance.v2.0" or "tab_features" in bundle or mdl_name.endswith("_v2"):
+            return f"CommercialCleanSurrogateV2:{mdl_name}", "2.0.0"
+        return f"CommercialCleanSurrogateV1:{default_v1_tag}", "1.1.0"
+
+    def evaluate_molecule_metrics(
+        self, mol: RNAMoleculeSpec, *, participated_in: str = "pareto_selection_or_ranking"
+    ) -> list[MetricResult]:
+        axes = self.score_molecule_axes(mol)
+        schema_chem_mode = (
+            "native_chemistry_validated"
+            if mol.chemistry_track.uridine_chemistry == "unmodified_u"
+            else "cross_chemistry_thermodynamic_approximation"
+        )
+        u5_tool, u5_ver = self._bundle_provenance(self._utr5_bundle, "utr5_mrl_lgbm")
+        cds_tool, cds_ver = self._bundle_provenance(self._cds_bundle, "cds_stability_lgbm")
+        hl_tool, hl_ver = self._bundle_provenance(self._hl_bundle, "saluki_consensus_lgbm")
+        res = [
+            MetricResult(
+                metric_id="utr5_mrl_pred",
+                value=axes["utr5_mrl_pred"],
+                unit="predicted_mrl",
+                direction="maximize",
+                evaluated_scopes=["five_prime_utr"],
+                tool_name=u5_tool,
+                tool_version=u5_ver,
+                chemistry_evaluation_mode=schema_chem_mode,  # type: ignore[arg-type]
+                participated_in=participated_in,  # type: ignore[arg-type]
+            ),
+            MetricResult(
+                metric_id="cds_stability_pred",
+                value=axes["cds_stability_pred"],
+                unit="predicted_stability_slope",
+                direction="maximize",
+                evaluated_scopes=["cds"],
+                tool_name=cds_tool,
+                tool_version=cds_ver,
+                chemistry_evaluation_mode=schema_chem_mode,  # type: ignore[arg-type]
+                participated_in=participated_in,  # type: ignore[arg-type]
+            ),
+            MetricResult(
+                metric_id="consensus_halflife_pred",
+                value=axes["consensus_halflife_pred"],
+                unit="predicted_halflife_zscore",
+                direction="maximize",
+                evaluated_scopes=["five_prime_utr", "cds", "three_prime_utr"],
+                tool_name=hl_tool,
+                tool_version=hl_ver,
+                chemistry_evaluation_mode=schema_chem_mode,  # type: ignore[arg-type]
+                participated_in=participated_in,  # type: ignore[arg-type]
+            ),
+        ]
+        if "utr3_stability_pred" in axes and self._utr3_bundle is not None:
+            u3_tool, u3_ver = self._bundle_provenance(self._utr3_bundle, "fastutr_3utr_lgbm")
+            res.append(
+                MetricResult(
+                    metric_id="utr3_stability_pred",
+                    value=axes["utr3_stability_pred"],
+                    unit="predicted_3utr_mpra_stability",
+                    direction="maximize",
+                    evaluated_scopes=["three_prime_utr"],
+                    tool_name=u3_tool,
+                    tool_version=u3_ver,
+                    chemistry_evaluation_mode=schema_chem_mode,  # type: ignore[arg-type]
+                    participated_in=participated_in,  # type: ignore[arg-type]
+                )
+            )
+        if "full_tx_isoform_mrl_pred" in axes and self._isoform_mrl_bundle is not None:
+            iso_tool, iso_ver = self._bundle_provenance(self._isoform_mrl_bundle, "full_tx_isoform_mrl_v2")
+            res.append(
+                MetricResult(
+                    metric_id="full_tx_isoform_mrl_pred",
+                    value=axes["full_tx_isoform_mrl_pred"],
+                    unit="predicted_isoform_mrl",
+                    direction="maximize",
+                    evaluated_scopes=["five_prime_utr", "cds", "three_prime_utr"],
+                    tool_name=iso_tool,
+                    tool_version=iso_ver,
+                    chemistry_evaluation_mode=schema_chem_mode,  # type: ignore[arg-type]
+                    participated_in="display_only",
+                )
+            )
+        if "rmdb_aup_hydrolysis_proxy_pred" in axes and self._rmdb_aup_bundle is not None:
+            aup_tool, aup_ver = self._bundle_provenance(self._rmdb_aup_bundle, "rmdb_aup_hydrolysis_proxy_v2")
+            res.append(
+                MetricResult(
+                    metric_id="rmdb_aup_hydrolysis_proxy_pred",
+                    value=axes["rmdb_aup_hydrolysis_proxy_pred"],
+                    unit="predicted_reactivity_aup",
+                    direction="minimize",
+                    evaluated_scopes=["five_prime_utr", "cds", "three_prime_utr"],
+                    tool_name=aup_tool,
+                    tool_version=aup_ver,
+                    chemistry_evaluation_mode=schema_chem_mode,  # type: ignore[arg-type]
+                    participated_in="display_only",
+                )
+            )
+        if "circrna_ires_translation_pred" in axes and self._circ_ires_bundle is not None:
+            ci_tool, ci_ver = self._bundle_provenance(self._circ_ires_bundle, "circrna_ires_translation_v2")
+            res.append(
+                MetricResult(
+                    metric_id="circrna_ires_translation_pred",
+                    value=axes["circrna_ires_translation_pred"],
+                    unit="predicted_ires_log2_rel_expr",
+                    direction="maximize",
+                    evaluated_scopes=["five_prime_utr"],
+                    tool_name=ci_tool,
+                    tool_version=ci_ver,
+                    chemistry_evaluation_mode="native_chemistry_validated",
+                    participated_in="display_only",
+                )
+            )
+        return res
 
 
 @functools.lru_cache(maxsize=8)

@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 import random
 import re
-from typing import Any
+from typing import Any, get_args
 
 from Bio.Seq import Seq
 
@@ -33,6 +33,7 @@ from mrnax.engine.stage0_baseline import (
 from mrnax.engine.structure_profile import analyze_rna_structure
 from mrnax.engine.surrogates import (
     CommercialCleanSurrogateV2,
+    extract_circrna_ires_interval,
     has_surrogate_v2_artifacts,
     load_surrogate_jury,
 )
@@ -166,6 +167,57 @@ def load_tissue_mirna_atlas(seed_dir: Path | None = None) -> dict[str, Any]:
     raise FileNotFoundError(f"tissue_mirna_atlas_v1.json missing in {eff}")
 
 
+_LICENSE_TRACK_ORDER: tuple[LicenseTrack, ...] = get_args(LicenseTrack)
+
+
+def _strictest_license_track(*tiers: str) -> LicenseTrack:
+    valid: list[LicenseTrack] = []
+    for raw in tiers:
+        if raw not in _LICENSE_TRACK_ORDER:
+            raise ValueError(f"Unsupported license_track '{raw}'")
+        valid.append(raw)  # type: ignore[arg-type]
+    if not valid:
+        return "commercial_clean"
+    return max(valid, key=_LICENSE_TRACK_ORDER.index)
+
+
+def _validate_scaffold_component(
+    scaf: dict[str, Any],
+    *,
+    expected_modality: str,
+    allowed_categories: tuple[str, ...],
+    compliance_track: ComplianceProfile,
+    allow_quarantine_reference: bool = False,
+) -> LicenseTrack:
+    scaf_id = str(scaf.get("scaffold_id", "<unknown>"))
+    actual_mod = str(scaf.get("modality", ""))
+    actual_cat = str(scaf.get("scaffold_category", ""))
+    if actual_mod != expected_modality:
+        raise ValueError(
+            f"Scaffold '{scaf_id}' modality mismatch: expected '{expected_modality}', got '{actual_mod}'"
+        )
+    if allowed_categories and actual_cat not in allowed_categories:
+        raise ValueError(
+            f"Scaffold '{scaf_id}' category mismatch: expected one of {allowed_categories}, got '{actual_cat}'"
+        )
+    lic_obj = scaf.get("license")
+    raw_tier = lic_obj.get("license_track") if isinstance(lic_obj, dict) else None
+    if not isinstance(raw_tier, str) or raw_tier not in _LICENSE_TRACK_ORDER:
+        raise PermissionError(f"Scaffold '{scaf_id}' has missing or invalid license_track '{raw_tier}'")
+    tier: LicenseTrack = raw_tier  # type: ignore[assignment]
+    fto_obj = scaf.get("patent_fto_tag")
+    fto_blocked_cc = isinstance(fto_obj, dict) and fto_obj.get("commercial_clean_allowed") is False
+    if tier == "quarantine_reference" and not allow_quarantine_reference:
+        raise PermissionError(
+            f"Scaffold '{scaf_id}' has license_track='quarantine_reference' and cannot be assembled into active designs."
+        )
+    if compliance_track == "commercial_clean" and (tier != "commercial_clean" or fto_blocked_cc):
+        raise PermissionError(
+            f"Scaffold '{scaf_id}' (license_track='{tier}') is blocked under compliance_track='commercial_clean'."
+        )
+    return tier
+
+
 def _scaffold_by_id(scaffolds_doc: dict[str, Any], scaffold_id: str) -> dict[str, Any]:
     for item in scaffolds_doc.get("scaffolds", []):
         if item.get("scaffold_id") == scaffold_id:
@@ -288,7 +340,7 @@ def _optimize_cds_for_modality(
         return (
             cds_dc,
             "mrnax:v20_dnachisel_baseline",
-            {"generator": "v20_dnachisel_baseline"},
+            {"generator": "v20_dnachisel_baseline", "backend_used": "dnachisel_cds", "license_track": "commercial_clean"},
         )
 
     if compliance_track != "commercial_clean" and use_lineardesign:
@@ -306,10 +358,17 @@ def _optimize_cds_for_modality(
             seed=seed,
         )
         best = cands[0]
+        origin_tag = (
+            f"mrnax:lineardesign_polisher_lam{lambda_val:g}"
+            if best.backend_used == "lineardesign_cpp_binary"
+            else f"mrnax:guided_bicodon_vienna_fallback_lam{lambda_val:g}"
+        )
+        info = best.to_dict()
+        info["license_track"] = "needs_vendor_license"
         return (
             best.polished_cds_rna,
-            f"mrnax:lineardesign_polisher_lam{lambda_val:g}",
-            best.to_dict(),
+            origin_tag,
+            info,
         )
 
     # Commercial-clean non-partitioned full-CDS bicodon optimizer
@@ -336,7 +395,11 @@ def _optimize_cds_for_modality(
         )
         trials.append(cur)
     chosen = trials[-1]
-    return chosen, "mrnax:clean_bicodon_optimizer", {"generator": "clean_bicodon_optimizer"}
+    return (
+        chosen,
+        "mrnax:clean_bicodon_optimizer",
+        {"generator": "clean_bicodon_optimizer", "backend_used": "clean_bicodon_optimizer", "license_track": "commercial_clean"},
+    )
 
 
 # ============================================================================
@@ -369,11 +432,38 @@ def build_linear_mrna_bundle(
     pa_scaf = _scaffold_by_id(scaffolds_doc, polya_scaffold_id)
     kozak_scaf = _scaffold_by_id(scaffolds_doc, "SCAF-LIN-KOZAK-VERTEBRATE-STRONG-GCCACC")
 
+    u5_tier_base = _validate_scaffold_component(
+        u5_scaf,
+        expected_modality="linear_mrna",
+        allowed_categories=("five_prime_utr",),
+        compliance_track=compliance_track,
+    )
+    kozak_tier = _validate_scaffold_component(
+        kozak_scaf,
+        expected_modality="linear_mrna",
+        allowed_categories=("kozak_template", "kozak_consensus", "five_prime_utr"),
+        compliance_track=compliance_track,
+    )
+    u3_tier_base = _validate_scaffold_component(
+        u3_scaf,
+        expected_modality="linear_mrna",
+        allowed_categories=("three_prime_utr",),
+        compliance_track=compliance_track,
+    )
+    pa_tier = _validate_scaffold_component(
+        pa_scaf,
+        expected_modality="linear_mrna",
+        allowed_categories=("poly_a_tail",),
+        compliance_track=compliance_track,
+    )
+
     u5_base = str(u5_scaf["sequence_rna"]).upper()
     if not u5_base.endswith("ACC"):
         u5_seq = u5_base + str(kozak_scaf["sequence_rna"]).upper()[:6]
+        u5_tier = _strictest_license_track(u5_tier_base, kozak_tier)
     else:
         u5_seq = u5_base
+        u5_tier = u5_tier_base
     if not u5_seq.startswith("AG"):
         u5_seq = "AG" + u5_seq
 
@@ -385,8 +475,18 @@ def build_linear_mrna_bundle(
         if detarget_tissues
         else []
     )
+    for mir_e in mir_entries:
+        mir_tier = str(mir_e.get("license_track", "commercial_clean"))
+        if compliance_track == "commercial_clean" and mir_tier != "commercial_clean":
+            raise PermissionError(
+                f"miRNA '{mir_e.get('mirna_id')}' (license_track='{mir_tier}') is blocked in commercial_clean"
+            )
     u3_seq, u3_anns = _inject_atlas_mirna_cassette(
         u3_base, mir_entries, copies_per_mirna=mirna_copies
+    )
+    u3_tier = _strictest_license_track(
+        u3_tier_base,
+        *(str(m.get("license_track", "commercial_clean")) for m in mir_entries),
     )
     polya_seq = str(pa_scaf["sequence_rna"]).upper()
     stop_seq = "UGA"
@@ -411,7 +511,7 @@ def build_linear_mrna_bundle(
     molecules: list[RNAMoleculeSpec] = []
     for idx, tgt in enumerate(norm_targets):
         mol_id = "mol_primary" if len(norm_targets) == 1 else f"chain_{idx + 1:02d}"
-        cds_seq, cds_origin, _ = _optimize_cds_for_modality(
+        cds_seq, cds_origin, cds_meta = _optimize_cds_for_modality(
             tgt.protein_sequence,
             utr5_rna=u5_seq,
             stop_rna=stop_seq,
@@ -424,11 +524,7 @@ def build_linear_mrna_bundle(
             seed=seed + 101 * idx,
             baseline_v20_mode=baseline_v20_mode,
         )
-        cds_tier: LicenseTrack = (
-            "commercial_clean"
-            if (compliance_track == "commercial_clean" or not use_lineardesign or baseline_v20_mode)
-            else "needs_vendor_license"
-        )
+        cds_tier = _strictest_license_track(str(cds_meta.get("license_track", "commercial_clean")))
         c1 = len(u5_seq)
         c2 = c1 + len(cds_seq)
         c3 = c2 + len(stop_seq)
@@ -467,7 +563,7 @@ def build_linear_mrna_bundle(
                         end=c1,
                         component_id=u5_scaf["scaffold_id"],
                         origin_source=f"modality_scaffolds_v1:{u5_scaf['scaffold_id']}",
-                        license_track=u5_scaf["license"]["license_track"],
+                        license_track=u5_tier,
                         action_taken="selected_from_library",
                     ),
                     SegmentSpan(
@@ -494,7 +590,7 @@ def build_linear_mrna_bundle(
                         end=c4,
                         component_id=u3_scaf["scaffold_id"],
                         origin_source=f"modality_scaffolds_v1:{u3_scaf['scaffold_id']}",
-                        license_track=u3_scaf["license"]["license_track"],
+                        license_track=u3_tier,
                         action_taken="selected_from_library",
                     ),
                     SegmentSpan(
@@ -503,7 +599,7 @@ def build_linear_mrna_bundle(
                         end=c5,
                         component_id=pa_scaf["scaffold_id"],
                         origin_source=f"modality_scaffolds_v1:{pa_scaf['scaffold_id']}",
-                        license_track=pa_scaf["license"]["license_track"],
+                        license_track=pa_tier,
                         action_taken="locked_verbatim",
                     ),
                 ],
@@ -537,6 +633,8 @@ def evaluate_linear_mrna_bundle(
     )
     atlas = load_tissue_mirna_atlas(eff_seed)
     atlas_by_id = {m["mirna_id"]: m for m in atlas.get("mirna_entries", [])}
+    allow_vienna = compliance_track != "commercial_clean"
+    rna_mod = _try_vienna() if allow_vienna else None
 
     chain_reports: list[dict[str, Any]] = []
     for mol in bundle.molecules:
@@ -551,6 +649,7 @@ def evaluate_linear_mrna_bundle(
             three_prime_start=u3_seg.start if u3_seg else None,
             three_prime_end=u3_seg.end if u3_seg else None,
             modality="linear_mrna",
+            compliance_track=compliance_track,
             seed_dir=eff_seed,
         )
         mir_interactions: list[dict[str, Any]] = []
@@ -558,7 +657,7 @@ def evaluate_linear_mrna_bundle(
             if ann.feature_key == "misc_binding" and ann.qualifiers.get("bound_moiety"):
                 mid = ann.qualifiers["bound_moiety"][0]
                 entry = atlas_by_id.get(mid)
-                if entry is not None and _try_vienna() is not None:
+                if entry is not None and rna_mod is not None:
                     s_lo, s_hi = ann.intervals[0]
                     ctx_lo = max(0, s_lo - 50)
                     ctx_hi = min(len(mol.sequence), s_hi + 35)
@@ -576,18 +675,19 @@ def evaluate_linear_mrna_bundle(
                         }
                     )
         cds_seq = mol.get_segment_sequence("cds")
-        rna_mod = _try_vienna()
-        cds_dg = round(float(rna_mod.fold(cds_seq)[1]), 3) if rna_mod is not None else prof["mfe_kcal_mol"]
+        cds_dg: float | None = round(float(rna_mod.fold(cds_seq)[1]), 3) if (rna_mod is not None and cds_seq) else None
+        full_dg: float | None = prof["mfe_kcal_mol"] if rna_mod is not None else None
         chain_reports.append(
             {
                 "molecule_id": mol.molecule_id,
                 "aa_exact_match": mol.translate_cds_protein() == mol.effective_translation_target.protein_sequence,
                 "length_nt": prof["length_nt"],
                 "cds_mfe_kcal_mol": cds_dg,
-                "full_mfe_kcal_mol": prof["mfe_kcal_mol"],
+                "full_mfe_kcal_mol": full_dg,
+                "mfe_scope": "exact_vienna_mfe" if rna_mod is not None else "unavailable_without_approved_thermo_backend",
                 "cai": prof["cai"],
-                "kozak_unpaired_prob": prof["kozak_unpaired_prob"],
-                "aup_mean": prof["aup_mean"],
+                "kozak_unpaired_prob": prof["kozak_unpaired_prob"] if rna_mod is not None else None,
+                "aup_mean": prof["aup_mean"] if rna_mod is not None else None,
                 "cds_uuuu_count": len(re.findall(r"U{4,}", cds_seq)),
                 "mirna_interactions": mir_interactions,
             }
@@ -702,6 +802,33 @@ def build_circrna_bundle(
     sp5_scaf = _scaffold_by_id(scaffolds_doc, spacer5_scaffold_id)
     sp3_scaf = _scaffold_by_id(scaffolds_doc, spacer3_scaffold_id)
 
+    ires_tier = _validate_scaffold_component(
+        ires_scaf,
+        expected_modality="circrna",
+        allowed_categories=("viral_ires", "ires_element"),
+        compliance_track=compliance_track,
+    )
+    pie_tier = _validate_scaffold_component(
+        pie_scaf,
+        expected_modality="circrna",
+        allowed_categories=("pie_group_i_intron",),
+        compliance_track=compliance_track,
+    )
+    sp5_tier = _validate_scaffold_component(
+        sp5_scaf,
+        expected_modality="circrna",
+        allowed_categories=("circrna_spacer_enhancer", "ires_5prime_spacer", "circ_spacer", "homology_spacer"),
+        compliance_track=compliance_track,
+    )
+    sp3_tier = _validate_scaffold_component(
+        sp3_scaf,
+        expected_modality="circrna",
+        allowed_categories=("circrna_spacer_enhancer", "ires_3prime_spacer", "circ_spacer", "homology_spacer"),
+        compliance_track=compliance_track,
+    )
+    utr5_circ_tier = _strictest_license_track(pie_tier, sp5_tier, ires_tier)
+    utr3_circ_tier = _strictest_license_track(sp3_tier, pie_tier)
+
     if pie_scaf["scaffold_id"] == "SCAF-CIRC-PIE-ANABAENA-TRNALEU-GROUP1":
         scar_27 = str(pie_scaf["verified_ligated_27nt_e2_e1_splicing_scar_rna"]).upper()
         e2_scar = scar_27[:8]
@@ -733,7 +860,7 @@ def build_circrna_bundle(
         else protein_target
     )
 
-    cds_seq, cds_origin, _ = _optimize_cds_for_modality(
+    cds_seq, cds_origin, cds_meta = _optimize_cds_for_modality(
         tgt.protein_sequence,
         utr5_rna=utr5_composite[-45:],
         stop_rna=stop_rna,
@@ -745,6 +872,7 @@ def build_circrna_bundle(
         seed=seed,
         baseline_v20_mode=baseline_v20_mode,
     )
+    used_vendor_polisher = False
     if not baseline_v20_mode:
         cds_seq = _uncouple_cds_from_ires_synonymously(cds_seq, tgt.protein_sequence, ires_rna)
         if compliance_track != "commercial_clean":
@@ -758,11 +886,11 @@ def build_circrna_bundle(
                 eliminate_uuuu=True,
                 max_homopolymer=5,
             )
+            used_vendor_polisher = True
 
-    cds_tier: LicenseTrack = (
-        "commercial_clean"
-        if (compliance_track == "commercial_clean" or not use_lineardesign or baseline_v20_mode)
-        else "needs_vendor_license"
+    cds_tier = _strictest_license_track(
+        str(cds_meta.get("license_track", "commercial_clean")),
+        "needs_vendor_license" if used_vendor_polisher else "commercial_clean",
     )
 
     c1 = len(utr5_composite)
@@ -830,8 +958,8 @@ def build_circrna_bundle(
                 start=0,
                 end=c1,
                 component_id=ires_scaf["scaffold_id"],
-                origin_source=f"modality_scaffolds_v1:{pie_scaf['scaffold_id']}+{ires_scaf['scaffold_id']}",
-                license_track="commercial_clean",
+                origin_source=f"modality_scaffolds_v1:{pie_scaf['scaffold_id']}+{sp5_scaf['scaffold_id']}+{ires_scaf['scaffold_id']}",
+                license_track=utr5_circ_tier,
                 action_taken="selected_from_library",
             ),
             SegmentSpan(
@@ -858,7 +986,7 @@ def build_circrna_bundle(
                 end=c4,
                 component_id=sp3_scaf["scaffold_id"],
                 origin_source=f"modality_scaffolds_v1:{sp3_scaf['scaffold_id']}+{pie_scaf['scaffold_id']}",
-                license_track="commercial_clean",
+                license_track=utr3_circ_tier,
                 action_taken="selected_from_library",
             ),
         ],
@@ -877,6 +1005,7 @@ def build_circrna_bundle(
 def evaluate_circrna_bundle(
     bundle: ConstructBundle,
     *,
+    compliance_track: ComplianceProfile = "research_max",
     seed_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Evaluate circRNA PIE junction hairpin insulation, IRES-CDS uncoupling, circular folding, and surrogate_v2 IRES proxy."""
@@ -888,38 +1017,46 @@ def evaluate_circrna_bundle(
     cds_seq = mol.get_segment_sequence("cds")
     u3_seq = mol.get_segment_sequence("three_prime_utr")
 
+    ires_seq = extract_circrna_ires_interval(mol)
     ires_ann = next(
         (a for a in mol.annotations if a.feature_id.startswith("viral_ires_")),
         None,
     )
     if ires_ann is not None:
-        ires_lo, ires_hi = ires_ann.intervals[0]
-        ires_seq = seq[ires_lo:ires_hi]
         ires_scaf_id = ires_ann.qualifiers.get("scaffold_id", [""])[0]
         ires_meta = _scaffold_by_id(scaffolds_doc, ires_scaf_id) if ires_scaf_id else {}
     else:
-        ires_seq = u5_seq[-600:]
         ires_meta = {}
 
     max_ires_cds_comp = _max_exact_antisense_kmer(cds_seq, ires_seq[-480:])
     junction_wrap = seq[-40:] + seq[:40]
-    rna_mod = _try_vienna()
+    allow_vienna = compliance_track != "commercial_clean"
+    rna_mod = _try_vienna() if allow_vienna else None
+    junc_dg: float | None = None
+    cds_dg: float | None = None
+    circ_dg: float | None = None
+    circ_mfe_scope = "unavailable_without_approved_thermo_backend"
     if rna_mod is not None:
-        _, junc_dg = rna_mod.fold(junction_wrap)
-        _, cds_dg = rna_mod.fold(cds_seq)
-        md = rna_mod.md()
-        md.circ = 1
+        _, j_e = rna_mod.fold(junction_wrap)
+        _, c_e = rna_mod.fold(cds_seq)
+        junc_dg = round(float(j_e), 3)
+        cds_dg = round(float(c_e), 3)
         if len(seq) <= 3200:
-            _, circ_dg = rna_mod.fold_compound(seq, md).mfe()
+            md = rna_mod.md()
+            md.circ = 1
+            _, cf_e = rna_mod.fold_compound(seq, md).mfe()
+            circ_dg = round(float(cf_e), 3)
+            circ_mfe_scope = "exact_circular_mfe"
         else:
-            _, circ_dg = rna_mod.fold(seq[:3000])
-    else:
-        junc_dg = -8.0
-        cds_dg = -0.42 * (cds_seq.count("G") + cds_seq.count("C"))
-        circ_dg = -0.42 * (seq.count("G") + seq.count("C"))
+            circ_dg = None
+            circ_mfe_scope = "unavailable_above_3200nt"
 
-    kozak_open = compute_5prime_initiation_openness(
-        cds_seq, utr5_rna=u5_seq[-35:], upstream_nt=15, downstream_nt=30
+    kozak_open: float | None = (
+        compute_5prime_initiation_openness(
+            cds_seq, utr5_rna=u5_seq[-35:], upstream_nt=15, downstream_nt=30
+        )
+        if allow_vienna
+        else None
     )
     sp5_ann = next((a for a in mol.annotations if a.feature_id == "circ_5prime_spacer"), None)
     sp3_ann = next((a for a in mol.annotations if a.feature_id == "circ_3prime_spacer"), None)
@@ -956,9 +1093,10 @@ def evaluate_circrna_bundle(
         "max_ires_cds_complement_nt": max_ires_cds_comp,
         "ires_cargo_uncoupled_ok": max_ires_cds_comp < 12,
         "spacer_insulation_ok": sp5_len >= 35 and sp3_len >= 35,
-        "backsplicing_junction_dg_kcal_mol": round(float(junc_dg), 3),
-        "cds_mfe_kcal_mol": round(float(cds_dg), 3),
-        "circ_mfe_kcal_mol": round(float(circ_dg), 3),
+        "backsplicing_junction_dg_kcal_mol": junc_dg,
+        "cds_mfe_kcal_mol": cds_dg,
+        "circ_mfe_kcal_mol": circ_dg,
+        "circ_mfe_scope": circ_mfe_scope,
         "cai": compute_human_cai(cds_seq),
         "initiation_unpaired_prob": kozak_open,
     }
@@ -985,6 +1123,19 @@ def build_sarna_bundle(
     scaffolds_doc = load_modality_scaffolds(seed_dir)
     scaf_key = _SARNA_SCAFFOLD_BY_KEY.get(replicon_backbone.strip().upper(), replicon_backbone)
     rep_scaf = _scaffold_by_id(scaffolds_doc, scaf_key)
+    rep_tier = _validate_scaffold_component(
+        rep_scaf,
+        expected_modality="sarna",
+        allowed_categories=("alphavirus_replicon_topology", "alphavirus_cis_replicon", "sarna_replicon"),
+        compliance_track=compliance_track,
+    )
+    pa_sarna_scaf = _scaffold_by_id(scaffolds_doc, "SCAF-LIN-POLYA-HOMO-A100-CLEAN")
+    pa_sarna_tier = _validate_scaffold_component(
+        pa_sarna_scaf,
+        expected_modality="linear_mrna",
+        allowed_categories=("poly_a_tail",),
+        compliance_track=compliance_track,
+    )
     cis = rep_scaf["cis_elements_rna"]
 
     u5_leader = str(cis["five_prime_utr_leader_rna"]).upper()
@@ -995,7 +1146,7 @@ def build_sarna_bundle(
 
     utr3_full = str(cis["three_prime_utr_full_rna"]).upper()
     cse_19 = str(cis["three_prime_19nt_cse_rna"]).upper()
-    polya_seq = "A" * 100
+    polya_seq = str(pa_sarna_scaf["sequence_rna"]).upper()
     stop_rna = "UGA"
 
     tgt = (
@@ -1009,7 +1160,7 @@ def build_sarna_bundle(
         else protein_target
     )
 
-    cds_seq, cds_origin, _ = _optimize_cds_for_modality(
+    cds_seq, cds_origin, cds_meta = _optimize_cds_for_modality(
         tgt.protein_sequence,
         utr5_rna=utr5_composite[-45:],
         stop_rna=stop_rna,
@@ -1021,11 +1172,7 @@ def build_sarna_bundle(
         seed=seed,
         baseline_v20_mode=baseline_v20_mode,
     )
-    cds_tier: LicenseTrack = (
-        "commercial_clean"
-        if (compliance_track == "commercial_clean" or not use_lineardesign or baseline_v20_mode)
-        else "needs_vendor_license"
-    )
+    cds_tier = _strictest_license_track(str(cds_meta.get("license_track", "commercial_clean")))
 
     c1 = len(utr5_composite)
     c2 = c1 + len(cds_seq)
@@ -1087,7 +1234,7 @@ def build_sarna_bundle(
                 end=c1,
                 component_id=rep_scaf["scaffold_id"],
                 origin_source=f"modality_scaffolds_v1:{rep_scaf['scaffold_id']}",
-                license_track=rep_scaf["license"]["license_track"],
+                license_track=rep_tier,
                 action_taken="locked_verbatim",
             ),
             SegmentSpan(
@@ -1114,7 +1261,7 @@ def build_sarna_bundle(
                 end=c4,
                 component_id=rep_scaf["scaffold_id"],
                 origin_source=f"modality_scaffolds_v1:{rep_scaf['scaffold_id']}",
-                license_track=rep_scaf["license"]["license_track"],
+                license_track=rep_tier,
                 action_taken="locked_verbatim",
             ),
             SegmentSpan(
@@ -1123,7 +1270,7 @@ def build_sarna_bundle(
                 end=c5,
                 component_id="SCAF-LIN-POLYA-HOMO-A100-CLEAN",
                 origin_source="modality_scaffolds_v1:SCAF-LIN-POLYA-HOMO-A100-CLEAN",
-                license_track="commercial_clean",
+                license_track=pa_sarna_tier,
                 action_taken="locked_verbatim",
             ),
         ],
@@ -1143,6 +1290,7 @@ def evaluate_sarna_bundle(
     bundle: ConstructBundle,
     *,
     replicon_backbone: str | None = None,
+    compliance_track: ComplianceProfile = "research_max",
     seed_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Evaluate saRNA replicon topology, CSE/26S-SGP conservation, and innate-sensing metrics."""
@@ -1188,14 +1336,19 @@ def evaluate_sarna_bundle(
         else:
             break
 
-    rna_mod = _try_vienna()
-    goi_dg = (
+    allow_vienna = compliance_track != "commercial_clean"
+    rna_mod = _try_vienna() if allow_vienna else None
+    goi_dg: float | None = (
         round(float(rna_mod.fold(cds_seq)[1]), 3)
-        if rna_mod is not None
-        else round(-0.42 * (cds_seq.count("G") + cds_seq.count("C")), 3)
+        if (rna_mod is not None and cds_seq)
+        else None
     )
-    kozak_open = compute_5prime_initiation_openness(
-        cds_seq, utr5_rna=u5_seq[-35:], upstream_nt=15, downstream_nt=30
+    kozak_open: float | None = (
+        compute_5prime_initiation_openness(
+            cds_seq, utr5_rna=u5_seq[-35:], upstream_nt=15, downstream_nt=30
+        )
+        if allow_vienna
+        else None
     )
     nsp_len = int(rep_scaf.get("nsp1_4_replicase_region_descriptor", {}).get("length_nt_incl_stop", 7482))
 

@@ -208,6 +208,25 @@ def _extract_choice_message(resp: httpx.Response, *, allow_tool_calls: bool = Tr
     return choice
 
 
+def _project_llm_tool_payload(obj: Any, *, depth: int = 0) -> Any:
+    """Ensure external text reaches the LLM only once in its bounded `<UNTRUSTED_DATA>` quarantined form."""
+    if depth > 12:
+        return "<truncated>"
+    if isinstance(obj, dict):
+        quarantined_bases = {
+            k[:-12] for k in obj if isinstance(k, str) and k.endswith("_quarantined")
+        }
+        out: dict[str, Any] = {}
+        for k, v in obj.items():
+            if isinstance(k, str) and k.endswith("_sandboxed") and k[:-10] in quarantined_bases:
+                continue
+            out[k] = _project_llm_tool_payload(v, depth=depth + 1)
+        return out
+    if isinstance(obj, list):
+        return [_project_llm_tool_payload(x, depth=depth + 1) for x in obj]
+    return obj
+
+
 class LiveDialogueAgent:
     """Executes blank-slate and multi-turn natural language sessions against real tool-calling LLMs."""
 
@@ -229,7 +248,12 @@ class LiveDialogueAgent:
         self.provider = normalize_dialogue_provider(provider)
         self.vault = vault or SecretVault()
         raw_url = base_url or PROVIDER_ENV_MAP[self.provider][1]
-        self.base_url = validate_byo_llm_base_url(raw_url, allow_localhost=False)
+        self._has_custom_base_url = base_url is not None and base_url.strip().rstrip("/") != PROVIDER_ENV_MAP[self.provider][1].rstrip("/")
+        self.base_url = validate_byo_llm_base_url(
+            raw_url,
+            allow_localhost=False,
+            resolve_dns=self._has_custom_base_url,
+        )
         cleaned_model = (model or "").strip()
         self.model = cleaned_model or DEFAULT_PROVIDER_MODELS[self.provider]
         try:
@@ -323,6 +347,10 @@ class LiveDialogueAgent:
             for t in (tools_spec or [])
             if isinstance(t, dict) and isinstance(t.get("function"), dict)
         ]
+        instructions = ""
+        for m in self.messages:
+            if m.get("role") == "system" and isinstance(m.get("content"), str):
+                instructions = m["content"]
         if previous_response_id and pending_tool_outputs:
             payload: dict[str, Any] = {
                 "model": self.model,
@@ -330,25 +358,27 @@ class LiveDialogueAgent:
                 "input": pending_tool_outputs,
                 "reasoning": {"effort": "low"},
             }
+            if instructions:
+                payload["instructions"] = instructions
         else:
-            instructions = ""
             input_items: list[dict[str, Any]] = []
             for m in self.messages:
                 role = m.get("role")
-                if role == "system" and isinstance(m.get("content"), str):
-                    instructions = m["content"]
-                elif role in ("user", "assistant") and isinstance(m.get("content"), str) and m["content"]:
-                    input_items.append({"role": role, "content": m["content"]})
-                elif role == "assistant" and m.get("tool_calls"):
-                    for tc in m["tool_calls"]:
-                        input_items.append(
-                            {
-                                "type": "function_call",
-                                "call_id": tc["id"],
-                                "name": tc["function"]["name"],
-                                "arguments": tc["function"]["arguments"],
-                            }
-                        )
+                if role == "system":
+                    continue
+                if role in ("user", "assistant"):
+                    if isinstance(m.get("content"), str) and m["content"]:
+                        input_items.append({"role": role, "content": m["content"]})
+                    if role == "assistant" and m.get("tool_calls"):
+                        for tc in m["tool_calls"]:
+                            input_items.append(
+                                {
+                                    "type": "function_call",
+                                    "call_id": tc["id"],
+                                    "name": tc["function"]["name"],
+                                    "arguments": tc["function"]["arguments"],
+                                }
+                            )
                 elif role == "tool" and isinstance(m.get("tool_call_id"), str):
                     input_items.append(
                         {
@@ -457,7 +487,10 @@ class LiveDialogueAgent:
             self.provider, self.model, has_tools=bool(tools_spec)
         )
 
-        with httpx.Client(timeout=90.0) as client:
+        if self._has_custom_base_url:
+            validate_byo_llm_base_url(self.base_url, allow_localhost=False, resolve_dns=True)
+
+        with httpx.Client(timeout=90.0, follow_redirects=False) as client:
             if not allow_tools:
                 resp = client.post(
                     f"{self.base_url}/chat/completions",
@@ -566,8 +599,9 @@ class LiveDialogueAgent:
                     self.tool_call_trace.append(trace_entry)
                     if self._on_tool_executed is not None:
                         self._on_tool_executed(trace_entry)
+                    llm_projected = _project_llm_tool_payload(safe_result)
                     serialized_tool_content = redact_secrets_in_text(
-                        json.dumps(safe_result, ensure_ascii=False), extra_secrets=active_secrets
+                        json.dumps(llm_projected, ensure_ascii=False), extra_secrets=active_secrets
                     )
                     self.messages.append(
                         {
