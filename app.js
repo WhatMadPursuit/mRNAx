@@ -29,7 +29,7 @@ const PROVIDER_DISPLAY_NAMES = {
 
 const DEFAULT_PROVIDER_MODELS = {
   deepseek: "deepseek-flash",
-  openai: "gpt-4.1-mini",
+  openai: "gpt-5.4",
   kimi: "moonshot-v1-32k",
   qwen: "qwen-plus",
   gemini: "gemini-2.5-flash",
@@ -37,7 +37,7 @@ const DEFAULT_PROVIDER_MODELS = {
 
 const SUPPORTED_PROVIDER_MODELS = {
   deepseek: ["deepseek-flash", "deepseek-v4-pro", "deepseek-chat"],
-  openai: ["gpt-4.1-mini", "gpt-5.4", "gpt-6.2-astra"],
+  openai: ["gpt-5.4", "gpt-5.5", "gpt-6-astra", "gpt-6.2-astra", "gpt-4.1", "gpt-4.1-mini"],
   kimi: ["moonshot-v1-32k", "kimi-k3"],
   qwen: ["qwen-plus", "qwen3.8-max"],
   gemini: ["gemini-2.5-flash"],
@@ -47,9 +47,12 @@ const MODEL_LABELS = {
   "deepseek-flash": "deepseek-flash (极速)",
   "deepseek-v4-pro": "deepseek-v4-pro (深度推理)",
   "deepseek-chat": "deepseek-chat",
+  "gpt-5.4": "gpt-5.4 (推荐)",
+  "gpt-5.5": "gpt-5.5",
+  "gpt-6-astra": "gpt-6-astra",
+  "gpt-6.2-astra": "gpt-6.2-astra (深度推理)",
+  "gpt-4.1": "gpt-4.1",
   "gpt-4.1-mini": "gpt-4.1-mini",
-  "gpt-5.4": "gpt-5.4",
-  "gpt-6.2-astra": "gpt-6.2-astra",
   "moonshot-v1-32k": "moonshot-v1-32k",
   "kimi-k3": "kimi-k3",
   "qwen-plus": "qwen-plus",
@@ -113,6 +116,17 @@ const SEG_META = {
   replicase_orf: { short: "nsP1-4", colorVar: "var(--seg-utr5)" },
   subgenomic_promoter: { short: "26S SGP", colorVar: "var(--seg-polya)" },
 };
+
+function resolveSegmentMeta(segType, modality) {
+  const base = SEG_META[segType] || { short: segType, colorVar: "var(--accent)" };
+  if (modality === "circrna") {
+    if (segType === "five_prime_utr") return { ...base, short: "PIE + IRES" };
+    if (segType === "three_prime_utr") return { ...base, short: "3′ PIE 臂" };
+  } else if (modality === "sarna") {
+    if (segType === "five_prime_utr") return { ...base, short: "VEEV 5′ 顺式元件 (非全长 nsP1–4)" };
+  }
+  return base;
+}
 
 const METRIC_LABELS = {
   kozak_unpaired_prob: { shortLabel: "5′ 开放度", higherBetter: true, decimals: 4 },
@@ -450,8 +464,14 @@ const state = {
   modalDraftOrigin: null,
   modalInitialAccessToken: null,
   modalInitialByoKeys: null,
+  modalInitialProvider: null,
+  modalInitialModel: null,
+  modalDraftChoseModel: false,
   callerTokenAuthenticated: false,
   userChoseExecMode: false,
+  userChoseModel: false,
+  userChoseBenchChem: false,
+  pendingStoredModel: "",
   activeRequestCount: 0,
   inFlight: false,
   lastFailedTurn: null,
@@ -554,40 +574,224 @@ function extractSandboxedText(val) {
     .trim();
 }
 
+function parseMarkupMarkerClient(raw, ltIdx) {
+  const n = raw.length;
+  const isWs = (ch) => ch === " " || ch === "\t" || ch === "\r" || ch === "\n" || ch === "\f" || ch === "\v";
+  let p = ltIdx + 1;
+  while (p < n && isWs(raw[p])) p += 1;
+  if (p >= n) return null;
+  let isClose = false;
+  if (raw[p] === "/") {
+    isClose = true;
+    p += 1;
+    while (p < n && isWs(raw[p])) p += 1;
+    if (p >= n) return null;
+  }
+  if (raw.slice(p, p + 9).toLowerCase() === "tool_call") {
+    const endKw = p + 9;
+    if (endKw < n && /[A-Za-z0-9_]/.test(raw[endKw])) return null;
+    const gt = raw.indexOf(">", endKw);
+    if (gt === -1) return { kind: "tool_call", isClose, tagName: "tool_call", afterPos: n, unclosed: true };
+    const selfClose = gt > endKw && raw[gt - 1] === "/" && !isClose;
+    return { kind: "tool_call", isClose: isClose || selfClose, tagName: "tool_call", afterPos: gt + 1, unclosed: false };
+  }
+  if (raw[p] !== "|" && raw[p] !== "｜") return null;
+  while (p < n && (raw[p] === "|" || raw[p] === "｜")) p += 1;
+  while (p < n && isWs(raw[p])) p += 1;
+  if (raw.slice(p, p + 4).toLowerCase() !== "dsml") return null;
+  p += 4;
+  if (p < n && raw[p] !== "|" && raw[p] !== "｜" && !isWs(raw[p]) && raw[p] !== ">" && raw[p] !== "/") return null;
+  while (p < n && isWs(raw[p])) p += 1;
+  while (p < n && (raw[p] === "|" || raw[p] === "｜")) p += 1;
+  while (p < n && isWs(raw[p])) p += 1;
+  const nameStart = p;
+  while (p < n && /[A-Za-z0-9_-]/.test(raw[p])) p += 1;
+  const tagName = raw.slice(nameStart, p).toLowerCase();
+  const gt = raw.indexOf(">", p);
+  if (gt === -1) return { kind: "dsml", isClose, tagName, afterPos: n, unclosed: true };
+  const selfClose = gt >= 1 && raw[gt - 1] === "/" && !isClose;
+  if (selfClose) return { kind: "dsml_self", isClose: false, tagName, afterPos: gt + 1, unclosed: false };
+  return { kind: "dsml", isClose, tagName, afterPos: gt + 1, unclosed: false };
+}
+
+function stripLeakedMarkupClient(rawText) {
+  const raw = rawText == null ? "" : String(rawText);
+  if (!raw || !raw.includes("<")) return raw.trim();
+  const out = [];
+  let pos = 0;
+  const n = raw.length;
+  const dsmlStack = [];
+  const dsmlCounts = Object.create(null);
+  let toolDepth = 0;
+  while (pos < n) {
+    const ltIdx = raw.indexOf("<", pos);
+    if (ltIdx === -1) {
+      if (!dsmlStack.length && toolDepth === 0) out.push(raw.slice(pos));
+      break;
+    }
+    const marker = parseMarkupMarkerClient(raw, ltIdx);
+    if (!marker) {
+      let adv = ltIdx + 1;
+      while (adv < n && (raw[adv] === " " || raw[adv] === "\t" || raw[adv] === "\r" || raw[adv] === "\n")) adv += 1;
+      if (adv === ltIdx + 1) adv = Math.min(n, ltIdx + 1);
+      if (!dsmlStack.length && toolDepth === 0) out.push(raw.slice(pos, adv));
+      pos = adv;
+      continue;
+    }
+    if (!dsmlStack.length && toolDepth === 0 && ltIdx > pos) {
+      out.push(raw.slice(pos, ltIdx));
+    }
+    if (marker.kind === "tool_call") {
+      if (marker.unclosed) break;
+      if (marker.isClose) {
+        if (toolDepth > 0) toolDepth -= 1;
+      } else {
+        toolDepth += 1;
+      }
+      pos = marker.afterPos;
+      continue;
+    }
+    if (marker.kind === "dsml_self") {
+      pos = marker.afterPos;
+      continue;
+    }
+    if (marker.unclosed) break;
+    if (marker.isClose) {
+      if (dsmlStack.length) {
+        if (marker.tagName && dsmlCounts[marker.tagName] > 0) {
+          while (dsmlStack.length) {
+            const popped = dsmlStack.pop();
+            dsmlCounts[popped] = Math.max(0, (dsmlCounts[popped] || 0) - 1);
+            if (popped === marker.tagName) break;
+          }
+        } else {
+          const popped = dsmlStack.pop();
+          dsmlCounts[popped] = Math.max(0, (dsmlCounts[popped] || 0) - 1);
+        }
+      }
+    } else {
+      const k = marker.tagName || "";
+      dsmlStack.push(k);
+      dsmlCounts[k] = (dsmlCounts[k] || 0) + 1;
+    }
+    pos = marker.afterPos;
+  }
+  return out.join("").trim();
+}
+
 function formatSafeMarkdown(rawText) {
-  const escaped = escapeHtml(rawText == null ? "" : String(rawText));
+  const escaped = escapeHtml(stripLeakedMarkupClient(rawText));
   const lines = escaped.split(/\r?\n/);
   const out = [];
-  let inList = false;
+  let listType = null;
 
   const formatInline = (line) =>
     line
       .replace(/`([^`\n]+)`/g, "<code>$1</code>")
       .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
 
-  for (const line of lines) {
+  const closeList = () => {
+    if (listType) {
+      out.push(`</${listType}>`);
+      listType = null;
+    }
+  };
+
+  const splitTableCells = (line) => {
+    const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+    return trimmed.split("|").map((c) => c.trim());
+  };
+
+  const isTableDividerLine = (line) => /^\s*\|?\s*:?-{3,}:?(?:\s*\|\s*:?-{3,}:?)+\s*\|?\s*$/.test(line);
+  const isTableRowLine = (line) => {
+    const s = line.trim();
+    return s.includes("|") && splitTableCells(s).length >= 2;
+  };
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+
+    if (isTableRowLine(line) && i + 1 < lines.length && isTableDividerLine(lines[i + 1])) {
+      closeList();
+      const MAX_TABLE_COLS = 16;
+      const MAX_TABLE_ROWS = 120;
+      const MAX_TABLE_CELLS = 1000;
+      const allHeaders = splitTableCells(line);
+      const headers = allHeaders.slice(0, MAX_TABLE_COLS);
+      const colTruncated = allHeaders.length > headers.length;
+      const maxRowsByCells = Math.max(0, Math.floor((MAX_TABLE_CELLS - headers.length) / Math.max(1, headers.length)));
+      const rowCap = Math.min(MAX_TABLE_ROWS, maxRowsByCells);
+      i += 2;
+      const bodyRows = [];
+      let rowTruncated = false;
+      while (i < lines.length && isTableRowLine(lines[i]) && !isTableDividerLine(lines[i])) {
+        if (bodyRows.length < rowCap) {
+          bodyRows.push(splitTableCells(lines[i]).slice(0, headers.length));
+        } else {
+          rowTruncated = true;
+        }
+        i += 1;
+      }
+      i -= 1;
+      const thHtml = headers.map((h) => `<th>${formatInline(h)}</th>`).join("");
+      const tbHtml = bodyRows
+        .map((cells) => {
+          const padded = headers.map((_, idx) => formatInline(cells[idx] || ""));
+          return `<tr>${padded.map((c) => `<td>${c}</td>`).join("")}</tr>`;
+        })
+        .join("");
+      const capNote =
+        colTruncated || rowTruncated
+          ? `<div class="mono meta-muted" style="font-size:10.5px;margin-top:3px;">（表格已按安全上限截断显示 ${headers.length} 列 × ${bodyRows.length} 行）</div>`
+          : "";
+      out.push(`<div class="md-table-wrap"><table class="md-table"><thead><tr>${thHtml}</tr></thead><tbody>${tbHtml}</tbody></table>${capNote}</div>`);
+      continue;
+    }
+
+    const hMatch = line.match(/^\s*#{1,4}\s+(.+)$/);
+    if (hMatch) {
+      closeList();
+      out.push(`<h4 class="md-h">${formatInline(hMatch[1])}</h4>`);
+      continue;
+    }
+
+    const bqMatch = line.match(/^\s*&gt;\s?(.*)$/);
+    if (bqMatch) {
+      closeList();
+      out.push(`<blockquote class="md-quote">${formatInline(bqMatch[1])}</blockquote>`);
+      continue;
+    }
+
     const bulletMatch = line.match(/^\s*[-*•]\s+(.*)$/);
     if (bulletMatch) {
-      if (!inList) {
+      if (listType !== "ul") {
+        closeList();
         out.push("<ul>");
-        inList = true;
+        listType = "ul";
       }
       out.push(`<li>${formatInline(bulletMatch[1])}</li>`);
       continue;
     }
-    if (inList) {
-      out.push("</ul>");
-      inList = false;
+
+    const orderedMatch = line.match(/^\s*\d+[.)]\s+(.*)$/);
+    if (orderedMatch) {
+      if (listType !== "ol") {
+        closeList();
+        out.push("<ol>");
+        listType = "ol";
+      }
+      out.push(`<li>${formatInline(orderedMatch[1])}</li>`);
+      continue;
     }
+
+    closeList();
     if (!line.trim()) {
       out.push("<br/>");
     } else {
       out.push(`<div>${formatInline(line)}</div>`);
     }
   }
-  if (inList) {
-    out.push("</ul>");
-  }
+  closeList();
   return out.join("");
 }
 
@@ -924,7 +1128,7 @@ function syncModelOptions(provider, { skipOpenModal = false } = {}) {
   }
 }
 
-function setModelPreference(modelName) {
+function setModelPreference(modelName, { userInitiated = false } = {}) {
   const raw = String(modelName || "").trim();
   let prov = state.llmProvider || "deepseek";
   let cleaned = raw;
@@ -950,12 +1154,17 @@ function setModelPreference(modelName) {
   state.llmModel = allowed.includes(cleaned)
     ? cleaned
     : (state.defaultModels[prov] || DEFAULT_PROVIDER_MODELS[prov] || allowed[0]);
+  if (userInitiated) {
+    state.userChoseModel = true;
+    state.pendingStoredModel = "";
+    safeStorageSet("local", "mrnax_user_chose_model", "1");
+  }
   safeStorageSet("local", "mrnax_llm_model", state.llmModel);
   syncModelOptions(prov);
   updateAgentAuthPill(null);
 }
 
-function setProviderPreference(value) {
+function setProviderPreference(value, { userInitiated = false } = {}) {
   const select = document.getElementById("cfg-llm-provider");
   const provider = (value || "").trim().toLowerCase();
   const supported =
@@ -965,6 +1174,11 @@ function setProviderPreference(value) {
   state.llmProvider = supported.includes(provider) ? provider : "deepseek";
   state.byoKey = (state.byoKeys && state.byoKeys[state.llmProvider]) || "";
   if (select) select.value = state.llmProvider;
+  if (userInitiated) {
+    state.userChoseModel = true;
+    state.pendingStoredModel = "";
+    safeStorageSet("local", "mrnax_user_chose_model", "1");
+  }
   safeStorageSet("local", "mrnax_llm_provider", state.llmProvider);
   syncModelOptions(state.llmProvider);
   updateAgentAuthPill(null);
@@ -1022,6 +1236,10 @@ function openSettingsModal(focusToken = false) {
   state.modalInitialByoKeys = { ...(state.byoKeys || {}) };
   state.modalDraftByoKeys = { ...(state.byoKeys || {}) };
   state.modalDraftProvider = state.llmProvider || "deepseek";
+  state.modalInitialProvider = state.llmProvider || "deepseek";
+  state.modalInitialModel = state.llmModel || "";
+  state.modalDraftChoseModel = false;
+  state.pendingStoredModel = "";
   setSettingsModalError("");
   const cfgApi = document.getElementById("cfg-api-base");
   const cfgToken = document.getElementById("cfg-access-token");
@@ -1117,8 +1335,19 @@ function initConfig() {
   }
   syncCurrentOriginCredentialsToMap(state.apiBase);
 
-  setProviderPreference(safeStorageGet("local", "mrnax_llm_provider"));
-  setModelPreference(safeStorageGet("local", "mrnax_llm_model") || DEFAULT_PROVIDER_MODELS[state.llmProvider]);
+  const storedProv = safeStorageGet("local", "mrnax_llm_provider");
+  const storedModel = safeStorageGet("local", "mrnax_llm_model");
+  const cleanStoredProv = storedProv ? storedProv.trim().toLowerCase() : "";
+  const isKnownStoredProv = Boolean(cleanStoredProv && getSupportedProviderList().includes(cleanStoredProv));
+  const isUntouchedLegacyDefault =
+    (!cleanStoredProv || cleanStoredProv === "deepseek") &&
+    (!storedModel || storedModel === "deepseek-flash");
+  state.pendingStoredModel = storedModel || "";
+  state.userChoseModel =
+    safeStorageGet("local", "mrnax_user_chose_model") === "1" ||
+    Boolean((isKnownStoredProv && !isUntouchedLegacyDefault) || (storedModel && storedModel !== "deepseek-flash"));
+  setProviderPreference(storedProv);
+  setModelPreference(storedModel || DEFAULT_PROVIDER_MODELS[state.llmProvider]);
 
   if (state.accessToken && !state.startupApiRejected) {
     setExecMode("llm_agent");
@@ -1856,6 +2085,11 @@ function clearSelectedConstructUI() {
   }
   const btnFold = document.getElementById("btn-analyze-structure");
   if (btnFold) btnFold.disabled = true;
+  const modNote = document.getElementById("construct-modality-note");
+  if (modNote) {
+    modNote.hidden = true;
+    modNote.textContent = "";
+  }
   const segInsp = document.getElementById("seg-inspector");
   if (segInsp) segInsp.textContent = "选择候选构建后自动对齐显示区段核苷酸与三联体密码子翻译轨";
 }
@@ -1875,6 +2109,14 @@ function updateExportButtonLabels() {
   }
   const cliBtn = document.getElementById("btn-copy-cli");
   if (cliBtn) cliBtn.disabled = !state.lastCliCommand;
+  const moreMenu = document.getElementById("export-more-menu");
+  if (moreMenu && typeof moreMenu.querySelector === "function") {
+    const sum = moreMenu.querySelector("summary");
+    const anyEnabled = hasCand || Boolean(state.lastCliCommand);
+    if (sum && sum.style) {
+      sum.style.opacity = anyEnabled ? "" : "0.45";
+    }
+  }
   if (gbBtn) {
     if (hasCand) {
       const revTag = `v${String(state.activeVersion).padStart(2, "0")}`;
@@ -1971,7 +2213,11 @@ function openCandidateComparisonModal() {
               <td>全长 · GC%</td>
               <td class="num-col mono">${escapeHtml(candA.length_nt)} nt · ${escapeHtml(candA.full_gc_pct)}%</td>
               <td class="num-col mono">${escapeHtml(candB.length_nt)} nt · ${escapeHtml(candB.full_gc_pct)}%</td>
-              <td class="num-col mono">${escapeHtml(((Number(candB.full_gc_pct) || 0) - (Number(candA.full_gc_pct) || 0)).toFixed(2))}%</td>
+              <td class="num-col mono">${(() => {
+                const lenD = (Number(candB.length_nt) || 0) - (Number(candA.length_nt) || 0);
+                const gcD = (Number(candB.full_gc_pct) || 0) - (Number(candA.full_gc_pct) || 0);
+                return `${escapeHtml(`${lenD >= 0 ? "+" : ""}${lenD} nt`)} · ${escapeHtml(`${gcD >= 0 ? "+" : ""}${gcD.toFixed(2)}%`)}`;
+              })()}</td>
             </tr>
             <tr>
               <td>门禁与序列筛查</td>
@@ -1998,21 +2244,23 @@ function renderCandidates() {
   const header = document.getElementById("cand-thead-row");
   if (header && typeof header.querySelectorAll === "function") {
     header.querySelectorAll("[data-metric]").forEach((el) => el.remove());
-    const gcHeader = header.querySelector('[data-sort="gc"]');
-    for (const axis of axes) {
-      const th = document.createElement("th");
-      th.textContent = axis.label;
-      th.dataset.sort = `metric:${axis.key}`;
-      th.dataset.metric = axis.key;
-      th.tabIndex = 0;
-      th.className = "num-col";
-      header.insertBefore(th, gcHeader);
-    }
-    if (!axes.length && state.candidates.length) {
-      const th = document.createElement("th");
-      th.dataset.metric = "";
-      th.textContent = "指标";
-      header.insertBefore(th, gcHeader);
+    const gcHeader = typeof header.querySelector === "function" ? header.querySelector('[data-sort="gc"]') : null;
+    if (typeof header.insertBefore === "function") {
+      for (const axis of axes) {
+        const th = document.createElement("th");
+        th.textContent = axis.label;
+        th.dataset.sort = `metric:${axis.key}`;
+        th.dataset.metric = axis.key;
+        th.tabIndex = 0;
+        th.className = "num-col";
+        header.insertBefore(th, gcHeader);
+      }
+      if (!axes.length && state.candidates.length) {
+        const th = document.createElement("th");
+        th.dataset.metric = "";
+        th.textContent = "指标";
+        header.insertBefore(th, gcHeader);
+      }
     }
   }
 
@@ -2172,12 +2420,13 @@ function renderTrueScaleMap(cand) {
   const propBar = document.createElement("div");
   propBar.className = "prop-bar";
 
+  const effModality = cand.modality || state.modality || "linear_mrna";
   (cand.segments || []).forEach((seg) => {
     const segLen = Number(seg.length_nt) || 0;
     const rawPct = (segLen / total) * 100;
     const centerPct = cursorPct + rawPct / 2;
     cursorPct += rawPct;
-    const meta = SEG_META[seg.segment_type] || { short: seg.segment_type, colorVar: "var(--accent)" };
+    const meta = resolveSegmentMeta(seg.segment_type, effModality);
     if (seg.segment_type === "stop_cassette") {
       stopPinHtml = `<span class="stop-callout" style="inset-inline-start:${centerPct.toFixed(3)}%;">Stop (${escapeHtml(segLen)}nt) ↓</span>`;
     }
@@ -2201,7 +2450,7 @@ function renderTrueScaleMap(cand) {
   if (cardsBar && typeof cardsBar.appendChild === "function") {
     cardsBar.innerHTML = "";
     (cand.segments || []).forEach((seg) => {
-      const meta = SEG_META[seg.segment_type] || { short: seg.segment_type, colorVar: "var(--accent)" };
+      const meta = resolveSegmentMeta(seg.segment_type, effModality);
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = `seg-card-btn ${seg.segment_type === state.selectedSegType ? "active" : ""}`;
@@ -2499,16 +2748,32 @@ function renderStructureArcSvg(profile) {
     })
     .join("");
 
-  const seqPreview = seq.length > 68 ? `${seq.slice(0, 34)}…${seq.slice(-30)}` : seq;
+  const previewStart = seq.length > 68 ? Math.max(0, Math.min(seq.length - 68, augIdx - 22)) : 0;
+  const previewEnd = Math.min(seq.length, previewStart + 68);
+  const seqPreview = `${previewStart > 0 ? "…" : ""}${seq.slice(previewStart, previewEnd)}${previewEnd < seq.length ? "…" : ""}`;
   const dbPreview = String(initWin.dot_bracket || "");
-  const dbShort = dbPreview.length > 68 ? `${dbPreview.slice(0, 34)}…${dbPreview.slice(-30)}` : dbPreview;
+  const dbShort = dbPreview
+    ? `${previewStart > 0 ? "…" : ""}${dbPreview.slice(previewStart, previewEnd)}${previewEnd < dbPreview.length ? "…" : ""}`
+    : "";
+  const enginesRaw = Array.isArray(profile.engines_used) ? profile.engines_used.join(" + ") : "";
+  const isPureSeqApprox =
+    profile.mfe_method === "pure_seq_gc_approx" || enginesRaw.toLowerCase().includes("pureseqapprox");
+  const activeCandStruct = state.candidates.find((c) => c.bundle_id === state.selectedBundleId);
+  const effStructTrack =
+    profile._requestedTrack || getActiveComplianceTrackForCandidate(activeCandStruct);
+  const isCommercialTrack = effStructTrack === "commercial_clean";
+  const emptyArcText = isPureSeqApprox
+    ? isCommercialTrack
+      ? "商业洁净轨已屏蔽非商用 ViennaRNA（仅展示纯序列滑窗）；切至 SOTA Open 可看配分函数弧图"
+      : "当前网关未启用 ViennaRNA，暂无碱基配分函数弧图（仅展示纯序列滑窗扫描）"
+    : "起始窗口高度开放（零强配对茎环 p≥0.15）";
 
   box.innerHTML = `
     <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="5-prime initiation base-pair probability arc diagram">
       <rect x="${kozakX1}" y="14" width="${kozakW}" height="${baseY - 10}" rx="3" fill="var(--accent-soft)" opacity="0.7" />
       <text x="${(Number(kozakX1) + 4).toFixed(1)}" y="25" fill="var(--accent)" font-family="var(--font-mono)" font-size="9">Kozak [-15,+18]</text>
       <rect x="${(Number(augX1) - 3).toFixed(1)}" y="${baseY - 7}" width="${augRectW}" height="12" rx="2" fill="var(--ok-soft)" stroke="var(--ok)" stroke-width="1.2" />
-      ${arcPaths || `<text x="${W / 2}" y="68" text-anchor="middle" fill="var(--ink-muted)" font-family="var(--font-mono)" font-size="10">起始窗口高度开放（零强配对茎环 p≥0.15）</text>`}
+      ${arcPaths || `<text x="${W / 2}" y="68" text-anchor="middle" fill="var(--ink-muted)" font-family="var(--font-mono)" font-size="10">${escapeHtml(emptyArcText)}</text>`}
       <line x1="${padL}" y1="${baseY}" x2="${W - padR}" y2="${baseY}" stroke="var(--border-strong)" stroke-width="1.5" />
       ${tickSvg}
       <text x="${padL}" y="${H - 15}" fill="var(--ink-secondary)" font-family="var(--font-mono)" font-size="9">${escapeHtml(seqPreview)}</text>
@@ -2615,8 +2880,25 @@ function renderStructureVisuals(profile, chain) {
   const engines = Array.isArray(profile.engines_used) ? profile.engines_used.join(" + ") : "deterministic";
   if (srcBadge) {
     const isVienna = engines.toLowerCase().includes("viennarna");
-    srcBadge.textContent = isVienna ? `ViennaRNA 精确配分函数` : `快速序列热力学扫描`;
-    srcBadge.className = isVienna ? "badge mono ok" : "badge mono teal";
+    const isPureSeqApprox =
+      profile.mfe_method === "pure_seq_gc_approx" || engines.toLowerCase().includes("pureseqapprox");
+    const activeCandBadge = state.candidates.find((c) => c.bundle_id === state.selectedBundleId);
+    const effBadgeTrack =
+      profile._requestedTrack || getActiveComplianceTrackForCandidate(activeCandBadge);
+    const isCommercialTrack = effBadgeTrack === "commercial_clean";
+    if (isVienna) {
+      srcBadge.textContent = "ViennaRNA 精确配分函数";
+      srcBadge.className = "badge mono ok";
+    } else if (isPureSeqApprox && isCommercialTrack) {
+      srcBadge.textContent = "商业洁净轨 · 纯序列滑窗扫描（已屏蔽非商用 ViennaRNA）";
+      srcBadge.className = "badge mono teal";
+    } else if (isPureSeqApprox) {
+      srcBadge.textContent = "纯序列滑窗近似扫描（当前网关未启用 ViennaRNA）";
+      srcBadge.className = "badge mono teal";
+    } else {
+      srcBadge.textContent = "快速序列热力学扫描";
+      srcBadge.className = "badge mono teal";
+    }
   }
 
   const kpiStrip = document.getElementById("structure-kpi-strip");
@@ -2775,6 +3057,13 @@ async function runStructureAnalysisForSelected() {
     include_eternafold: false,
   };
 
+  const btnFold = document.getElementById("btn-analyze-structure");
+  const foldSeqToken = (state.structureButtonSeq = (state.structureButtonSeq || 0) + 1);
+  if (btnFold && isCurrentSelection()) {
+    btnFold.disabled = true;
+    btnFold.textContent = "折叠计算中…";
+  }
+
   try {
     const data = await apiFetch("/api/v1/structure/analyze", {
       method: "POST",
@@ -2783,6 +3072,7 @@ async function runStructureAnalysisForSelected() {
       body: JSON.stringify(payload),
     });
     if (data && data.initiation_window) {
+      data._requestedTrack = effTrack;
       if (reqApiBase === normalizeOrigin(state.apiBase) && reqProjId === state.projectId) {
         state.structureCache[cacheKey] = data;
       }
@@ -2793,9 +3083,18 @@ async function runStructureAnalysisForSelected() {
     }
   } catch {
     // Keep client deterministic structure profile when offline or mocked
+  } finally {
+    const btnNow = document.getElementById("btn-analyze-structure");
+    if (btnNow && state.structureButtonSeq === foldSeqToken) {
+      btnNow.textContent = "热力学折叠校核";
+      btnNow.disabled = !(state.selectedBundleId && state.candidates.length);
+    }
   }
   const fallback = computeClientStructureProfile(chain, effMod);
-  if (fallback && isCurrentSelection()) renderStructureVisuals(fallback, chain);
+  if (fallback) {
+    fallback._requestedTrack = effTrack;
+    if (isCurrentSelection()) renderStructureVisuals(fallback, chain);
+  }
   return fallback;
 }
 
@@ -2846,7 +3145,7 @@ function inspectSegment(cand, seg) {
   state.selectedSegType = seg.segment_type;
   renderTrueScaleMap(cand);
   const fullSub = String(cand.full_sequence || "").slice(seg.start, seg.end);
-  const meta = SEG_META[seg.segment_type] || { short: seg.segment_type };
+  const meta = resolveSegmentMeta(seg.segment_type, cand.modality || state.modality || "linear_mrna");
   const header =
     `${meta.short} [${seg.start}..${seg.end}) · ${seg.length_nt} nt · GC ${seg.gc_pct}% · ` +
     `轨: ${seg.license_track || "commercial_clean"} · 动作: ${seg.action_taken || "verified"} · 来源: ${seg.origin_source || "synthetic"}`;
@@ -2893,6 +3192,22 @@ function selectCandidate(bundleId) {
     const shortSha = String(cand.short_digest || (cand.version_digest || "").slice(0, 10) || "verified");
     if (txtSel) {
       txtSel.textContent = `${humanizeCandidateLabel(cand)}${label} · ${chain.length_nt} nt · GC ${chain.full_gc_pct}% · #${shortSha}`;
+    }
+    const modNote = document.getElementById("construct-modality-note");
+    const chainMod = chain.modality || cand.modality || state.modality || "linear_mrna";
+    if (modNote) {
+      if (chainMod === "sarna") {
+        modNote.hidden = false;
+        modNote.textContent =
+          "说明：当前导出为 VEEV 亚基因组顺式元件盒（不含 ~7.5 kb nsP1–nsP4 复制酶多聚蛋白 ORF；完整自我扩增复制子需按文献拼接 nsP1–4）。";
+      } else if (chainMod === "circrna") {
+        modNote.hidden = false;
+        modNote.textContent =
+          "说明：5′ 侧包含自剪接 PIE 同源臂与 IRES 元件（非线性 5′UTR）；IVT 下单表包含完整线性前体环化模板。";
+      } else {
+        modNote.hidden = true;
+        modNote.textContent = "";
+      }
     }
     renderEnzymeClearance(chain.full_sequence);
     const segs = Array.isArray(chain.segments) ? chain.segments : [];
@@ -2985,7 +3300,7 @@ function renderRevisionLedger(intentDiff) {
     );
     const segHtml = cand.segments
       .map((s) => {
-        const meta = SEG_META[s.segment_type] || { short: s.segment_type, colorVar: "var(--accent)" };
+        const meta = resolveSegmentMeta(s.segment_type, cand.modality || state.modality || "linear_mrna");
         const wPct = (((Number(s.length_nt) || 0) / maxNt) * 100).toFixed(3);
         const mySeq = cand.full_sequence.slice(s.start, s.end);
         const changed = mySeq !== otherSeqMap.get(s.segment_type);
@@ -3077,10 +3392,11 @@ function buildToolTraceHtml(toolCalls, actionTransparency = null, intentDiff = n
 
 function buildTurnActionChipsHtml() {
   if (!state.candidates.length) return "";
+  const isCirc = state.modality === "circrna";
   return `
     <div class="turn-action-chips">
       <button type="button" class="chip mono" data-copilot-act="bspqi">把 BsaI 改成 BspQI</button>
-      <button type="button" class="chip mono" data-copilot-act="circrna">切换 circRNA</button>
+      <button type="button" class="chip mono" data-copilot-act="${isCirc ? "linear" : "circrna"}">${isCirc ? "切换 Linear mRNA" : "切换 circRNA"}</button>
       <button type="button" class="chip mono" data-copilot-act="compare">对比前两名</button>
       <button type="button" class="chip mono" data-copilot-act="ivt">导出 IVT 下单表</button>
     </div>
@@ -3480,6 +3796,35 @@ async function refreshSystemStatus() {
     if (st.supported_llm_models && typeof st.supported_llm_models === "object") {
       state.supportedModels = { ...SUPPORTED_PROVIDER_MODELS, ...st.supported_llm_models };
     }
+    if (
+      state.pendingStoredModel &&
+      state.userChoseModel &&
+      getModelsForProvider(state.llmProvider).includes(state.pendingStoredModel)
+    ) {
+      state.llmModel = state.pendingStoredModel;
+      safeStorageSet("local", "mrnax_llm_model", state.llmModel);
+    }
+    state.pendingStoredModel = "";
+    const serverDefProv = String(st.default_llm_provider || "").trim().toLowerCase();
+    const readyProvs = Array.isArray(st.server_llm_providers_ready) ? st.server_llm_providers_ready : [];
+    const dlgSettings = document.getElementById("modal-settings");
+    const modalOpen = Boolean(dlgSettings && dlgSettings.open);
+    if (
+      st.caller_token_authenticated &&
+      !state.userChoseModel &&
+      !modalOpen &&
+      state.activeVersion === 0 &&
+      serverDefProv &&
+      getSupportedProviderList().includes(serverDefProv) &&
+      (!readyProvs.length || readyProvs.includes(serverDefProv)) &&
+      state.llmProvider !== serverDefProv
+    ) {
+      state.llmProvider = serverDefProv;
+      state.llmModel = state.defaultModels[serverDefProv] || DEFAULT_PROVIDER_MODELS[serverDefProv] || state.llmModel;
+      state.byoKey = (state.byoKeys && state.byoKeys[serverDefProv]) || "";
+      const cfgProv = document.getElementById("cfg-llm-provider");
+      if (cfgProv) cfgProv.value = state.llmProvider;
+    }
     syncModelOptions(state.llmProvider, { skipOpenModal: true });
     updateAgentAuthPill(st);
     if (st.caller_token_authenticated && !state.userChoseExecMode && state.activeVersion === 0) {
@@ -3571,10 +3916,11 @@ function beginBusyIndicator(modeLabel, reqEpoch) {
     stopped = true;
     if (timerId !== null && typeof clearInterval === "function") clearInterval(timerId);
     if (pendingCard && typeof pendingCard.remove === "function") pendingCard.remove();
-    if (reqEpoch === state.sessionEpoch) {
-      state.activeRequestCount = Math.max(0, state.activeRequestCount - 1);
-      state.inFlight = state.activeRequestCount > 0;
+    if (reqEpoch !== state.sessionEpoch) {
+      return;
     }
+    state.activeRequestCount = Math.max(0, state.activeRequestCount - 1);
+    state.inFlight = state.activeRequestCount > 0;
     if (!state.inFlight) {
       if (btnSend) {
         btnSend.textContent = getSelectedExecMode() === "llm_agent" ? "发送给 Agent ↵" : "编译生成 ↵";
@@ -4474,9 +4820,13 @@ function renderRulesAtlas(payload) {
   const totalAvail = Number(payload?.total_available || rules.length);
   if (sumStrip) {
     const enforcedCnt = rules.filter((r) => r.enforced_in_generator).length;
+    const offlineTag = payload?.offline_fallback
+      ? `<span class="badge warn mono">离线内置子集（网关连接异常，点刷新重试）</span>`
+      : "";
     sumStrip.innerHTML = `
       <span class="kpi-pill">匹配规律 <strong>${escapeHtml(rules.length)}</strong> / ${escapeHtml(totalAvail)}</span>
       <span class="kpi-pill">生成器强门禁 <strong>${escapeHtml(enforcedCnt)}</strong></span>
+      ${offlineTag}
     `;
   }
 
@@ -4536,6 +4886,14 @@ async function loadScientificRules() {
   const q = (document.getElementById("rules-filter-q")?.value || "").trim();
   const incDeb = Boolean(document.getElementById("rules-chk-debunked")?.checked ?? true);
 
+  const reqSeq = (state.rulesRequestSeq = (state.rulesRequestSeq || 0) + 1);
+  const reqGen = state.configGeneration;
+  const reqOrigin = normalizeOrigin(state.apiBase);
+  const listEl = document.getElementById("rules-list");
+  if (listEl && !state.rulesCache) {
+    listEl.innerHTML = `<div class="panel-surface empty-hint mono" style="grid-column: 1 / -1;">正在检索定量规律…</div>`;
+  }
+
   const params = new URLSearchParams();
   if (mod) params.set("modality", mod);
   if (reg) params.set("region", reg);
@@ -4544,16 +4902,37 @@ async function loadScientificRules() {
   params.set("include_debunked", String(incDeb));
 
   try {
-    const res = await apiFetch(`/api/v1/rules?${params.toString()}`, { includeAuth: false });
+    const res = await apiFetch(`/api/v1/rules?${params.toString()}`, { includeAuth: false, explicitApiBase: reqOrigin });
+    if (
+      reqSeq !== state.rulesRequestSeq ||
+      reqGen !== state.configGeneration ||
+      reqOrigin !== normalizeOrigin(state.apiBase)
+    ) {
+      return null;
+    }
     if (res && Array.isArray(res.rules)) {
       state.rulesCache = res;
       renderRulesAtlas(res);
       return res;
     }
   } catch {
+    if (
+      reqSeq !== state.rulesRequestSeq ||
+      reqGen !== state.configGeneration ||
+      reqOrigin !== normalizeOrigin(state.apiBase)
+    ) {
+      return null;
+    }
     // Offline fallback filtering
   }
 
+  if (
+    reqSeq !== state.rulesRequestSeq ||
+    reqGen !== state.configGeneration ||
+    reqOrigin !== normalizeOrigin(state.apiBase)
+  ) {
+    return null;
+  }
   const filtered = FALLBACK_SCIENTIFIC_RULES.filter((r) => {
     if (!incDeb && r.evidence_grade === "debunked_myth") return false;
     if (grd && r.evidence_grade !== grd) return false;
@@ -4569,6 +4948,7 @@ async function loadScientificRules() {
     total_available: FALLBACK_SCIENTIFIC_RULES.length,
     total_matched: filtered.length,
     rules: filtered,
+    offline_fallback: true,
   };
   state.rulesCache = fallbackPayload;
   renderRulesAtlas(fallbackPayload);
@@ -5174,20 +5554,81 @@ async function resolveTargetProteinInHub(customQuery = null) {
   if (impBtn && typeof impBtn.addEventListener === "function") {
     impBtn.addEventListener("click", () => {
       if (!state.resolvedTarget || !state.resolvedTarget.protein_sequence) return;
+      const importedTarget = { ...state.resolvedTarget };
+      const geneLbl = importedTarget.gene_symbol || importedTarget.uniprot_accession || "目标蛋白";
+      const aaLen = String(importedTarget.protein_sequence).length;
+      state.sessionEpoch += 1;
+      state.turnSequence += 1;
+      state.appliedTurnSequence = state.turnSequence;
+      state.activeRequestCount = 0;
+      state.inFlight = false;
+      state.projectId = `proj_${Math.random().toString(36).slice(2, 8)}`;
+      state.projectKey = mintProjectKey();
+      state.intentHistory = [];
+      state.completedRevisions = [];
+      state.activeVersion = 0;
+      state.activeIntentStatus = "";
+      state.lastFailedTurn = null;
+      state.latestReport = null;
+      state.candidates = [];
+      state.selectedBundleId = null;
+      state.lastCliCommand = "";
+      state.cachedExports = {};
+      state.boundaryAdvisories = [];
+      state.logCount = 0;
+      state.userChoseBenchChem = false;
+
+      const logCnt = document.getElementById("txt-log-count");
+      if (logCnt) logCnt.textContent = "0";
+      if (typeof renderBoundariesModal === "function") renderBoundariesModal();
+      if (typeof renderWelcomeCard === "function") renderWelcomeCard();
+
+      const txtProj = document.getElementById("txt-project-id");
+      if (txtProj) txtProj.textContent = state.projectId;
+      const ledger = document.getElementById("revision-ledger");
+      if (ledger) ledger.hidden = true;
+      const badgeOut = document.getElementById("badge-outcome");
+      if (badgeOut) {
+        badgeOut.textContent = "IDLE";
+        badgeOut.className = "badge mono";
+      }
+      updateActiveRevBadge();
+      renderIntentLineage();
+
+      setModality("linear_mrna");
+      setEntryMode("protein_only");
+      const chemEl = document.getElementById("sel-chemistry");
+      if (chemEl) chemEl.value = "m1psi";
+      setSelectedEnzymes(["BsaI"]);
       const protField = document.getElementById("input-protein");
       if (protField) {
-        protField.value = state.resolvedTarget.protein_sequence;
+        protField.value = importedTarget.protein_sequence;
         state.additionalProteinSequences = [];
         state.proteinAccession =
-          state.resolvedTarget.accession_or_source ||
-          state.resolvedTarget.accession_source ||
-          (state.resolvedTarget.uniprot_accession ? `UniProt:${state.resolvedTarget.uniprot_accession}` : "user_supplied");
+          importedTarget.accession_or_source ||
+          importedTarget.accession_source ||
+          (importedTarget.uniprot_accession ? `UniProt:${importedTarget.uniprot_accession}` : "user_supplied");
         state.userEditedProtein = true;
         updateProteinBadge();
       }
       const utt = document.getElementById("input-utterance");
       if (utt) {
-        utt.value = `从零设计 ${state.resolvedTarget.gene_symbol || "目标蛋白"} (${state.resolvedTarget.uniprot_accession || "UniProt"}) mRNA，m¹Ψ 修饰，避开 BsaI，蛋白序列 100% 锁定。`;
+        utt.value = `从零设计 ${geneLbl} (${importedTarget.uniprot_accession || "UniProt"}) mRNA，m¹Ψ 修饰，避开 BsaI，蛋白序列 100% 锁定。`;
+      }
+      renderCandidates();
+      syncBenchmarkSelectedLabel();
+      if (typeof syncActionControlsDisabled === "function") syncActionControlsDisabled();
+      const btnSend = document.getElementById("btn-send-turn");
+      if (btnSend) {
+        btnSend.textContent = getSelectedExecMode() === "llm_agent" ? "发送给 Agent ↵" : "编译生成 ↵";
+      }
+      const btnForm = document.getElementById("btn-submit-initial");
+      if (btnForm) btnForm.textContent = "按表单直接编译";
+      const banner = document.getElementById("banner-notes");
+      if (banner) {
+        banner.hidden = false;
+        banner.className = "notice-banner";
+        banner.textContent = `已导入新靶点 ${geneLbl} (${aaLen} aa) 并开启全新项目空间 (Linear mRNA / m¹Ψ / 避开 BsaI)，请点击「发送给 Agent」或「编译生成」生成候选序列。`;
       }
       switchWorkspaceTab("studio");
     });
@@ -5199,12 +5640,26 @@ async function resolveTargetProteinInHub(customQuery = null) {
    ============================================================================ */
 function syncBenchmarkSelectedLabel() {
   const lbl = document.getElementById("bench-selected-label");
-  if (!lbl) return;
   const cand = state.candidates.find((c) => c.bundle_id === state.selectedBundleId);
-  if (cand) {
-    lbl.textContent = `当前源：设计台选中 ${humanizeCandidateLabel(cand)} (${cand.length_nt} nt)`;
-  } else {
-    lbl.textContent = "当前源：粘贴或默认 eGFP 参考序列";
+  if (lbl) {
+    if (cand) {
+      lbl.textContent = `当前源：设计台选中 ${humanizeCandidateLabel(cand)} (${cand.length_nt} nt)`;
+    } else {
+      lbl.textContent = "当前源：粘贴或默认 eGFP 参考序列";
+    }
+  }
+  const customSeq = (document.getElementById("bench-custom-seq")?.value || "").trim();
+  const chemSel = document.getElementById("bench-chemistry");
+  if (chemSel && cand && !customSeq && !state.userChoseBenchChem) {
+    const activeMod = cand.modality || state.modality || "linear_mrna";
+    const latestIntent = state.intentHistory.length ? state.intentHistory[state.intentHistory.length - 1] : null;
+    const effChem =
+      activeMod === "circrna" || activeMod === "sarna"
+        ? "unmodified_u"
+        : cand.uridine_chemistry || latestIntent?.uridine_chemistry || "";
+    if (["m1psi", "pseudouridine", "unmodified_u"].includes(effChem)) {
+      chemSel.value = effChem;
+    }
   }
 }
 
@@ -5512,9 +5967,15 @@ function parseAndRenderWetLabFeedback() {
         <line x1="${padL}" y1="${padT + pH}" x2="${W - padR}" y2="${padT}" stroke="var(--border-strong)" stroke-dasharray="4 3" />
         <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + pH}" stroke="var(--border-strong)" />
         <line x1="${padL}" y1="${padT + pH}" x2="${W - padR}" y2="${padT + pH}" stroke="var(--border-strong)" />
+        <text x="${padL - 4}" y="${padT + 4}" text-anchor="end" fill="var(--ink-muted)" font-family="var(--font-mono)" font-size="8.5">${escapeHtml(maxY.toFixed(1))}</text>
+        <text x="${padL - 4}" y="${(padT + pH / 2 + 3).toFixed(1)}" text-anchor="end" fill="var(--ink-muted)" font-family="var(--font-mono)" font-size="8.5">${escapeHtml(((minY + maxY) / 2).toFixed(1))}</text>
+        <text x="${padL - 4}" y="${padT + pH}" text-anchor="end" fill="var(--ink-muted)" font-family="var(--font-mono)" font-size="8.5">${escapeHtml(minY.toFixed(1))}</text>
+        <text x="${padL}" y="${padT + pH + 11}" text-anchor="start" fill="var(--ink-muted)" font-family="var(--font-mono)" font-size="8.5">${escapeHtml(minX.toFixed(1))}</text>
+        <text x="${(padL + pW / 2).toFixed(1)}" y="${padT + pH + 11}" text-anchor="middle" fill="var(--ink-muted)" font-family="var(--font-mono)" font-size="8.5">${escapeHtml(((minX + maxX) / 2).toFixed(1))}</text>
+        <text x="${W - padR}" y="${padT + pH + 11}" text-anchor="end" fill="var(--ink-muted)" font-family="var(--font-mono)" font-size="8.5">${escapeHtml(maxX.toFixed(1))}</text>
         ${dots}
-        <text x="${padL + pW / 2}" y="${H - 6}" text-anchor="middle" fill="var(--ink-secondary)" font-family="var(--font-mono)" font-size="10">Predicted Score (N=${escapeHtml(n)} · r=${escapeHtml(pearson.toFixed(3))})</text>
-        <text x="14" y="${padT + pH / 2}" text-anchor="middle" transform="rotate(-90 14 ${padT + pH / 2})" fill="var(--ink-secondary)" font-family="var(--font-mono)" font-size="10">Observed (${escapeHtml(rows[0].unit)})</text>
+        <text x="${padL + pW / 2}" y="${H - 4}" text-anchor="middle" fill="var(--ink-secondary)" font-family="var(--font-mono)" font-size="10">Predicted Score (N=${escapeHtml(n)} · r=${escapeHtml(pearson.toFixed(3))})</text>
+        <text x="13" y="${padT + pH / 2}" text-anchor="middle" transform="rotate(-90 13 ${padT + pH / 2})" fill="var(--ink-secondary)" font-family="var(--font-mono)" font-size="10">Observed (${escapeHtml(rows[0].unit)})</text>
       </svg>
     `;
   }
@@ -5831,24 +6292,36 @@ function saveSettingsFromModal() {
       [chosenProvider]: chosenByoKey,
     };
   }
+  const modelChangedInModal =
+    Boolean(state.modalDraftChoseModel) ||
+    chosenProvider !== (state.modalInitialProvider || state.llmProvider) ||
+    (Boolean(chosenModel) && chosenModel !== (state.modalInitialModel || state.llmModel));
   state.modalDraftByoKeys = null;
   state.modalInitialOrigin = null;
   state.modalDraftOrigin = null;
   state.modalInitialAccessToken = null;
   state.modalInitialByoKeys = null;
+  state.modalInitialProvider = null;
+  state.modalInitialModel = null;
+  state.modalDraftChoseModel = false;
+  state.pendingStoredModel = "";
 
-  setProviderPreference(chosenProvider);
-  setModelPreference(chosenModel);
+  setProviderPreference(chosenProvider, { userInitiated: modelChangedInModal });
+  setModelPreference(chosenModel, { userInitiated: modelChangedInModal });
   state.byoKey = state.byoKeys[state.llmProvider] || "";
   syncCurrentOriginCredentialsToMap(newOrigin);
 
   if (originChanged) {
     state.systemStatus = null;
+    state.rulesRequestSeq = (state.rulesRequestSeq || 0) + 1;
     state.rulesCache = null;
     state.dataHubCache = null;
     state.structureCache = {};
     resetProjectWorkspaceState({ silent: true });
     clearErrorBanner();
+    if (state.activeTab === "rules" && typeof loadScientificRules === "function") {
+      loadScientificRules();
+    }
   }
 
   if (state.accessToken || state.byoKey) {
@@ -6002,9 +6475,13 @@ function wireEvents() {
   });
 
   document.getElementById("sel-llm-model")?.addEventListener("change", (e) => {
-    setModelPreference(e.target.value);
+    setModelPreference(e.target.value, { userInitiated: true });
+  });
+  document.getElementById("cfg-llm-model")?.addEventListener("change", () => {
+    state.modalDraftChoseModel = true;
   });
   document.getElementById("cfg-llm-provider")?.addEventListener("change", (e) => {
+    state.modalDraftChoseModel = true;
     const cfgByo = document.getElementById("cfg-byo-key");
     if (!state.modalDraftByoKeys) {
       state.modalDraftByoKeys = { ...(state.byoKeys || {}) };
@@ -6140,6 +6617,10 @@ function wireEvents() {
   document.getElementById("preset-no-m")?.addEventListener("click", () => {
     closeOpenDropdowns();
     if (state.inFlight) return;
+    switchWorkspaceTab("studio");
+    if (typeof window !== "undefined" && typeof window.scrollTo === "function") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
     const seq = (state.presets?.egfp_reporter?.protein_sequence) || FALLBACK_EGFP;
     const protEl = document.getElementById("input-protein");
     if (protEl) protEl.value = seq.slice(1);
@@ -6154,6 +6635,10 @@ function wireEvents() {
   document.getElementById("preset-conflict")?.addEventListener("click", () => {
     closeOpenDropdowns();
     if (state.inFlight) return;
+    switchWorkspaceTab("studio");
+    if (typeof window !== "undefined" && typeof window.scrollTo === "function") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
     const seq = (state.presets?.egfp_reporter?.protein_sequence) || FALLBACK_EGFP;
     const protEl = document.getElementById("input-protein");
     if (protEl) protEl.value = seq;
@@ -6426,9 +6911,34 @@ function wireEvents() {
         user_utterance: "把 BsaI 改成避开 BspQI，其余锁定项继承不变",
         restriction_enzymes: ["BspQI"],
       });
-    } else if (act === "circrna") {
-      setModality("circrna");
-      document.getElementById("starter-circ")?.click();
+    } else if (act === "circrna" || act === "linear") {
+      const targetMod = act === "circrna" ? "circrna" : "linear_mrna";
+      const targetScaf = defaultScaffoldForModality(targetMod);
+      const targetChem = targetMod === "circrna" ? "unmodified_u" : "m1psi";
+      const targetUtr =
+        targetMod === "circrna"
+          ? "切换模态为 circRNA（保留当前靶点蛋白与合规轨）"
+          : "切换模态为 Linear mRNA（保留当前靶点蛋白与合规轨）";
+      setModality(targetMod);
+      const scafEl = document.getElementById("sel-scaffold");
+      if (scafEl) scafEl.value = targetScaf;
+      const chemEl = document.getElementById("sel-chemistry");
+      if (chemEl) chemEl.value = targetChem;
+      updateSetupSummary();
+      if (state.intentHistory.length > 0) {
+        runRefineTurn(
+          {
+            mode: "refine",
+            user_utterance: targetUtr,
+            modality: targetMod,
+            scaffold_id: targetScaf,
+            uridine_chemistry: targetChem,
+          },
+          targetUtr
+        );
+      } else {
+        runInitialTurn(targetUtr, { fromForm: true });
+      }
     } else if (act === "compare") {
       openCandidateComparisonModal();
     } else if (act === "ivt") {
@@ -6574,7 +7084,14 @@ function wireEvents() {
   ["rules-filter-modality", "rules-filter-region", "rules-filter-grade", "rules-chk-debunked"].forEach((id) => {
     document.getElementById(id)?.addEventListener("change", loadScientificRules);
   });
-  document.getElementById("rules-filter-q")?.addEventListener("input", loadScientificRules);
+  let rulesDebounceTimer = null;
+  document.getElementById("rules-filter-q")?.addEventListener("input", () => {
+    if (rulesDebounceTimer) clearTimeout(rulesDebounceTimer);
+    rulesDebounceTimer = setTimeout(() => {
+      rulesDebounceTimer = null;
+      loadScientificRules();
+    }, 220);
+  });
   document.getElementById("btn-rules-refresh")?.addEventListener("click", loadScientificRules);
   document.getElementById("btn-rules-lit-search")?.addEventListener("click", runLiteratureSearch);
   document.getElementById("rules-lit-query")?.addEventListener("keydown", (e) => {
@@ -6601,6 +7118,9 @@ function wireEvents() {
   document.getElementById("dh-dataset-filter-q")?.addEventListener("input", renderDataHubDatasetsTable);
 
   // Tab 4: Clinical Benchmark & Wet-Lab Events
+  document.getElementById("bench-chemistry")?.addEventListener("change", () => {
+    state.userChoseBenchChem = true;
+  });
   document.getElementById("btn-run-clinical-bench")?.addEventListener("click", runClinicalBenchmarkCompare);
   document.getElementById("btn-load-sample-wetlab-small")?.addEventListener("click", () => loadWetLabSampleRows(4));
   document.getElementById("btn-load-sample-wetlab-cal")?.addEventListener("click", () => loadWetLabSampleRows(8));

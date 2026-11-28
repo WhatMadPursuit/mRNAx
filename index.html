@@ -4,13 +4,18 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>mRNAx v2.5 · RNA Sequence &amp; Structure Workbench</title>
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231d4ed8'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='monospace' font-weight='700' font-size='15' fill='white'%3EmR%3C/text%3E%3C/svg%3E"
+    />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=2.5.2" />
+    <link rel="stylesheet" href="./styles.css?v=2.5.3" />
   </head>
   <body>
     <!-- Swiss-Grid Top Navigation & Session Status Bar -->
@@ -176,9 +181,12 @@
                     <option value="deepseek::deepseek-chat">deepseek-chat</option>
                   </optgroup>
                   <optgroup label="OpenAI">
+                    <option value="openai::gpt-5.4">gpt-5.4 (推荐)</option>
+                    <option value="openai::gpt-5.5">gpt-5.5</option>
+                    <option value="openai::gpt-6-astra">gpt-6-astra</option>
+                    <option value="openai::gpt-6.2-astra">gpt-6.2-astra (深度推理)</option>
+                    <option value="openai::gpt-4.1">gpt-4.1</option>
                     <option value="openai::gpt-4.1-mini">gpt-4.1-mini</option>
-                    <option value="openai::gpt-5.4">gpt-5.4</option>
-                    <option value="openai::gpt-6.2-astra">gpt-6.2-astra</option>
                   </optgroup>
                   <optgroup label="Kimi">
                     <option value="kimi::moonshot-v1-32k">moonshot-v1-32k</option>
@@ -498,6 +506,7 @@
                   <div class="empty-hint mono">生成后展示真实比例五段分子架构图谱</div>
                 </div>
                 <div class="seg-cards-row" id="seg-bar"></div>
+                <div class="mono meta-muted construct-modality-note" id="construct-modality-note" hidden></div>
               </div>
 
               <!-- 2D Base-Pair Arc Diagram & Synchronized Sliding-Window Profile -->
@@ -941,7 +950,7 @@
           <div class="panel-head">
             <div>
               <span class="sec-kicker">WET-LAB ASSAY INGESTION</span>
-              <h2 class="panel-title">湿实验读数回流与预测-实测一致性散点校核 (ingest_experiment)</h2>
+              <h2 class="panel-title">湿实验读数回流与预测-实测一致性散点校核 <span class="mono meta-muted" style="font-size:11px;font-weight:400;">· 本地预览模式（后端校准持久化将在 v2.6 接入）</span></h2>
             </div>
             <div class="export-bar">
               <button type="button" class="btn-ghost mono" id="btn-load-sample-wetlab-small">
@@ -1102,6 +1111,6 @@
       </div>
     </dialog>
 
-    <script src="./app.js?v=2.5.2"></script>
+    <script src="./app.js?v=2.5.3"></script>
   </body>
 </html>
