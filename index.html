@@ -3,20 +3,20 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>mRNAx v2 · AI-Native Sequence &amp; Pareto Bio-CAD</title>
+    <title>mRNAx v2.5 · RNA Sequence &amp; Structure Workbench</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=2.1.0" />
+    <link rel="stylesheet" href="./styles.css?v=2.5.1" />
   </head>
   <body>
-    <!-- Compact Single-Row Top Bar -->
+    <!-- Swiss-Grid Top Navigation & Session Status Bar -->
     <header class="top-bar">
       <div class="top-left">
-        <span class="wordmark">mRNAx <span class="ver-tag">v2</span></span>
+        <span class="wordmark">mRNAx <span class="ver-tag">v2.5</span></span>
         <span class="sep-slash">/</span>
         <span class="mono meta-id" id="txt-project-id">proj_init</span>
         <span class="rev-pill mono" id="badge-active-rev">v00</span>
@@ -24,18 +24,65 @@
           <span class="dot" id="dot-gateway"></span>
           <span class="mono" id="txt-gateway">连接中...</span>
         </span>
-        <button type="button" class="auth-pill mono warn" id="pill-agent-auth" title="配置 Agent 访问令牌或个人 API Key">
+        <button
+          type="button"
+          class="auth-pill mono warn"
+          id="pill-agent-auth"
+          title="配置 Agent 访问令牌或个人 API Key"
+        >
           Agent: 未解锁 · 点击配置
         </button>
         <span class="mono meta-muted hide-sm" id="pill-engine">Engine: —</span>
       </div>
 
+      <nav class="primary-nav" id="primary-nav-tabs" aria-label="主工作台视图切换">
+        <button
+          type="button"
+          class="nav-tab active"
+          id="tab-btn-studio"
+          data-tab="studio"
+          aria-pressed="true"
+        >
+          设计台
+        </button>
+        <button
+          type="button"
+          class="nav-tab"
+          id="tab-btn-rules"
+          data-tab="rules"
+          aria-pressed="false"
+        >
+          规律库
+        </button>
+        <button
+          type="button"
+          class="nav-tab"
+          id="tab-btn-data"
+          data-tab="data-hub"
+          aria-pressed="false"
+        >
+          数据与模型
+        </button>
+        <button
+          type="button"
+          class="nav-tab"
+          id="tab-btn-benchmarks"
+          data-tab="benchmarks"
+          aria-pressed="false"
+        >
+          实验与基准
+        </button>
+      </nav>
+
       <div class="top-right">
         <button type="button" class="btn-ghost" id="btn-new-session">新建项目</button>
+        <button type="button" class="btn-ghost" id="btn-open-boundaries">
+          边界与方法 <span class="mono count-chip" id="badge-boundary-count" hidden>0</span>
+        </button>
 
         <details class="dropdown-menu" id="diag-menu">
           <summary class="btn-ghost">诊断与测试 ▾</summary>
-          <div class="dropdown-panel">
+          <div class="dropdown-panel dropdown-right">
             <button type="button" class="menu-item" id="btn-run-selftest">
               运行 6/6 全链路实时自测
             </button>
@@ -67,340 +114,835 @@
           type="button"
           class="btn-theme"
           id="btn-theme-toggle"
-          aria-label="切换日光蓝白与哑光石墨深色主题"
+          aria-label="切换浅色与深色科研主题"
         >
-          <span id="txt-theme-label">◐ 石墨深色</span>
+          <span id="txt-theme-label">◐ 深色</span>
         </button>
       </div>
     </header>
 
     <main class="workspace" id="workspace-root">
-      <!-- B-Primary AI-Native Hero Command Bar -->
-      <section class="panel-surface hero-agent-bar" aria-label="AI-Native 设计指令台">
-        <div class="hero-top-row">
-          <div class="hero-title-group">
-            <span class="sec-kicker">DESIGN AGENT</span>
-            <h1 class="hero-title">自然语言智能体设计台</h1>
-          </div>
-
-          <div class="hero-controls">
-            <div class="seg-tabs engine-switch" role="group" aria-label="执行引擎切换">
-              <button type="button" class="tab engine-opt" data-mode="llm_agent" id="btn-mode-agent">
-                AI Agent
-              </button>
-              <button type="button" class="tab engine-opt active" data-mode="deterministic" id="btn-mode-det">
-                确定性状态机
-              </button>
-            </div>
-
-            <label class="inline-model-wrap mono" aria-label="Agent 模型选择">
-              <span class="meta-muted">Model</span>
-              <select id="sel-llm-model" class="ctrl-select ctrl-select-compact mono">
-                <option value="deepseek-flash" selected>deepseek-flash (极速)</option>
-                <option value="deepseek-v4-pro">deepseek-v4-pro (深度推理)</option>
-              </select>
-            </label>
-
-            <span class="badge mono" id="badge-outcome">IDLE</span>
-          </div>
-        </div>
-
-        <div class="hero-composer-row">
-          <textarea
-            id="input-utterance"
-            class="hero-textarea"
-            rows="2"
-            aria-label="自然语言设计指令或单字段微调"
-            placeholder="用自然语言描述 mRNA 设计目标或迭代微调（例如：从零设计 eGFP mRNA，m¹Ψ 修饰，肝脏去靶向，避开 BsaI；生成后可直接追问“把 BsaI 改成 BspQI”或“解释前两条权衡”）..."
-          ></textarea>
-          <button type="button" class="btn-primary hero-send-btn" id="btn-send-turn">
-            编译生成 ↵
-          </button>
-        </div>
-
-        <div class="hero-starters" role="group" aria-label="快速科研任务模板">
-          <span class="sec-kicker">STARTERS</span>
-          <button type="button" class="chip mono starter-chip" id="starter-egfp">
-            设计 eGFP (m¹Ψ · 去肝脏 · 0-cut BsaI)
-          </button>
-          <button type="button" class="chip mono starter-chip" id="starter-ref-r">
-            参考 R 双轨对比 (最小改动 A vs 探索 B)
-          </button>
-          <button type="button" class="chip mono starter-chip" id="starter-commercial">
-            纯商用四头代理 (commercial_clean)
-          </button>
-          <button type="button" class="chip mono starter-chip" id="starter-tradeoffs">
-            解释当前候选权衡
-          </button>
-        </div>
-      </section>
-
-      <!-- Collapsible Bio-CAD Parameter Tray (Collapsed by default in B-Primary layout) -->
-      <details class="setup-fold" id="setup-fold">
-        <summary class="setup-summary">
-          <div class="setup-summary-left">
-            <span class="sec-kicker">BIO SPEC</span>
-            <span class="mono" id="setup-collapsed-summary">
-              eGFP · 239 aa · m1psi · research_max · 0-cut:BsaI · miR-122
-            </span>
-          </div>
-          <span class="setup-toggle-hint mono">展开生物参数台 ▾</span>
-        </summary>
-
-        <div class="setup-grid">
-          <!-- Column 1: Target Protein & Entry Mode -->
-          <div class="setup-col">
-            <div class="col-head">
-              <div class="seg-tabs" role="tablist" aria-label="设计入口">
-                <button type="button" class="tab active" data-entry="protein_only">
-                  入口一 · 仅蛋白
-                </button>
-                <button type="button" class="tab" data-entry="with_r">
-                  入口二 · 蛋白 + 参考 R
-                </button>
-              </div>
-              <span class="badge mono" id="badge-aa-len">239 aa · M✓</span>
-            </div>
-
-            <textarea
-              id="input-protein"
-              class="seq-textarea mono"
-              rows="3"
-              aria-label="目标氨基酸序列"
-              spellcheck="false"
-            ></textarea>
-
-            <div id="box-ref-r" class="ref-r-strip mono" hidden>
-              <span class="kicker-inline">REF R:</span>
-              <span id="txt-ref-r-preview">加载预设参考构建 R...</span>
-            </div>
-          </div>
-
-          <!-- Column 2: Chemistry, Track & Linearization Enzymes -->
-          <div class="setup-col">
-            <div class="field-row-2">
-              <label class="field-lbl">
-                <span>尿苷化学修饰</span>
-                <select id="sel-chemistry" class="ctrl-select">
-                  <option value="m1psi" selected>m¹Ψ (N1-甲基假尿苷)</option>
-                  <option value="5mou">5moU (5-甲氧基尿苷)</option>
-                  <option value="pseudouridine">Ψ (假尿苷)</option>
-                  <option value="unmodified_u">U (未修饰尿苷)</option>
-                </select>
-              </label>
-
-              <label class="field-lbl">
-                <span>合规档位</span>
-                <select id="sel-profile" class="ctrl-select">
-                  <option value="research_max" selected>research_max (含 ViennaRNA)</option>
-                  <option value="commercial_clean">commercial_clean (纯商用洁净)</option>
-                </select>
-              </label>
-            </div>
-
-            <div class="field-lbl">
-              <span>线性化内切酶禁区 (0 cuts)</span>
-              <div class="chip-group" id="enzyme-chips" role="group" aria-label="禁用内切酶">
-                <button type="button" class="chip selected mono" data-enz="BsaI">BsaI</button>
-                <button type="button" class="chip mono" data-enz="BspQI">BspQI</button>
-                <button type="button" class="chip mono" data-enz="BsmBI">BsmBI</button>
-                <button type="button" class="chip mono" data-enz="SapI">SapI</button>
-                <button type="button" class="chip mono" data-enz="EcoRI">EcoRI</button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Column 3: Modules, Execution Engine & Direct Form Compile CTA -->
-          <div class="setup-col setup-col-cta">
-            <label class="field-lbl">
-              <span>编译引擎</span>
-              <select id="sel-exec-mode" class="ctrl-select">
-                <option value="deterministic" selected>确定性状态机 (零延迟)</option>
-                <option value="llm_agent">LLM Agent 工具编排</option>
-              </select>
-            </label>
-
-            <div class="check-group">
-              <label class="chk-row">
-                <input type="checkbox" id="chk-detarget-liver" checked />
-                <span>3′UTR hsa-miR-122 肝脏去靶向盒</span>
-              </label>
-              <label class="chk-row">
-                <input type="checkbox" id="chk-late-signal" />
-                <span>优先 48h 后期持续表达目标</span>
-              </label>
-            </div>
-
-            <button type="button" class="btn-primary" id="btn-submit-initial">
-              按表单直接编译
-            </button>
-          </div>
-        </div>
-      </details>
-
-      <!-- Always-Visible Guardrail / Error / Compliance Banner -->
+      <!-- Strictly Scoped Error / Clarification / Auth Banner (Zero Debug Clutter on Normal Runs) -->
       <section id="banner-notes" class="notice-banner" role="status" aria-live="polite" hidden></section>
 
-      <!-- Two-Column A+B Fusion Studio: Left Bio-CAD Canvas + Right Sticky Agent Copilot -->
-      <div class="studio-grid" id="studio-grid">
-        <div class="cad-column">
-          <!-- Revision Ledger & Same-Scale v01/v02 Track Comparison -->
-          <section id="revision-ledger" class="panel-surface ledger-panel" hidden>
-            <div class="ledger-header">
-              <div class="ledger-title-group">
-                <span class="sec-kicker">REVISION DIFF</span>
-                <span class="mono ledger-ver" id="ledger-ver-span">v01 → v02</span>
-                <span class="ledger-delta mono" id="ledger-delta-summary"></span>
-              </div>
-              <div class="ledger-locks mono" id="ledger-locks-bar"></div>
-            </div>
-            <div class="dual-scale-tracks" id="dual-scale-tracks"></div>
-          </section>
-
-          <!-- Upper Stage: 2D Pareto Scatter + Sortable Sparkbar Candidate Matrix -->
-          <section class="pareto-stage">
-            <div class="panel-surface pareto-plot-box">
-              <div class="panel-head">
-                <div>
-                  <span class="sec-kicker">PARETO FRONTIER</span>
-                  <h2 class="panel-title" id="pareto-plot-title">多目标权衡前沿</h2>
-                </div>
-                <div class="plot-legend mono">
-                  <span><i class="lg-dot p1"></i>P1 前沿</span>
-                  <span><i class="lg-dot dom"></i>被支配</span>
-                </div>
-              </div>
-              <div class="svg-wrap" id="pareto-svg-wrap">
-                <div class="empty-hint mono">输入需求或点击模板运行后绘制多目标帕累托前沿</div>
+      <!-- ===================================================================
+           TAB 1: 设计台 (Design Studio + Structure Workbench + Copilot Rail)
+           =================================================================== -->
+      <div class="tab-view" id="view-studio">
+        <!-- Scientific Command Bar -->
+        <section class="panel-surface hero-agent-bar" aria-label="mRNA 序列与结构设计指令台">
+          <div class="hero-top-row">
+            <div class="hero-title-group">
+              <span class="sec-kicker">SEQUENCE STUDIO</span>
+              <h1 class="hero-title">序列构建与多目标权衡工作台</h1>
+              <div class="seg-tabs modality-switch" id="modality-switch" role="group" aria-label="RNA 模态切换">
+                <button type="button" class="tab modality-opt active" data-modality="linear_mrna">
+                  Linear mRNA
+                </button>
+                <button type="button" class="tab modality-opt" data-modality="circrna">
+                  circRNA
+                </button>
+                <button type="button" class="tab modality-opt" data-modality="sarna">
+                  saRNA
+                </button>
               </div>
             </div>
 
-            <div class="panel-surface candidate-table-box">
-              <div class="panel-head">
-                <div class="panel-head-left">
-                  <span class="sec-kicker">CANDIDATES</span>
-                  <h2 class="panel-title" id="txt-cand-count">0 条合格候选</h2>
-                </div>
+            <div class="hero-controls">
+              <div class="seg-tabs track-switch" id="track-switch" role="group" aria-label="评估与合规轨道切换">
+                <button type="button" class="tab track-opt active" data-track="research_max">
+                  SOTA Open
+                </button>
+                <button type="button" class="tab track-opt" data-track="commercial_clean">
+                  Commercial Clean
+                </button>
+              </div>
 
-                <div class="export-bar">
-                  <button type="button" class="btn-export-main mono" id="btn-dl-gb" disabled>
-                    GenBank (.gb) ↓
+              <div class="seg-tabs engine-switch" role="group" aria-label="执行引擎切换">
+                <button type="button" class="tab engine-opt" data-mode="llm_agent" id="btn-mode-agent">
+                  AI Agent
+                </button>
+                <button type="button" class="tab engine-opt active" data-mode="deterministic" id="btn-mode-det">
+                  确定性状态机
+                </button>
+              </div>
+
+              <label class="inline-model-wrap mono" aria-label="Agent 模型选择">
+                <span class="meta-muted">Model</span>
+                <select id="sel-llm-model" class="ctrl-select ctrl-select-compact mono">
+                  <option value="deepseek-flash" selected>deepseek-flash (极速)</option>
+                  <option value="deepseek-v4-pro">deepseek-v4-pro (深度推理)</option>
+                </select>
+              </label>
+
+              <span class="badge mono" id="badge-outcome">IDLE</span>
+            </div>
+          </div>
+
+          <div class="hero-composer-row">
+            <textarea
+              id="input-utterance"
+              class="hero-textarea"
+              rows="2"
+              aria-label="自然语言设计指令或单字段微调"
+              placeholder="输入蛋白靶点与工程约束（例如：从零设计 eGFP mRNA，m¹Ψ 修饰，肝脏去靶向，避开 BsaI；生成后可追问“把 BsaI 改成 BspQI”或“对比前两名权衡”）..."
+            ></textarea>
+            <button type="button" class="btn-primary hero-send-btn" id="btn-send-turn">
+              编译生成 ↵
+            </button>
+          </div>
+
+          <div class="hero-starters" role="group" aria-label="快速科研任务模板">
+            <span class="sec-kicker">STARTERS</span>
+            <button type="button" class="chip mono starter-chip" id="starter-egfp">
+              eGFP 报告基因 (m¹Ψ · 去肝脏)
+            </button>
+            <button type="button" class="chip mono starter-chip" id="starter-hepo">
+              hEPO 蛋白替换 (自动查 UniProt)
+            </button>
+            <button type="button" class="chip mono starter-chip" id="starter-dll3">
+              DLL3×CD3 双链双抗
+            </button>
+            <button type="button" class="chip mono starter-chip" id="starter-circ">
+              circRNA (Anabaena PIE · HRV-B3)
+            </button>
+            <button type="button" class="chip mono starter-chip" id="starter-sarna">
+              saRNA (VEEV 复制子)
+            </button>
+            <button type="button" class="chip mono starter-chip" id="starter-ref-r">
+              参考序列 R 双轨对比
+            </button>
+            <button type="button" class="chip mono starter-chip" id="starter-commercial">
+              Commercial Clean 四头代理
+            </button>
+            <button type="button" class="chip mono starter-chip" id="starter-tradeoffs">
+              解释前沿权衡
+            </button>
+          </div>
+        </section>
+
+        <!-- Collapsible Bio-CAD Parameter Tray -->
+        <details class="setup-fold" id="setup-fold">
+          <summary class="setup-summary">
+            <div class="setup-summary-left">
+              <span class="sec-kicker">BIO SPEC</span>
+              <span class="mono" id="setup-collapsed-summary">
+                239 aa · m1psi · research_max · 0-cut:BsaI · miR-122
+              </span>
+            </div>
+            <span class="setup-toggle-hint mono">展开分子工程参数 ▾</span>
+          </summary>
+
+          <div class="setup-grid">
+            <!-- Column 1: Target Protein & Entry Mode -->
+            <div class="setup-col">
+              <div class="col-head">
+                <div class="seg-tabs" role="tablist" aria-label="设计入口">
+                  <button type="button" class="tab active" data-entry="protein_only">
+                    入口一 · 仅蛋白
                   </button>
-                  <details class="dropdown-menu" id="export-more-menu">
-                    <summary class="btn-ghost mono">更多导出 ▾</summary>
-                    <div class="dropdown-panel dropdown-right">
-                      <button type="button" class="menu-item mono" id="btn-dl-rna" disabled>
-                        full_rna.fasta
-                      </button>
-                      <button type="button" class="menu-item mono" id="btn-dl-cds" disabled>
-                        cds_only.fasta
-                      </button>
-                      <button type="button" class="menu-item mono" id="btn-dl-meta" disabled>
-                        chemistry_metadata.json
-                      </button>
-                      <hr class="menu-hr" />
-                      <button type="button" class="menu-item mono" id="btn-copy-cli" disabled>
-                        复制 CLI 重放命令
-                      </button>
+                  <button type="button" class="tab" data-entry="with_r">
+                    入口二 · 蛋白 + 参考 R
+                  </button>
+                </div>
+                <span class="badge mono" id="badge-aa-len">239 aa · M✓</span>
+              </div>
+
+              <textarea
+                id="input-protein"
+                class="seq-textarea mono"
+                rows="3"
+                aria-label="目标氨基酸序列"
+                spellcheck="false"
+              ></textarea>
+
+              <div id="box-ref-r" class="ref-r-strip mono" hidden>
+                <span class="kicker-inline">REF R:</span>
+                <span id="txt-ref-r-preview">加载预设参考构建 R...</span>
+              </div>
+            </div>
+
+            <!-- Column 2: Chemistry, Track, Modality Scaffold & Restriction Enzymes -->
+            <div class="setup-col">
+              <div class="field-row-2">
+                <label class="field-lbl">
+                  <span>尿苷化学修饰</span>
+                  <select id="sel-chemistry" class="ctrl-select">
+                    <option value="m1psi" selected>m¹Ψ (N1-甲基假尿苷)</option>
+                    <option value="5mou">5moU (5-甲氧基尿苷)</option>
+                    <option value="pseudouridine">Ψ (假尿苷)</option>
+                    <option value="unmodified_u">U (未修饰尿苷)</option>
+                  </select>
+                </label>
+
+                <label class="field-lbl">
+                  <span>合规与评估轨道</span>
+                  <select id="sel-profile" class="ctrl-select">
+                    <option value="research_max" selected>research_max (SOTA Open)</option>
+                    <option value="commercial_clean">commercial_clean (商用洁净)</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="field-row-2">
+                <label class="field-lbl">
+                  <span>模态骨架模板</span>
+                  <select id="sel-scaffold" class="ctrl-select mono">
+                    <option value="cap1_hba1_aes_mt_a30l70" selected>Cap1 · HBA1/AES-mtRNR1 · A30L70</option>
+                    <option value="cap1_minimal_structured_3utr">Cap1 · 极简高开放 5′UTR · HBB 3′UTR</option>
+                    <option value="circ_anabaena_hrvb3">circRNA · Anabaena PIE · HRV-B3 IRES</option>
+                    <option value="circ_anabaena_cvb3">circRNA · Anabaena PIE · CVB3 IRES</option>
+                    <option value="sarna_veev_tc83">saRNA · VEEV TC-83 nsP1-4 · 26S SGP</option>
+                  </select>
+                </label>
+
+                <label class="field-lbl">
+                  <span>组织 miRNA 去靶向盒</span>
+                  <select id="sel-detarget-tissue" class="ctrl-select mono">
+                    <option value="liver_mir122" selected>肝脏去靶向 · hsa-miR-122-5p</option>
+                    <option value="hematopoietic_mir142">免疫/髓系去靶向 · hsa-miR-142-3p</option>
+                    <option value="cardiomyocyte_mir1">心肌去靶向 · hsa-miR-1-3p</option>
+                    <option value="endothelial_mir126">内皮去靶向 · hsa-miR-126-3p</option>
+                    <option value="none">不插入组织去靶向盒</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="field-lbl">
+                <span>线性化内切酶禁区 (0 cuts)</span>
+                <div class="chip-group" id="enzyme-chips" role="group" aria-label="禁用内切酶">
+                  <button type="button" class="chip selected mono" data-enz="BsaI">BsaI</button>
+                  <button type="button" class="chip mono" data-enz="BspQI">BspQI</button>
+                  <button type="button" class="chip mono" data-enz="BsmBI">BsmBI</button>
+                  <button type="button" class="chip mono" data-enz="SapI">SapI</button>
+                  <button type="button" class="chip mono" data-enz="EcoRI">EcoRI</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Column 3: Execution Engine & Direct Form Compile CTA -->
+            <div class="setup-col setup-col-cta">
+              <label class="field-lbl">
+                <span>编译引擎</span>
+                <select id="sel-exec-mode" class="ctrl-select">
+                  <option value="deterministic" selected>确定性状态机 (零延迟)</option>
+                  <option value="llm_agent">LLM Agent 工具编排</option>
+                </select>
+              </label>
+
+              <div class="check-group">
+                <label class="chk-row">
+                  <input type="checkbox" id="chk-detarget-liver" checked />
+                  <span>启用 3′UTR hsa-miR-122 肝脏去靶向盒</span>
+                </label>
+                <label class="chk-row">
+                  <input type="checkbox" id="chk-late-signal" />
+                  <span>优先 48h 后期持续表达目标</span>
+                </label>
+              </div>
+
+              <button type="button" class="btn-primary" id="btn-submit-initial">
+                按表单直接编译
+              </button>
+            </div>
+          </div>
+        </details>
+
+        <!-- Two-Column Studio Grid: Left Bio-CAD + Right Sticky Copilot -->
+        <div class="studio-grid" id="studio-grid">
+          <div class="cad-column">
+            <!-- Revision Ledger & Same-Scale v01/v02 Track Comparison -->
+            <section id="revision-ledger" class="panel-surface ledger-panel" hidden>
+              <div class="ledger-header">
+                <div class="ledger-title-group">
+                  <span class="sec-kicker">REVISION DIFF</span>
+                  <span class="mono ledger-ver" id="ledger-ver-span">v01 → v02</span>
+                  <span class="ledger-delta mono" id="ledger-delta-summary"></span>
+                </div>
+                <div class="ledger-locks mono" id="ledger-locks-bar"></div>
+              </div>
+              <div class="dual-scale-tracks" id="dual-scale-tracks"></div>
+            </section>
+
+            <!-- Upper Stage: 2D Pareto Frontier + Candidate Matrix -->
+            <section class="pareto-stage">
+              <div class="panel-surface pareto-plot-box">
+                <div class="panel-head">
+                  <div>
+                    <span class="sec-kicker">PARETO FRONTIER</span>
+                    <h2 class="panel-title" id="pareto-plot-title">多目标权衡前沿</h2>
+                  </div>
+                  <div class="pareto-head-controls">
+                    <select
+                      id="sel-pareto-axes"
+                      class="ctrl-select ctrl-select-compact mono"
+                      aria-label="帕累托双轴指标切换"
+                      hidden
+                    ></select>
+                    <div class="plot-legend mono">
+                      <span><i class="lg-dot p1"></i>P1 前沿</span>
+                      <span><i class="lg-dot dom"></i>次级层</span>
                     </div>
-                  </details>
+                  </div>
+                </div>
+                <div class="svg-wrap" id="pareto-svg-wrap">
+                  <div class="empty-hint mono">输入目标或选择科研模板运行后绘制二维帕累托前沿</div>
                 </div>
               </div>
 
-              <div class="table-scroll">
-                <table class="data-table" id="cand-table">
-                  <thead>
-                    <tr id="cand-thead-row">
-                      <th tabindex="0" data-sort="rank">Rank</th>
-                      <th tabindex="0" data-sort="id">Candidate</th>
-                      <th>Origin</th>
-                      <th tabindex="0" data-sort="gc" class="num-col">GC% · Len</th>
-                    </tr>
-                  </thead>
-                  <tbody id="cand-tbody">
-                    <tr>
-                      <td colspan="4" class="empty-cell mono">尚无候选构建</td>
-                    </tr>
-                  </tbody>
-                </table>
+              <div class="panel-surface candidate-table-box">
+                <div class="panel-head">
+                  <div class="panel-head-left">
+                    <span class="sec-kicker">CANDIDATES</span>
+                    <h2 class="panel-title" id="txt-cand-count">0 条合格候选</h2>
+                  </div>
+
+                  <div class="export-bar">
+                    <button type="button" class="btn-ghost mono" id="btn-compare-selected" disabled>
+                      双方案对比
+                    </button>
+                    <button type="button" class="btn-export-main mono" id="btn-dl-gb" disabled>
+                      GenBank (.gb) ↓
+                    </button>
+                    <button type="button" class="btn-ghost mono" id="btn-dl-ivt" disabled>
+                      IVT 下单表 (.csv)
+                    </button>
+                    <button type="button" class="btn-ghost mono" id="btn-dl-dossier" disabled>
+                      QC 报告 (.html)
+                    </button>
+                    <details class="dropdown-menu" id="export-more-menu">
+                      <summary class="btn-ghost mono">更多导出 ▾</summary>
+                      <div class="dropdown-panel dropdown-right">
+                        <button type="button" class="menu-item mono" id="btn-dl-rna" disabled>
+                          full_rna.fasta
+                        </button>
+                        <button type="button" class="menu-item mono" id="btn-dl-cds" disabled>
+                          cds_only.fasta
+                        </button>
+                        <button type="button" class="menu-item mono" id="btn-dl-meta" disabled>
+                          chemistry_metadata.json
+                        </button>
+                        <hr class="menu-hr" />
+                        <button type="button" class="menu-item mono" id="btn-copy-cli" disabled>
+                          复制 CLI 重放命令
+                        </button>
+                      </div>
+                    </details>
+                  </div>
+                </div>
+
+                <div class="table-scroll">
+                  <table class="data-table" id="cand-table">
+                    <thead>
+                      <tr id="cand-thead-row">
+                        <th tabindex="0" data-sort="rank">排序</th>
+                        <th tabindex="0" data-sort="id">方案与门禁</th>
+                        <th>策略来源</th>
+                        <th tabindex="0" data-sort="gc" class="num-col">GC% · 长度</th>
+                      </tr>
+                    </thead>
+                    <tbody id="cand-tbody">
+                      <tr>
+                        <td colspan="4" class="empty-cell mono">尚无候选构建</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+
+            <!-- Construct Architecture Map + 2D Base-Pair Arc & Sliding-Window Structure Tracks -->
+            <section class="panel-surface construct-cad-panel">
+              <div class="panel-head">
+                <div class="cad-title-row">
+                  <span class="sec-kicker">CONSTRUCT &amp; STRUCTURE</span>
+                  <h2 class="panel-title mono" id="txt-selected-bundle">未选择候选</h2>
+                  <span class="mono coord-note">0-based · end-exclusive</span>
+                </div>
+                <div class="cad-head-actions">
+                  <label id="chain-picker" class="inline-chain-picker mono" hidden>
+                    分子
+                    <select id="inspect-chain" class="ctrl-select ctrl-select-compact mono"></select>
+                  </label>
+                  <div class="enzyme-rail mono" id="enzyme-clearance-rail"></div>
+                </div>
+              </div>
+
+              <div class="map-canvas" id="map-canvas">
+                <div class="ruler-row mono" id="ruler-row"></div>
+                <div class="prop-track-wrap" id="prop-track-wrap">
+                  <div class="empty-hint mono">生成后展示真实比例五段分子架构图谱</div>
+                </div>
+                <div class="seg-cards-row" id="seg-bar"></div>
+              </div>
+
+              <!-- 2D Base-Pair Arc Diagram & Synchronized Sliding-Window Profile -->
+              <div class="structure-workbench" id="structure-workbench">
+                <div class="structure-head">
+                  <div class="structure-head-left">
+                    <span class="sec-kicker">SECONDARY STRUCTURE &amp; TRACKS</span>
+                    <span class="badge mono" id="structure-source-badge">待载入候选</span>
+                  </div>
+                  <div class="structure-head-right">
+                    <div class="structure-kpi-strip mono" id="structure-kpi-strip"></div>
+                    <button type="button" class="btn-ghost mono" id="btn-analyze-structure" disabled>
+                      热力学折叠校核
+                    </button>
+                  </div>
+                </div>
+
+                <div class="structure-plots-grid">
+                  <div class="structure-subpanel">
+                    <div class="subpanel-title-row">
+                      <span class="subpanel-title">5′ 起始区碱基配对弧图 [-30, +45]</span>
+                      <span class="mono meta-muted">Kozak [-15, +18] · AUG 高亮</span>
+                    </div>
+                    <div class="arc-svg-box" id="structure-arc-svg-wrap">
+                      <div class="empty-hint mono">选择候选后绘制起始区碱基配对概率弧图</div>
+                    </div>
+                  </div>
+
+                  <div class="structure-subpanel">
+                    <div class="subpanel-title-row">
+                      <span class="subpanel-title">全长滑窗热力学与组成轨迹</span>
+                      <span class="mono meta-muted">局部 MFE · GC% · U% · 开放度</span>
+                    </div>
+                    <div class="track-svg-box" id="structure-track-svg-wrap">
+                      <div class="empty-hint mono">选择候选后同步绘制全长滑窗多轴曲线与风险位点</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="motif-pins-strip mono" id="motif-pins-strip" hidden></div>
+              </div>
+
+              <div class="codon-inspector mono" id="seg-inspector">
+                选择候选构建后自动对齐显示区段核苷酸与三联体密码子翻译轨
+              </div>
+            </section>
+          </div>
+
+          <!-- Right Sticky Scientific Copilot Rail -->
+          <aside class="panel-surface agent-rail" id="agent-rail" aria-label="Agent Copilot 实时对话与迭代栏">
+            <div class="rail-head">
+              <div class="rail-head-top">
+                <div class="rail-title-group">
+                  <span class="sec-kicker">SCIENTIFIC COPILOT</span>
+                  <span class="badge mono" id="rail-model-pill">deepseek-flash</span>
+                </div>
+                <span class="mono meta-muted">记录 <span id="txt-log-count">0</span></span>
+              </div>
+              <div class="intent-lineage mono" id="intent-lineage-bar">等待 v01 建立锁定基线</div>
+            </div>
+
+            <div class="chat-stream rail-chat-stream" id="chat-stream"></div>
+
+            <div class="rail-footer">
+              <div class="quick-actions rail-quick-actions">
+                <button type="button" class="chip mono" id="quick-refine-bspqi" disabled>
+                  把 BsaI 改成 BspQI
+                </button>
+                <button type="button" class="chip mono" id="quick-refine-lock-cds" disabled>
+                  锁定当前 CDS
+                </button>
+                <button type="button" class="chip mono" id="quick-refine-m15-surrogate" disabled>
+                  切换纯商用代理
+                </button>
+                <button type="button" class="chip mono" id="quick-refine-commercial" disabled>
+                  commercial_clean 门禁
+                </button>
+                <button type="button" class="chip mono" id="quick-ask-tradeoffs" disabled>
+                  对比前两名
+                </button>
+              </div>
+
+              <div class="rail-composer-row">
+                <input
+                  type="text"
+                  id="agent-rail-input"
+                  class="refine-input"
+                  aria-label="在侧栏向 Agent 追问或微调"
+                  placeholder="继续追问权衡、对比候选或单点微调..."
+                />
+                <button type="button" class="btn-primary btn-compact" id="btn-agent-rail-send">
+                  发送 ↵
+                </button>
               </div>
             </div>
+          </aside>
+        </div>
+      </div>
+
+      <!-- ===================================================================
+           TAB 2: 规律库 (Scientific Rules Atlas v2.0 & Literature Explorer)
+           =================================================================== -->
+      <div class="tab-view" id="view-rules" hidden>
+        <section class="panel-surface subview-hero">
+          <div class="subview-hero-head">
+            <div>
+              <span class="sec-kicker">SCIENTIFIC RULEBOOK V2.0</span>
+              <h1 class="hero-title">mRNA 定量序列工程规律图谱与文献溯源</h1>
+              <p class="subview-desc">
+                严格执行实验室谱系与底层数据集去重：跨实验室实证（Cross-Lab Verified）要求至少 2 个独立湿实验谱系且方向一致；计算代理输出绝不计作生物复现。
+              </p>
+            </div>
+            <div class="kpi-row mono" id="rules-summary-strip"></div>
+          </div>
+
+          <div class="filter-bar">
+            <label class="field-lbl">
+              <span>模态筛选</span>
+              <select id="rules-filter-modality" class="ctrl-select mono">
+                <option value="">全部模态 (All)</option>
+                <option value="linear_mrna">Linear mRNA</option>
+                <option value="circrna">circRNA</option>
+                <option value="sarna">saRNA</option>
+              </select>
+            </label>
+
+            <label class="field-lbl">
+              <span>分子区段</span>
+              <select id="rules-filter-region" class="ctrl-select mono">
+                <option value="">全部区段 (All)</option>
+                <option value="5'UTR">5′UTR</option>
+                <option value="CDS">CDS</option>
+                <option value="3'UTR">3′UTR</option>
+                <option value="Poly(A)">Poly(A)</option>
+                <option value="circRNA">circRNA</option>
+                <option value="saRNA">saRNA</option>
+              </select>
+            </label>
+
+            <label class="field-lbl">
+              <span>证据等级</span>
+              <select id="rules-filter-grade" class="ctrl-select mono">
+                <option value="">全部等级 (All)</option>
+                <option value="cross_lab_verified">跨实验室实证 (cross_lab_verified)</option>
+                <option value="conditional">条件规律 (conditional)</option>
+                <option value="mechanistic_heuristic">机制启发 (mechanistic_heuristic)</option>
+                <option value="debunked_myth">已证伪误区 (debunked_myth)</option>
+              </select>
+            </label>
+
+            <label class="field-lbl filter-search-lbl">
+              <span>关键词检索</span>
+              <input
+                type="search"
+                id="rules-filter-q"
+                class="ctrl-input"
+                placeholder="搜索 uAUG, Kozak, m1Psi, CAI, IRES, Poly(A)..."
+              />
+            </label>
+
+            <label class="chk-row filter-chk">
+              <input type="checkbox" id="rules-chk-debunked" checked />
+              <span>显示已证伪误区</span>
+            </label>
+
+            <button type="button" class="btn-ghost mono" id="btn-rules-refresh">刷新检索</button>
+          </div>
+        </section>
+
+        <div class="rules-cards-grid" id="rules-list"></div>
+
+        <!-- Clean-Room Literature & Clinical Trial Live Explorer -->
+        <section class="panel-surface subview-section">
+          <div class="panel-head">
+            <div>
+              <span class="sec-kicker">CLEAN-ROOM LITERATURE &amp; TRIALS</span>
+              <h2 class="panel-title">EuropePMC 开放获取许可防火墙与 ClinicalTrials.gov 检索</h2>
+            </div>
+            <div class="inline-search-bar">
+              <input
+                type="search"
+                id="rules-lit-query"
+                class="ctrl-input mono"
+                value="m1Psi ribosomal frameshifting"
+                aria-label="文献与临床试验检索词"
+                placeholder="输入关键词、PMID、DOI 或靶点..."
+              />
+              <button type="button" class="btn-primary btn-compact" id="btn-rules-lit-search">
+                检索文献与临床
+              </button>
+            </div>
+          </div>
+          <div class="subview-body" id="rules-lit-results">
+            <div class="empty-hint mono">输入关键词可查询经 CC-BY-4.0 / CC0 许可防火墙核验的文献及注册临床试验</div>
+          </div>
+        </section>
+      </div>
+
+      <!-- ===================================================================
+           TAB 3: 数据与模型 (Data Hub, OOD Scorecard, Atlas & Live Bio-APIs)
+           =================================================================== -->
+      <div class="tab-view" id="view-data-hub" hidden>
+        <section class="panel-surface subview-hero">
+          <div class="subview-hero-head">
+            <div>
+              <span class="sec-kicker">DATA HUB &amp; MODEL SCORECARD</span>
+              <h1 class="hero-title">三层洁净室数据资产中心、在线蛋白解析与代理模型评测卡</h1>
+              <p class="subview-desc">
+                代码、模型权重与训练/评测数据集三层许可独立审计；在线聚合 UniProt、AlphaFold DB、HPA、GTEx、EuropePMC 与 ClinicalTrials.gov 官方接口。
+              </p>
+            </div>
+            <div class="kpi-row mono" id="dh-summary-strip"></div>
+          </div>
+        </section>
+
+        <!-- Live Target Protein & Literature Quick Lookup -->
+        <section class="panel-surface subview-section">
+          <div class="panel-head">
+            <div>
+              <span class="sec-kicker">LIVE TARGET RESOLVER</span>
+              <h2 class="panel-title">靶点蛋白序列、信号肽拓扑与临床先例实时查询</h2>
+            </div>
+            <div class="inline-search-bar">
+              <input
+                type="search"
+                id="dh-target-query"
+                class="ctrl-input mono"
+                value="EPO"
+                aria-label="靶点基因名或 UniProt 编号"
+                placeholder="输入基因符号或 UniProt 编号 (EPO, FGF21, HER2, Cas9, P01588)..."
+              />
+              <button type="button" class="btn-primary btn-compact" id="btn-resolve-target">
+                解析靶点
+              </button>
+            </div>
+          </div>
+          <div class="subview-body">
+            <div class="chip-group" style="margin-block-end: 10px;">
+              <span class="sec-kicker" style="align-self: center;">常用靶点：</span>
+              <button type="button" class="chip mono dh-quick-target" data-q="EPO">EPO (P01588)</button>
+              <button type="button" class="chip mono dh-quick-target" data-q="FGF21">FGF21</button>
+              <button type="button" class="chip mono dh-quick-target" data-q="ERBB2">HER2 / ERBB2</button>
+              <button type="button" class="chip mono dh-quick-target" data-q="DLL3">DLL3 (Q9NYJ7)</button>
+              <button type="button" class="chip mono dh-quick-target" data-q="EGFP">eGFP</button>
+            </div>
+            <div id="dh-target-result" class="resolver-result-box">
+              <div class="empty-hint mono">点击上方靶点或输入基因名解析氨基酸序列，支持一键导入设计台</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Compiled Engines & Surrogate v2 vs v1 OOD Scorecard -->
+        <div class="two-col-equal">
+          <section class="panel-surface subview-section">
+            <div class="panel-head">
+              <div>
+                <span class="sec-kicker">COMPILED ENGINES</span>
+                <h2 class="panel-title">热力学折叠与序列生成内核状态</h2>
+              </div>
+            </div>
+            <div class="subview-body" id="dh-engines-grid"></div>
           </section>
 
-          <!-- Full-Width True-Scale Linear Sequence CAD + Triplet Codon Inspector -->
-          <section class="panel-surface construct-cad-panel">
+          <section class="panel-surface subview-section">
             <div class="panel-head">
-              <div class="cad-title-row">
-                <span class="sec-kicker">CONSTRUCT MAP</span>
-                <h2 class="panel-title mono" id="txt-selected-bundle">未选择候选</h2>
-                <span class="mono coord-note">0-based · end-exclusive</span>
+              <div>
+                <span class="sec-kicker">OOD SCORECARD</span>
+                <h2 class="panel-title">Surrogate v2 vs v1 跨数据集泛化评测 (Spearman ρ)</h2>
               </div>
-              <label id="chain-picker" hidden>分子 <select id="inspect-chain" class="ctrl-select mono"></select></label>
-              <div class="enzyme-rail mono" id="enzyme-clearance-rail"></div>
             </div>
-
-            <div class="map-canvas" id="map-canvas">
-              <div class="ruler-row mono" id="ruler-row"></div>
-              <div class="prop-track-wrap" id="prop-track-wrap">
-                <div class="empty-hint mono">生成后展示五段真实比例分子图谱</div>
-              </div>
-              <div class="seg-cards-row" id="seg-bar"></div>
-            </div>
-
-            <div class="codon-inspector mono" id="seg-inspector">
-              选择候选构建后自动对齐显示区段核苷酸与三联体密码子翻译轨
-            </div>
+            <div class="subview-body" id="dh-scorecard-table-wrap"></div>
           </section>
         </div>
 
-        <!-- Right Sticky Scientific Copilot Rail (Always Visible by Default) -->
-        <aside class="panel-surface agent-rail" id="agent-rail" aria-label="Agent Copilot 实时对话与迭代栏">
-          <div class="rail-head">
-            <div class="rail-head-top">
-              <div class="rail-title-group">
-                <span class="sec-kicker">AGENT COPILOT</span>
-                <span class="badge mono" id="rail-model-pill">deepseek-flash</span>
+        <!-- Modality Scaffolds & Tissue miRNA Atlas -->
+        <div class="two-col-equal">
+          <section class="panel-surface subview-section">
+            <div class="panel-head">
+              <div>
+                <span class="sec-kicker">MODALITY SCAFFOLDS</span>
+                <h2 class="panel-title">三模态标准分子骨架架构 (Linear / circRNA / saRNA)</h2>
               </div>
-              <span class="mono meta-muted">记录 <span id="txt-log-count">0</span></span>
             </div>
-            <div class="intent-lineage mono" id="intent-lineage-bar">等待 v01 建立锁定基线</div>
-          </div>
+            <div class="subview-body" id="dh-scaffolds-grid"></div>
+          </section>
 
-          <div class="chat-stream rail-chat-stream" id="chat-stream"></div>
-
-          <div class="rail-footer">
-            <div class="quick-actions rail-quick-actions">
-              <button type="button" class="chip mono" id="quick-refine-bspqi" disabled>
-                Δ BsaI → BspQI
-              </button>
-              <button type="button" class="chip mono" id="quick-refine-lock-cds" disabled>
-                锁定当前 CDS
-              </button>
-              <button type="button" class="chip mono" id="quick-refine-m15-surrogate" disabled>
-                M1.5 商用四头代理
-              </button>
-              <button type="button" class="chip mono" id="quick-refine-commercial" disabled>
-                commercial_clean 门禁
-              </button>
-              <button type="button" class="chip mono" id="quick-ask-tradeoffs" disabled>
-                解释 P1 权衡
-              </button>
+          <section class="panel-surface subview-section">
+            <div class="panel-head">
+              <div>
+                <span class="sec-kicker">TISSUE MIRNA ATLAS</span>
+                <h2 class="panel-title">组织特异性内源 miRNA 去靶向开关库</h2>
+              </div>
             </div>
+            <div class="subview-body" id="dh-mirna-grid"></div>
+          </section>
+        </div>
 
-            <div class="rail-composer-row">
+        <!-- Wet-Lab Dataset Catalog & Federated Bio-APIs -->
+        <section class="panel-surface subview-section">
+          <div class="panel-head">
+            <div>
+              <span class="sec-kicker">WET-LAB BENCHMARK CATALOG</span>
+              <h2 class="panel-title" id="dh-catalog-title">湿实验基准数据集与外部官方生物接口台账</h2>
+            </div>
+            <div class="inline-search-bar">
+              <select id="dh-dataset-filter-track" class="ctrl-select ctrl-select-compact mono" aria-label="许可轨道筛选">
+                <option value="">全部许可轨道</option>
+                <option value="commercial_clean">commercial_clean</option>
+                <option value="commercial_clearance_pending">commercial_clearance_pending</option>
+                <option value="quarantine_reference">quarantine_reference</option>
+              </select>
               <input
-                type="text"
-                id="agent-rail-input"
-                class="refine-input"
-                aria-label="在侧栏向 Agent 追问或微调"
-                placeholder="继续追问权衡、对比候选或单点微调..."
+                type="search"
+                id="dh-dataset-filter-q"
+                class="ctrl-input mono"
+                aria-label="数据集搜索"
+                placeholder="筛选 GEO 编号、化学修饰或读出指标..."
               />
-              <button type="button" class="btn-primary btn-compact" id="btn-agent-rail-send">
-                发送 ↵
+            </div>
+          </div>
+          <div class="table-scroll table-scroll-tall">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>资产编号 / 名称</th>
+                  <th>模态 · 区段</th>
+                  <th>化学修饰</th>
+                  <th class="num-col">样本规模</th>
+                  <th>实验读出</th>
+                  <th>三层许可轨道</th>
+                </tr>
+              </thead>
+              <tbody id="dh-datasets-tbody"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <!-- ===================================================================
+           TAB 4: 实验与基准 (Clinical Benchmarks & Wet-Lab Feedback Loop)
+           =================================================================== -->
+      <div class="tab-view" id="view-benchmarks" hidden>
+        <section class="panel-surface subview-hero">
+          <div class="subview-hero-head">
+            <div>
+              <span class="sec-kicker">CLINICAL BENCHMARKS &amp; WET-LAB LOOP</span>
+              <h1 class="hero-title">已获批/临床参考构建横向对比与湿实验双速校准闭环</h1>
+              <p class="subview-desc">
+                将当前设计候选或外源序列与公开临床/标准参考序列逐项对比组成差异，并按样本量门槛（N&lt;6 仅切换锚点、N≥6 解锁项目级校准）回流湿实验读数。
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Clinical Benchmark Delta Comparator -->
+        <section class="panel-surface subview-section">
+          <div class="panel-head">
+            <div>
+              <span class="sec-kicker">CLINICAL BENCHMARK COMPARATOR</span>
+              <h2 class="panel-title">候选构建 vs 公开临床 / 标准参考序列差值分析</h2>
+            </div>
+            <div class="inline-search-bar">
+              <span class="mono meta-muted" id="bench-selected-label">当前源：粘贴或默认测试序列</span>
+              <button type="button" class="btn-primary btn-compact" id="btn-run-clinical-bench">
+                运行临床基准对比
               </button>
             </div>
           </div>
-        </aside>
+
+          <div class="subview-body">
+            <div class="bench-controls-grid">
+              <label class="field-lbl">
+                <span>待对比 RNA/DNA 序列（若设计台已选候选，留空将优先对比当前选中候选）</span>
+                <textarea
+                  id="bench-custom-seq"
+                  class="seq-textarea mono"
+                  rows="2"
+                  spellcheck="false"
+                  placeholder="留空默认使用设计台当前选中候选；也可粘贴任意 ACGU/ACGT 序列直接横向对比..."
+                ></textarea>
+              </label>
+
+              <div class="field-row-2">
+                <label class="field-lbl">
+                  <span>模态过滤</span>
+                  <select id="bench-modality" class="ctrl-select mono">
+                    <option value="">自动 / 全部</option>
+                    <option value="linear_mrna">linear_mrna</option>
+                    <option value="circrna">circrna</option>
+                    <option value="sarna">sarna</option>
+                  </select>
+                </label>
+
+                <label class="field-lbl">
+                  <span>化学修饰标记</span>
+                  <select id="bench-chemistry" class="ctrl-select mono">
+                    <option value="m1psi">m¹Ψ (m1psi)</option>
+                    <option value="pseudouridine">Ψ (pseudouridine)</option>
+                    <option value="unmodified_u">U (unmodified_u)</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+
+            <div class="kpi-row mono" id="bench-cand-kpis" style="margin-block: 10px;"></div>
+
+            <div class="table-scroll table-scroll-tall">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>参考构建 / INN</th>
+                    <th>研发方 · 阶段</th>
+                    <th>模态 · 修饰</th>
+                    <th class="num-col">Δ 全长 GC</th>
+                    <th class="num-col">Δ CDS GC</th>
+                    <th class="num-col">Δ GC3</th>
+                    <th class="num-col">Δ m¹Ψ U4+ 串</th>
+                    <th>序列架构与合规说明</th>
+                  </tr>
+                </thead>
+                <tbody id="bench-delta-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Wet-Lab Feedback Ingestion (Dual-Speed Calibration) -->
+        <section class="panel-surface subview-section" id="wetlab-feedback-panel">
+          <div class="panel-head">
+            <div>
+              <span class="sec-kicker">WET-LAB ASSAY INGESTION</span>
+              <h2 class="panel-title">湿实验读数回流与预测-实测一致性散点校核 (ingest_experiment)</h2>
+            </div>
+            <div class="export-bar">
+              <button type="button" class="btn-ghost mono" id="btn-load-sample-wetlab-small">
+                载入小样本示例 (N=4 · 仅切换锚点)
+              </button>
+              <button type="button" class="btn-ghost mono" id="btn-load-sample-wetlab-cal">
+                载入批次校准示例 (N=8 · 解锁校准)
+              </button>
+              <button type="button" class="btn-primary btn-compact" id="btn-parse-wetlab">
+                解析并绘制散点
+              </button>
+            </div>
+          </div>
+
+          <div class="subview-body">
+            <div class="two-col-equal">
+              <div class="wetlab-left">
+                <label class="field-lbl">
+                  <span>粘贴湿实验 CSV 或 JSON 记录（列：construct_id, predicted, observed, assay_unit）</span>
+                  <textarea
+                    id="wetlab-input"
+                    class="seq-textarea mono"
+                    rows="7"
+                    spellcheck="false"
+                  ></textarea>
+                </label>
+                <div id="wetlab-gate-banner" class="dual-speed-box mono"></div>
+              </div>
+
+              <div class="wetlab-right">
+                <div class="svg-wrap" id="wetlab-svg-wrap">
+                  <div class="empty-hint mono">载入或粘贴湿实验批次数据后绘制 Predicted vs Observed 散点图</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
     </main>
 
@@ -419,7 +961,7 @@
         </label>
         <p id="cfg-settings-error" class="dlg-error mono" role="alert" hidden></p>
         <label class="field-lbl">
-          <span>Gateway Access Token（解锁服务器 DeepSeek 托管队列；仅存当前标签页内存）</span>
+          <span>Gateway Access Token（解锁服务器托管模型队列；仅存当前标签页内存）</span>
           <input type="password" id="cfg-access-token" class="ctrl-input mono" autocomplete="off" />
         </label>
         <div class="field-row-2">
@@ -446,7 +988,7 @@
           <input type="password" id="cfg-byo-key" class="ctrl-input mono" autocomplete="off" />
         </label>
         <p class="dlg-hint mono">
-          提示：可使用 <code>#token=...</code> URL 片段临时导入凭证；页面加载后会立即清除地址栏片段并仅保存在当前标签页内存（不写入 localStorage/sessionStorage），但浏览器书签本身仍会保留原始 URL。
+          提示：可使用 <code>#token=...</code> URL 片段临时导入凭证；页面加载后会立即清除地址栏片段并仅保存在当前标签页内存（不写入 localStorage/sessionStorage）。
         </p>
       </div>
       <div class="dlg-foot">
@@ -479,6 +1021,51 @@
       </div>
     </dialog>
 
-    <script src="./app.js?v=2.1.0"></script>
+    <!-- Native Modal Dialog 3: Scientific & Legal Boundaries Drawer -->
+    <dialog id="modal-boundaries" class="native-dialog dlg-wide" closedby="any" aria-labelledby="dlg-boundaries-title">
+      <div class="dlg-head">
+        <h1 id="dlg-boundaries-title" class="dlg-title">科学假设边界、双轨 FTO 与洁净室方法声明</h1>
+        <form method="dialog">
+          <button type="submit" value="cancel" class="btn-ghost mono" aria-label="关闭边界说明">✕</button>
+        </form>
+      </div>
+      <div class="dlg-body" id="boundaries-body"></div>
+      <div class="dlg-foot">
+        <button type="button" class="btn-ghost" id="btn-close-boundaries">关闭</button>
+      </div>
+    </dialog>
+
+    <!-- Native Modal Dialog 4: Side-by-Side Candidate Comparison -->
+    <dialog id="modal-compare" class="native-dialog dlg-xl" closedby="any" aria-labelledby="dlg-compare-title">
+      <div class="dlg-head">
+        <h1 id="dlg-compare-title" class="dlg-title">候选方案并排对比核验</h1>
+        <form method="dialog">
+          <button type="submit" value="cancel" class="btn-ghost mono" aria-label="关闭对比">✕</button>
+        </form>
+      </div>
+      <div class="dlg-body" id="compare-body"></div>
+      <div class="dlg-foot">
+        <button type="button" class="btn-ghost" id="btn-close-compare">关闭</button>
+      </div>
+    </dialog>
+
+    <!-- Native Modal Dialog 5: QC Dossier Preview & Download -->
+    <dialog id="modal-dossier-preview" class="native-dialog dlg-xl" closedby="any" aria-labelledby="dlg-dossier-title">
+      <div class="dlg-head">
+        <h1 id="dlg-dossier-title" class="dlg-title">构建质量控制与合规核验档案 (QC Dossier)</h1>
+        <form method="dialog">
+          <button type="submit" value="cancel" class="btn-ghost mono" aria-label="关闭档案">✕</button>
+        </form>
+      </div>
+      <div class="dlg-body">
+        <iframe id="dossier-iframe" class="dossier-frame" sandbox="" title="QC Dossier HTML Preview"></iframe>
+      </div>
+      <div class="dlg-foot">
+        <button type="button" class="btn-ghost" id="btn-close-dossier">关闭</button>
+        <button type="button" class="btn-primary btn-compact" id="btn-dl-dossier-file">下载 .html 档案</button>
+      </div>
+    </dialog>
+
+    <script src="./app.js?v=2.5.1"></script>
   </body>
 </html>
