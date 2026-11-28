@@ -14,13 +14,14 @@ APPROVED_SURROGATE_MANIFEST_SHA256: dict[str, str] = {
 }
 
 
-def verify_surrogate_manifest_trust_anchor(
+def verify_surrogate_manifest_bytes_trust_anchor(
     manifest_path: Path,
+    manifest_bytes: bytes,
     *,
     allow_sandbox_override: bool = False,
 ) -> str:
-    """Verify TRAINING_PROVENANCE_MANIFEST.json against pinned release digests unless sandbox override is explicit."""
-    actual = _sha256_file(manifest_path)
+    """Verify in-memory TRAINING_PROVENANCE_MANIFEST.json bytes against pinned release digests without re-reading disk."""
+    actual = hashlib.sha256(manifest_bytes).hexdigest()
     if allow_sandbox_override:
         return actual
     dir_name = manifest_path.parent.name
@@ -36,6 +37,19 @@ def verify_surrogate_manifest_trust_anchor(
             f"Untrusted provenance manifest '{manifest_path}': sha256 {actual} is not pinned in APPROVED_SURROGATE_MANIFEST_SHA256"
         )
     return actual
+
+
+def verify_surrogate_manifest_trust_anchor(
+    manifest_path: Path,
+    *,
+    allow_sandbox_override: bool = False,
+) -> str:
+    """Verify TRAINING_PROVENANCE_MANIFEST.json against pinned release digests unless sandbox override is explicit."""
+    return verify_surrogate_manifest_bytes_trust_anchor(
+        manifest_path,
+        manifest_path.read_bytes(),
+        allow_sandbox_override=allow_sandbox_override,
+    )
 
 
 def _sha256_file(path: Path) -> str:

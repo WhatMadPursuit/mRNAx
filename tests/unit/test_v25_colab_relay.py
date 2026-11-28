@@ -310,9 +310,14 @@ def test_colab_worker_full_cas_lifecycle_heartbeat_and_zero_secret_leakage(
         assert exec_row.winning_attempt_id == res["attempt_id"]
         assert exec_row.winning_sealed_sha256 == res["result_sha256"]
 
-        # Verify standalone CLI subprocess execution via --job-json (auto-submit + clean env)
-        cli_bin = tmp_path / "work" / "lineardesign" / "bin" / "lineardesign"
+        # Verify standalone CLI subprocess execution via --job-json (auto-submit + pinned binary sha256 + immutable artifact)
+        cli_extract = worker_mod.verify_and_extract_tarball(
+            ld_tar, tmp_path / "cli_bin_extract", expected_sha256=ld_sha
+        )
+        cli_bin = cli_extract / "bin" / "lineardesign"
+        cli_bin_sha = worker_mod.compute_file_sha256(cli_bin)
         cli_out = tmp_path / "colab_cli_out.json"
+        cli_receipt = tmp_path / "colab_cli_out.commit_receipt.json"
         job_json_path = tmp_path / "job_spec.json"
         job_json_path.write_text(
             json.dumps({"protein_seq": egfp_prot, "compliance_track": "research_max", "lambdas": [1.0]}),
@@ -326,6 +331,8 @@ def test_colab_worker_full_cas_lifecycle_heartbeat_and_zero_secret_leakage(
                 str(job_json_path),
                 "--lineardesign-bin",
                 str(cli_bin),
+                "--lineardesign-bin-sha256",
+                cli_bin_sha,
                 "--gateway-url",
                 base_url,
                 "--submission-id",
@@ -346,9 +353,13 @@ def test_colab_worker_full_cas_lifecycle_heartbeat_and_zero_secret_leakage(
         assert admin_secret not in proc_cli.stderr
         assert admin_secret not in cli_out.read_text(encoding="utf-8")
         cli_doc = json.loads(cli_out.read_text(encoding="utf-8"))
-        assert cli_doc["status"] == "COMMITTED"
-        assert cli_doc["cas_commit"]["status"] == "COMMITTED"
-        assert cli_doc["cas_commit"]["winning_sealed_file_id"] == str(cli_out.resolve())
+        assert cli_doc["status"] == "COMPUTED"
+        assert cli_receipt.is_file()
+        receipt_doc = json.loads(cli_receipt.read_text(encoding="utf-8"))
+        assert receipt_doc["status"] == "COMMITTED"
+        assert receipt_doc["result_sha256"] == hashlib.sha256(cli_out.read_bytes()).hexdigest()
+        assert receipt_doc["cas_commit"]["status"] == "COMMITTED"
+        assert receipt_doc["cas_commit"]["winning_sealed_file_id"] == str(cli_out.resolve())
 
         # Missing access token against authenticated gateway fails closed with HTTP 401
         import urllib.error
@@ -359,6 +370,7 @@ def test_colab_worker_full_cas_lifecycle_heartbeat_and_zero_secret_leakage(
             worker_mod.run_worker(
                 protein_seq=egfp_prot,
                 lineardesign_bin=cli_bin,
+                lineardesign_bin_sha256=cli_bin_sha,
                 gateway_url=base_url,
                 submission_id="sub_unauth_fail",
             )
@@ -371,6 +383,151 @@ def test_colab_worker_full_cas_lifecycle_heartbeat_and_zero_secret_leakage(
                 dummy_req, io.BytesIO(b""), 302, "Found", {}, "https://evil.example/steal"
             )
         assert redir_exc.value.code == 302
+    finally:
+        server.should_exit = True
+        srv_thread.join(timeout=5.0)
+        sock.close()
+
+
+def test_colab_worker_production_drive_seal_commit_and_security_hardening(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from mrnax.cloud.drive_rest_v3 import DRIVE_FOLDER_MIME, DriveRestV3Client, InMemoryDriveV3Transport
+
+    admin_secret = "tok_ProdSealSecret99887766"
+    drv_transport = InMemoryDriveV3Transport()
+    runs_root_id = drv_transport.create_file(parent_id="root", name="runs", mime_type=DRIVE_FOLDER_MIME)["id"]
+    commits_id = drv_transport.create_file(parent_id="root", name="commits", mime_type=DRIVE_FOLDER_MIME)["id"]
+    drive_client = DriveRestV3Client(drv_transport)
+
+    store = ExecutionCASStore(
+        tmp_path / "prod_cas.sqlite3",
+        drive_verifier=drive_client,
+        commits_snapshot_folder_id=commits_id,
+        runs_root_id=runs_root_id,
+        require_drive_verifier=True,
+    )
+    app = create_control_plane_app(
+        store,
+        projects_root=tmp_path / "projects",
+        seed_dir=SEED_DIR,
+        access_token=admin_secret,
+    )
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("127.0.0.1", 0))
+    sock.listen(16)
+    port = int(sock.getsockname()[1])
+    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error")
+    server = uvicorn.Server(config)
+    srv_thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
+    srv_thread.start()
+    deadline = time.monotonic() + 10.0
+    while not server.started and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert server.started
+
+    try:
+        snap = json.loads((SEED_DIR / "egfp_reporter_snapshot.json").read_text(encoding="utf-8"))
+        egfp_prot: str = snap["mammalian_reporter_egfp"]["protein_sequence"][:20]
+        egfp_cds: str = snap["mammalian_reporter_egfp"]["reference_cds_rna_no_stop"][:60]
+
+        ld_stub_py = (
+            f"#!{sys.executable}\n"
+            "import sys\n"
+            "_ = sys.stdin.read()\n"
+            f"print('mRNA sequence:  {egfp_cds}')\n"
+            "print('mRNA folding free energy: -41.00 kcal/mol; mRNA CAI: 0.890')\n"
+        ).encode("utf-8")
+        ld_tar = tmp_path / "ld_prod.tar.gz"
+        ld_sha = _make_tar_gz(
+            ld_tar,
+            [
+                ("bin/lineardesign", ld_stub_py, 0o755, None),
+                ("bin/coding_wheel.txt", b"wheel\n", 0o644, None),
+                ("bin/codon_usage_freq_table_human.csv", b"codon,freq\n", 0o644, None),
+            ],
+        )
+        monkeypatch.setattr(worker_mod, "PINNED_LINEARDESIGN_TAR_SHA256", ld_sha)
+        monkeypatch.setenv("MRNAX_GATEWAY_ACCESS_TOKEN", admin_secret)
+
+        # Reused --work-dir containing a rogue pre-existing executable must NOT hijack verified extraction
+        reused_work = tmp_path / "reused_work"
+        rogue_dir = reused_work / "lineardesign" / "bin"
+        rogue_dir.mkdir(parents=True, exist_ok=True)
+        (rogue_dir / "lineardesign").write_text("#!/bin/sh\necho HIJACKED\nexit 9\n", encoding="utf-8")
+        (rogue_dir / "lineardesign").chmod(0o755)
+
+        out_art = tmp_path / "prod_result.json"
+        res = worker_mod.run_worker(
+            protein_seq=egfp_prot,
+            compliance_track="research_max",
+            lambdas=(1.0,),
+            lineardesign_tar=ld_tar,
+            work_dir=reused_work,
+            gateway_url=f"http://127.0.0.1:{port}",
+            drive_runs_root_id=runs_root_id,
+            drive_client=drive_client,
+            output_json=out_art,
+        )
+        assert res["status"] == "COMMITTED"
+        assert res["sealed_file_id"] and res["sealed_sha256"]
+        assert hashlib.sha256(out_art.read_bytes()).hexdigest() == res["result_sha256"]
+        row = store.get_execution(res["execution_id"])
+        assert row.status == "COMMITTED"
+        assert row.winning_sealed_file_id == res["sealed_file_id"]
+        assert row.winning_sealed_sha256 == res["sealed_sha256"]
+
+        # Replaying an already-committed submission fails early before acquiring a doomed lease
+        with pytest.raises(RuntimeError, match="already COMMITTED"):
+            worker_mod.run_worker(
+                protein_seq=egfp_prot,
+                compliance_track="research_max",
+                lambdas=(1.0,),
+                lineardesign_tar=ld_tar,
+                gateway_url=f"http://127.0.0.1:{port}",
+                drive_runs_root_id=runs_root_id,
+                drive_client=drive_client,
+            )
+
+        # Conflicting CLI vs --job-json compliance_track fails closed (exit code 2) before lease/extraction
+        conflict_job = tmp_path / "conflict_job.json"
+        conflict_job.write_text(
+            json.dumps({"protein_seq": egfp_prot, "compliance_track": "research_max", "lambdas": [1.0]}),
+            encoding="utf-8",
+        )
+        proc_conflict = subprocess.run(
+            [
+                sys.executable,
+                str(WORKER_SCRIPT),
+                "--job-json",
+                str(conflict_job),
+                "--compliance-track",
+                "commercial_clean",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert proc_conflict.returncode == 2
+        assert "Conflicting compliance_track" in proc_conflict.stderr
+
+        # Empty lambdas list, newline token, private IP gateway, and unsealed HTTPS commit fail closed
+        with pytest.raises(ValueError, match="At least one lambda"):
+            worker_mod.parse_lambdas([])
+        monkeypatch.setenv("MRNAX_GATEWAY_ACCESS_TOKEN", "bad\nsecret")
+        with pytest.raises(ValueError, match="control characters"):
+            worker_mod.run_worker(protein_seq=egfp_prot, lineardesign_tar=ld_tar)
+        monkeypatch.setenv("MRNAX_GATEWAY_ACCESS_TOKEN", admin_secret)
+        with pytest.raises(ValueError, match="Blocked private"):
+            worker_mod.validate_gateway_url("https://10.0.0.5:8443")
+        with pytest.raises(ValueError, match="Remote HTTPS gateway commit requires Drive sealing"):
+            worker_mod.run_worker(
+                protein_seq=egfp_prot,
+                lineardesign_tar=ld_tar,
+                gateway_url="https://149-248-39-200.sslip.io:8443",
+            )
     finally:
         server.should_exit = True
         srv_thread.join(timeout=5.0)

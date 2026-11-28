@@ -1259,3 +1259,165 @@ def test_v25_presets_dll3_dual_chain_turn_mcp_and_unique_display_labels(tmp_path
     assert uniq_labels[0].endswith("· #1") and uniq_labels[1].endswith("· #2")
     assert all("eto_06" not in lbl for lbl in uniq_labels)
 
+
+def test_gate_b_r2_audit_remediations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import hashlib
+    from mrnax.schemas.design_intent import DesignIntent
+    from mrnax.harness.state_machine import ProjectHarnessSession
+    from mrnax.harness.tools import AtomicToolbox
+
+    # 1. DesignIntent serialization JSON schema exposes full named properties AND preserves historical digest
+    ser_schema = DesignIntent.model_json_schema(mode="serialization")
+    val_schema = DesignIntent.model_json_schema(mode="validation")
+    assert len(ser_schema.get("properties", {})) >= 22
+    assert set(val_schema["properties"].keys()) <= set(ser_schema["properties"].keys())
+
+    # 2. Multi-chain Unicode expansion & invalid primary rejection
+    store = ExecutionCASStore(tmp_path / "r2_gw.sqlite3")
+    app = create_control_plane_app(
+        store,
+        projects_root=tmp_path / "projects_r2",
+        seed_dir=SEED_DIR,
+    )
+    client = TestClient(app)
+    valid_prot = "MVSKGEELFTGVVPILVELD"
+    assert (
+        client.post(
+            "/v1/projects/proj_r2_unicode/turn",
+            json={
+                "mode": "initial",
+                "user_utterance": "unicode sharp-s extra chain",
+                "protein_sequence": valid_prot,
+                "additional_protein_sequences": ["abcdefghi\u00df"],
+            },
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            "/v1/projects/proj_r2_badprim/turn",
+            json={
+                "mode": "initial",
+                "user_utterance": "invalid primary multi chain",
+                "protein_sequence": "M1234567890",
+                "additional_protein_sequences": [valid_prot],
+            },
+        ).status_code
+        == 422
+    )
+
+    # 3. Historical turn_requests.json replay succeeds (200) without 409 mismatch across new default fields
+    r_init = client.post(
+        "/v1/projects/proj_r2_replay/turn",
+        headers={"X-MRNAX-Idempotency-Key": "hist_key_01"},
+        json={"mode": "initial", "user_utterance": "design eGFP", "protein_sequence": valid_prot},
+    )
+    assert r_init.status_code == 200
+    proj_key = r_init.json()["project_key"]
+    legacy_digest = hashlib.sha256(
+        json.dumps(
+            {
+                "user_utterance": "design eGFP",
+                "protein_sequence": valid_prot,
+                "accession_or_source": "GenBank:U55762.1",
+                "entry_version": None,
+                "compliance_track": None,
+                "uridine_chemistry": None,
+                "restriction_enzymes": None,
+                "locked_five_prime_utr": None,
+                "detarget_liver": None,
+                "prioritize_late_signal": False,
+                "conflicting_single_pick": False,
+                "reference_bundle_id": None,
+                "use_preset_reference_r": False,
+                "use_commercial_surrogate": None,
+                "random_seed": 42,
+                "mode": "initial",
+            },
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    turn_journal = tmp_path / "projects_r2" / "proj_r2_replay" / "turn_requests.json"
+    j_doc = json.loads(turn_journal.read_text(encoding="utf-8"))
+    for rec in j_doc.get("requests", {}).values():
+        assert rec["request_digest"] == legacy_digest
+    r_replay = client.post(
+        "/v1/projects/proj_r2_replay/turn",
+        headers={"X-MRNAX-Idempotency-Key": "hist_key_01", "X-MRNAX-Project-Key": proj_key},
+        json={"mode": "initial", "user_utterance": "design eGFP", "protein_sequence": valid_prot},
+    )
+    assert r_replay.status_code == 200
+
+    # 4. Modality switch clears active_reference_bundle_id so later circRNA refine cannot restore linear R
+    sess_mod = ProjectHarnessSession(project_id="proj_mod_sw", store_dir=tmp_path / "proj_mod_sw", seed_dir=SEED_DIR)
+    it1 = sess_mod.create_turn_intent_canonical(
+        user_utterance="design egfp with R",
+        protein_sequence=None,
+        use_preset_reference_r=True,
+        compliance_track="commercial_clean",
+    )
+    sess_mod.execute_design(it1)
+    assert sess_mod.active_reference_bundle_id is not None
+    it2 = sess_mod.refine_turn_intent_canonical(
+        user_utterance="switch to circrna",
+        modality="circrna",
+        scaffold_id="circ_t4td_hrvb3",
+    )
+    assert it2.modality == "circrna"
+    assert it2.reference_bundle_id is None
+    assert sess_mod.active_reference_bundle_id is None
+    it3 = sess_mod.refine_turn_intent_canonical(
+        user_utterance="avoid BsaI",
+        restriction_enzymes=["BsaI"],
+    )
+    assert it3.modality == "circrna" and it3.reference_bundle_id is None
+
+    # 5. Stored bundle without originating_intent_id defaults fail-closed to commercial_clean in structure profiling
+    sess_anon = ProjectHarnessSession(project_id="proj_r2_anon", store_dir=tmp_path / "proj_r2_anon", seed_dir=SEED_DIR)
+    it_res = sess_anon.create_initial_intent(
+        turn_id="t_res",
+        user_utterance="research run",
+        protein_sequence=valid_prot,
+        compliance_track="research_max",
+    )
+    bnds_res = sess_anon.execute_design(it_res)
+    anon_bnd = bnds_res[0].model_copy_validated(bundle_id="bnd_unattributed_anon")
+    sess_anon.register_bundle(anon_bnd, originating_intent_id=None)
+    tb_anon = AtomicToolbox(sess_anon)
+    prof_anon = tb_anon.analyze_structure_and_motifs(bundle_id=anon_bnd.bundle_id)
+    assert "ViennaRNA" not in prof_anon.get("engines_used", [])
+
+    # 6. Gateway policy blocks local EternaFold execution when disable_local_heavy_binaries=True
+    r_ef_block = client.post(
+        "/api/v1/structure/analyze",
+        json={"sequence": "GGGAAAUCCGCCACCAUGGUGAGCAAGGGCGAGUAAUAGAAAAAAAAAAAA", "compliance_track": "research_max", "include_eternafold": True},
+    )
+    assert r_ef_block.status_code == 422
+
+    # 7. Forced commercial_clean context on AtomicToolbox prevents escalation to research_max
+    tb_cc = AtomicToolbox(
+        sess_mod,
+        default_compliance_track="commercial_clean",
+        forced_commercial_clean=True,
+        default_modality="circrna",
+        default_scaffold_id="circ_t4td_hrvb3",
+        default_protein_sequence=valid_prot,
+        default_accession_or_source="SYNTHETIC_DUAL_DEMO",
+    )
+    with pytest.raises(PermissionError, match="commercial_clean"):
+        tb_cc.design_constructs(user_utterance="try research", compliance_track="research_max")
+
+    # 8. Data Hub v9 fallback inventory never labels internal_evaluation_only as commercial_clean
+    import mrnax.cloud.gateway as gw_mod
+
+    orig_load_reg = gw_mod.load_registry_json
+    monkeypatch.setattr(
+        gw_mod,
+        "load_registry_json",
+        lambda sd, fn: None if fn == "data_hub_catalog_v2.json" else orig_load_reg(sd, fn),
+    )
+    hub_v9 = client.get("/api/v1/data-hub").json()
+    su_row = next(d for d in hub_v9["datasets"] if d.get("dataset_id") == "su2025_elife97682")
+    assert su_row["license_track"] == "internal_evaluation_only"
+
+

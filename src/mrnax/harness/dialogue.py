@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from collections.abc import Callable, Iterable
 from typing import Any
 
@@ -340,7 +341,27 @@ class _PinnedHostHTTPTransport(httpx.BaseTransport):
 
         conn: http.client.HTTPSConnection | None = None
         raw_sock: socket.socket | None = None
+        tls_sock: ssl.SSLSocket | None = None
+        deadline_exceeded = threading.Event()
+        timer: threading.Timer | None = None
+
+        def _abort_on_deadline() -> None:
+            deadline_exceeded.set()
+            for s_obj in (tls_sock, raw_sock):
+                if s_obj is not None:
+                    try:
+                        s_obj.shutdown(socket.SHUT_RDWR)
+                    except Exception:
+                        pass
+                    try:
+                        s_obj.close()
+                    except Exception:
+                        pass
+
         try:
+            timer = threading.Timer(self._timeout_sec, _abort_on_deadline)
+            timer.daemon = True
+            timer.start()
             ctx = ssl.create_default_context()
             raw_sock = socket.create_connection((self._pinned_ip, self._pinned_port), timeout=_rem_timeout())
             raw_sock.settimeout(_rem_timeout())
@@ -358,15 +379,18 @@ class _PinnedHostHTTPTransport(httpx.BaseTransport):
             resp = conn.getresponse()
             is_err = resp.status >= 400
             cap = MAX_LLM_ERROR_BODY_BYTES if is_err else MAX_LLM_RESPONSE_BYTES
+            read_fn = getattr(resp, "read1", resp.read)
 
             def _iter_http_resp() -> Iterable[bytes]:
                 raw_seen = 0
                 while True:
+                    if deadline_exceeded.is_set():
+                        raise httpx.ReadTimeout("Upstream LLM response exceeded overall deadline", request=request)
                     if conn is not None and conn.sock is not None:
                         conn.sock.settimeout(_rem_timeout())
                     else:
                         _rem_timeout()
-                    blk = resp.read(32_768)
+                    blk = read_fn(32_768)
                     if not blk:
                         break
                     raw_seen += len(blk)
@@ -386,6 +410,8 @@ class _PinnedHostHTTPTransport(httpx.BaseTransport):
                 max_bytes=cap,
                 truncate_on_cap=is_err,
             )
+            if deadline_exceeded.is_set():
+                raise httpx.ReadTimeout("Upstream LLM response exceeded overall deadline", request=request)
             clean_headers = _strip_encoding_and_length_headers(resp.getheaders())
             return httpx.Response(
                 status_code=resp.status,
@@ -398,8 +424,12 @@ class _PinnedHostHTTPTransport(httpx.BaseTransport):
         except (TimeoutError, socket.timeout) as exc:
             raise httpx.ReadTimeout("Upstream LLM transport timed out", request=request) from exc
         except (OSError, ssl.SSLError, http.client.HTTPException, UnicodeError) as exc:
+            if deadline_exceeded.is_set():
+                raise httpx.ReadTimeout("Upstream LLM response exceeded overall deadline", request=request) from exc
             raise httpx.ConnectError(f"Upstream LLM transport error ({type(exc).__name__})", request=request) from exc
         finally:
+            if timer is not None:
+                timer.cancel()
             if conn is not None:
                 try:
                     conn.close()
@@ -802,10 +832,19 @@ class LiveDialogueAgent:
 
         custom_transport: httpx.BaseTransport | None = self._transport
         if custom_transport is None and (self._has_custom_base_url or not _is_direct_pytest_post_stub()):
+            from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
             from mrnax.harness.sandbox import SSRFBlockedError, resolve_verified_public_peer
 
+            dns_deadline = _time.monotonic() + 15.0
             try:
-                _, exp_host, exp_port, pinned_ip = resolve_verified_public_peer(self.base_url, allow_localhost=False)
+                dns_pool = ThreadPoolExecutor(max_workers=1)
+                dns_fut = dns_pool.submit(resolve_verified_public_peer, self.base_url, allow_localhost=False)
+                try:
+                    _, exp_host, exp_port, pinned_ip = dns_fut.result(timeout=max(0.5, dns_deadline - _time.monotonic()))
+                finally:
+                    dns_pool.shutdown(wait=False, cancel_futures=True)
+            except FuturesTimeoutError as exc:
+                raise httpx.ReadTimeout("Upstream LLM DNS resolution exceeded deadline") from exc
             except SSRFBlockedError as exc:
                 msg = str(exc)
                 if "Unable to resolve outbound host" in msg or "resolved to zero addresses" in msg:

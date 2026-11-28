@@ -14,6 +14,7 @@ import re
 import shutil
 import tempfile
 import threading
+import uuid
 from pathlib import Path
 from typing import Any, Literal
 
@@ -22,6 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, field_
 from mrnax.constraints.frameshift_m1psi import find_m1psi_slippery_spans
 from mrnax.constraints.registry import ScopedConstraintEngine, default_m1_constraints
 from mrnax.constraints.sequence_gates import RESTRICTION_SITES_RNA
+from mrnax.engine.lineardesign_adapter import local_heavy_binaries_disabled
 from mrnax.engine.pareto_director import project_report_for_intent
 from mrnax.engine.profiles import resolve_default_seed_dir
 from mrnax.federated.external_evidence_adapter import ExternalEvidenceAdapterV2
@@ -106,22 +108,26 @@ def load_registry_json(seed_dir: Path | None, filename: str) -> dict[str, Any] |
 def detect_available_engines(seed_dir: Path | None = None) -> dict[str, dict[str, Any]]:
     """Lightweight filesystem/importspec check for RNA engines without importing torch or transformers."""
     eff_seed = seed_dir or resolve_default_seed_dir()
+    policy_disabled = local_heavy_binaries_disabled()
     vienna_ok = importlib.util.find_spec("RNA") is not None
-    ld_candidates = [
-        Path(os.environ["MRNAX_LINEARDESIGN_BIN"]) if os.environ.get("MRNAX_LINEARDESIGN_BIN") else None,
-        Path.home() / ".mrnax" / "bin" / "lineardesign",
-        _WAVE1B_FALLBACK_DIR / "bin" / "darwin_arm64" / "lineardesign",
-        Path(shutil.which("lineardesign")) if shutil.which("lineardesign") else None,
-    ]
-    ld_bin = next((p for p in ld_candidates if p is not None and p.is_file() and os.access(p, os.X_OK)), None)
+    ld_bin = None
+    ef_bin = None
+    if not policy_disabled:
+        ld_candidates = [
+            Path(os.environ["MRNAX_LINEARDESIGN_BIN"]) if os.environ.get("MRNAX_LINEARDESIGN_BIN") else None,
+            Path.home() / ".mrnax" / "bin" / "lineardesign",
+            _WAVE1B_FALLBACK_DIR / "bin" / "darwin_arm64" / "lineardesign",
+            Path(shutil.which("lineardesign")) if shutil.which("lineardesign") else None,
+        ]
+        ld_bin = next((p for p in ld_candidates if p is not None and p.is_file() and os.access(p, os.X_OK)), None)
 
-    ef_candidates = [
-        Path(os.environ["MRNAX_ETERNAFOLD_BIN"]) if os.environ.get("MRNAX_ETERNAFOLD_BIN") else None,
-        Path.home() / ".mrnax" / "bin" / "contrafold",
-        _WAVE1B_FALLBACK_DIR / "bin" / "darwin_arm64" / "contrafold",
-        Path(shutil.which("contrafold")) if shutil.which("contrafold") else None,
-    ]
-    ef_bin = next((p for p in ef_candidates if p is not None and p.is_file() and os.access(p, os.X_OK)), None)
+        ef_candidates = [
+            Path(os.environ["MRNAX_ETERNAFOLD_BIN"]) if os.environ.get("MRNAX_ETERNAFOLD_BIN") else None,
+            Path.home() / ".mrnax" / "bin" / "contrafold",
+            _WAVE1B_FALLBACK_DIR / "bin" / "darwin_arm64" / "contrafold",
+            Path(shutil.which("contrafold")) if shutil.which("contrafold") else None,
+        ]
+        ef_bin = next((p for p in ef_candidates if p is not None and p.is_file() and os.access(p, os.X_OK)), None)
 
     from mrnax.engine.surrogates import has_surrogate_v2_artifacts
 
@@ -129,8 +135,16 @@ def detect_available_engines(seed_dir: Path | None = None) -> dict[str, dict[str
     surr_v2_ok = has_surrogate_v2_artifacts(eff_seed)
     return {
         "viennarna": {"available": vienna_ok, "license_track": "research_max"},
-        "lineardesign": {"available": ld_bin is not None, "license_track": "research_max"},
-        "eternafold": {"available": ef_bin is not None, "license_track": "commercial_clearance_pending"},
+        "lineardesign": {
+            "available": ld_bin is not None,
+            "disabled_by_policy": policy_disabled,
+            "license_track": "research_max",
+        },
+        "eternafold": {
+            "available": ef_bin is not None,
+            "disabled_by_policy": policy_disabled,
+            "license_track": "commercial_clearance_pending",
+        },
         "surrogate_v1_clean": {"available": surr_v1_ok, "license_track": "commercial_clean"},
         "surrogate_v2": {"available": surr_v2_ok, "license_track": "commercial_clean"},
     }
@@ -1125,11 +1139,25 @@ class AtomicToolbox:
         *,
         turn_id_prefix: str | None = None,
         expected_parent_intent_id: str | None = None,
+        default_compliance_track: ComplianceProfile | None = None,
+        forced_commercial_clean: bool = False,
+        default_modality: str | None = None,
+        default_scaffold_id: str | None = None,
+        default_protein_sequence: str | None = None,
+        default_additional_protein_sequences: list[str] | None = None,
+        default_accession_or_source: str | None = None,
     ) -> None:
         self.session = session
         self.constraint_engine = ScopedConstraintEngine.from_seed_dir(session.seed_dir)
         self.turn_id_prefix = turn_id_prefix
         self.expected_parent_intent_id = expected_parent_intent_id
+        self.default_compliance_track = default_compliance_track
+        self.forced_commercial_clean = bool(forced_commercial_clean)
+        self.default_modality = default_modality
+        self.default_scaffold_id = default_scaffold_id
+        self.default_protein_sequence = default_protein_sequence
+        self.default_additional_protein_sequences = default_additional_protein_sequences
+        self.default_accession_or_source = default_accession_or_source
         self._call_counter = 0
 
     def _next_turn_id(self) -> str | None:
@@ -1206,13 +1234,36 @@ class AtomicToolbox:
         scaffold_id: str | None = None,
         random_seed: int = 42,
     ) -> dict[str, Any]:
+        if self.forced_commercial_clean:
+            if compliance_track is not None and compliance_track != "commercial_clean":
+                raise PermissionError(
+                    "Commercial-clean request context forbids escalating compliance_track away from 'commercial_clean'."
+                )
+            eff_track = "commercial_clean"
+            eff_use_surrogate = True if use_commercial_surrogate is None else use_commercial_surrogate
+        else:
+            eff_track = compliance_track or self.default_compliance_track
+            eff_use_surrogate = use_commercial_surrogate
+        eff_prot = protein_sequence if protein_sequence is not None else self.default_protein_sequence
+        eff_extra = (
+            additional_protein_sequences
+            if additional_protein_sequences is not None
+            else self.default_additional_protein_sequences
+        )
+        eff_acc = (
+            self.default_accession_or_source
+            if (accession_or_source == "GenBank:U55762.1" and self.default_accession_or_source)
+            else accession_or_source
+        )
+        eff_mod = modality if modality is not None else self.default_modality
+        eff_scaf = scaffold_id if scaffold_id is not None else self.default_scaffold_id
         intent = self.session.create_turn_intent_canonical(
             user_utterance=user_utterance,
-            protein_sequence=protein_sequence,
-            additional_protein_sequences=additional_protein_sequences,
-            accession_or_source=accession_or_source,
+            protein_sequence=eff_prot,
+            additional_protein_sequences=eff_extra,
+            accession_or_source=eff_acc,
             entry_version=entry_version,
-            compliance_track=compliance_track,  # type: ignore[arg-type]
+            compliance_track=eff_track,  # type: ignore[arg-type]
             uridine_chemistry=uridine_chemistry,  # type: ignore[arg-type]
             restriction_enzymes=restriction_enzymes,
             locked_five_prime_utr=locked_five_prime_utr,
@@ -1221,9 +1272,9 @@ class AtomicToolbox:
             conflicting_single_pick=conflicting_single_pick,
             reference_bundle_id=reference_bundle_id,
             use_preset_reference_r=use_preset_reference_r,
-            use_commercial_surrogate=use_commercial_surrogate,
-            modality=modality,  # type: ignore[arg-type]
-            scaffold_id=scaffold_id,
+            use_commercial_surrogate=eff_use_surrogate,
+            modality=eff_mod,  # type: ignore[arg-type]
+            scaffold_id=eff_scaf,
             random_seed=random_seed,
             turn_id=self._next_turn_id(),
         )
@@ -1264,6 +1315,16 @@ class AtomicToolbox:
         modality: str | None = None,
         scaffold_id: str | None = None,
     ) -> dict[str, Any]:
+        if self.forced_commercial_clean:
+            if compliance_track is not None and compliance_track != "commercial_clean":
+                raise PermissionError(
+                    "Commercial-clean request context forbids escalating compliance_track away from 'commercial_clean'."
+                )
+            eff_refine_track = "commercial_clean"
+            eff_refine_surr = True if use_commercial_surrogate is None else use_commercial_surrogate
+        else:
+            eff_refine_track = compliance_track
+            eff_refine_surr = use_commercial_surrogate
         intent_v = self.session.refine_turn_intent_canonical(
             user_utterance=user_utterance,
             restriction_enzymes=restriction_enzymes,
@@ -1272,9 +1333,9 @@ class AtomicToolbox:
             lock_cds_from_bundle_id=lock_cds_from_bundle_id,
             unlock_scopes=unlock_scopes,  # type: ignore[arg-type]
             uridine_chemistry=uridine_chemistry,  # type: ignore[arg-type]
-            compliance_track=compliance_track,  # type: ignore[arg-type]
+            compliance_track=eff_refine_track,  # type: ignore[arg-type]
             detarget_liver=detarget_liver,
-            use_commercial_surrogate=use_commercial_surrogate,
+            use_commercial_surrogate=eff_refine_surr,
             modality=modality,  # type: ignore[arg-type]
             scaffold_id=scaffold_id,
             turn_id=self._next_turn_id(),
@@ -1420,7 +1481,8 @@ class AtomicToolbox:
                     raise ValueError(f"Refusing to overwrite or remove symlinked export target '{cand_f}'")
             target_dir.parent.mkdir(parents=True, exist_ok=True)
             with tempfile.TemporaryDirectory(prefix=".mrnax_exp_stage_", dir=target_dir.parent) as stg_raw:
-                stg_dir = Path(stg_raw)
+                stg_dir = Path(stg_raw) / "pkg"
+                stg_dir.mkdir(parents=True, exist_ok=True)
                 manifest = export_construct_package(
                     b,
                     stg_dir,
@@ -1431,12 +1493,6 @@ class AtomicToolbox:
                     locked_scopes=intent.locked_scopes,
                     expected_protein_targets=intent.protein_targets,
                 )
-                staged_names = [
-                    "full_rna.fasta",
-                    "cds_only.fasta",
-                    "construct.gb",
-                    "chemistry_metadata.json",
-                ]
                 if include_dossier:
                     ev_match: BundleEvaluation | None = None
                     try:
@@ -1468,18 +1524,23 @@ class AtomicToolbox:
                     (stg_dir / "chemistry_metadata.json").write_text(
                         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
                     )
-                    staged_names.extend(["ivt_synthesis_order.csv", "qc_dossier.html"])
 
-                target_dir.mkdir(parents=True, exist_ok=True)
                 for fn in checked_files:
                     cand_f = target_dir / fn
                     if cand_f.is_symlink():
                         raise ValueError(f"Refusing to overwrite or remove symlinked export target '{cand_f}'")
-                for fn in staged_names:
-                    os.replace(stg_dir / fn, target_dir / fn)
-                if not include_dossier:
-                    (target_dir / "ivt_synthesis_order.csv").unlink(missing_ok=True)
-                    (target_dir / "qc_dossier.html").unlink(missing_ok=True)
+                if target_dir.exists():
+                    bak_dir = target_dir.parent / f".mrnax_exp_bak_{uuid.uuid4().hex}"
+                    os.rename(target_dir, bak_dir)
+                    try:
+                        os.rename(stg_dir, target_dir)
+                    except Exception:
+                        if not target_dir.exists() and bak_dir.exists():
+                            os.rename(bak_dir, target_dir)
+                        raise
+                    shutil.rmtree(bak_dir, ignore_errors=True)
+                else:
+                    os.rename(stg_dir, target_dir)
             return manifest
 
     # 10. resolve_target_protein
@@ -1508,11 +1569,7 @@ class AtomicToolbox:
                     b_intent = self.session.intent_for_bundle(bundle_id)
                     eff_track = b_intent.compliance_track
                 except Exception:
-                    eff_track = (
-                        self.session._intents[-1].compliance_track
-                        if self.session._intents
-                        else "commercial_clean"
-                    )
+                    eff_track = "commercial_clean"
             if molecule_index < 0 or molecule_index >= len(b.molecules):
                 raise ValueError(f"molecule_index {molecule_index} out of range for bundle '{bundle_id}'")
             mol = b.molecules[molecule_index]

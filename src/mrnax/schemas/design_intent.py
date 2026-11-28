@@ -7,7 +7,17 @@ import json
 import math
 from typing import Any, Literal, Self
 
-from pydantic import Field, SerializerFunctionWrapHandler, field_serializer, field_validator, model_serializer, model_validator
+from pydantic import (
+    Field,
+    GetJsonSchemaHandler,
+    SerializerFunctionWrapHandler,
+    field_serializer,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
+from pydantic.json_schema import JsonSchemaValue
+from pydantic_core import core_schema
 
 from mrnax.schemas.common import ComplianceProfile, ConstraintScope, Modality, SegmentScope, UridineChemistry
 from mrnax.schemas.construct_bundle import FrozenSchemaModel, ProteinTargetSpec, SegmentSpan
@@ -159,6 +169,14 @@ class DesignIntent(FrozenSchemaModel):
         if out.get("scaffold_id") is None:
             out.pop("scaffold_id", None)
         return out
+
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls, cs: core_schema.CoreSchema, handler: GetJsonSchemaHandler
+    ) -> JsonSchemaValue:
+        if handler.mode == "serialization" and "serialization" in cs:
+            cs = {k: v for k, v in cs.items() if k != "serialization"}
+        return handler(cs)
 
     def digest(self) -> str:
         def _canon(obj: Any) -> Any:

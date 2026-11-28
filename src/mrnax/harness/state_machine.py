@@ -99,7 +99,31 @@ def _parse_json_schema_seed(v: Any) -> int:
     return parse_bounded_json_int(v, field_name="random_seed", min_val=0, max_val=2_147_483_647)
 
 
-_STANDARD_AA_OPT_STOP_RE = re.compile(r"^[ACDEFGHIKLMNPQRSTVWY]+[*]?$")
+_STANDARD_AA_OPT_STOP_RE = re.compile(r"^[ACDEFGHIKLMNPQRSTVWYacdefghiklmnpqrstvwy]+[*]?$", re.ASCII)
+
+
+def _normalize_canonical_aa_sequence(
+    raw: str,
+    *,
+    label: str = "Protein sequence",
+    min_len: int = 10,
+    max_len: int = 5000,
+) -> str:
+    """Validate canonical ASCII 20-amino-acid sequence before uppercasing and return normalized uppercase string."""
+    if not isinstance(raw, str):
+        raise ValueError(f"{label} must be a string.")
+    stripped = raw.strip()
+    if not stripped or not stripped.isascii() or not _STANDARD_AA_OPT_STOP_RE.fullmatch(stripped):
+        raise ValueError(
+            f"{label} must contain only canonical 20 standard amino acids (optional trailing '*')."
+        )
+    if stripped.endswith("*"):
+        stripped = stripped[:-1]
+    if len(stripped) < min_len or len(stripped) > max_len:
+        raise ValueError(
+            f"{label} length ({len(stripped)} AA) must be within [{min_len}, {max_len}]."
+        )
+    return stripped.upper()
 
 
 def _normalize_additional_protein_sequences(
@@ -117,23 +141,10 @@ def _normalize_additional_protein_sequences(
         raise ValueError(
             "additional_protein_sequences must be a non-empty list of 1 to 3 sequences (max 4 total chains)."
         )
-    normalized: list[str] = []
-    for idx, raw in enumerate(seqs, start=2):
-        if not isinstance(raw, str):
-            raise ValueError(f"Additional chain #{idx} must be a string.")
-        cleaned = raw.strip().upper()
-        if not cleaned or not _STANDARD_AA_OPT_STOP_RE.fullmatch(cleaned):
-            raise ValueError(
-                f"Additional chain #{idx} must contain only canonical 20 standard amino acids (optional trailing '*')."
-            )
-        if cleaned.endswith("*"):
-            cleaned = cleaned[:-1]
-        if len(cleaned) < 10 or len(cleaned) > 5000:
-            raise ValueError(
-                f"Additional chain #{idx} length ({len(cleaned)} AA) must be within [10, 5000]."
-            )
-        normalized.append(cleaned)
-    return normalized
+    return [
+        _normalize_canonical_aa_sequence(raw, label=f"Additional chain #{idx}", min_len=10, max_len=5000)
+        for idx, raw in enumerate(seqs, start=2)
+    ]
 
 
 class InitialTurnInput(BaseModel):
@@ -172,8 +183,15 @@ class InitialTurnInput(BaseModel):
 
     @model_validator(mode="after")
     def _require_primary_for_additional_chains(self) -> InitialTurnInput:
-        if self.additional_protein_sequences is not None and not (self.protein_sequence or "").strip():
-            raise ValueError("additional_protein_sequences requires primary protein_sequence to be supplied.")
+        if self.additional_protein_sequences is not None:
+            if not (self.protein_sequence or "").strip():
+                raise ValueError("additional_protein_sequences requires primary protein_sequence to be supplied.")
+            _normalize_canonical_aa_sequence(
+                self.protein_sequence or "",
+                label="Primary chain #1",
+                min_len=10,
+                max_len=5000,
+            )
         return self
 
 
@@ -1032,6 +1050,12 @@ class ProjectHarnessSession:
             check_primary=True,
         )
         if norm_additional is not None:
+            prot_clean = _normalize_canonical_aa_sequence(
+                protein_sequence,
+                label="Primary chain #1",
+                min_len=10,
+                max_len=5000,
+            )
             if eff_modality != "linear_mrna":
                 raise ValueError(
                     f"Multi-chain additional_protein_sequences is only supported for 'linear_mrna' modality, got '{eff_modality}'."
@@ -1041,8 +1065,6 @@ class ProjectHarnessSession:
                     f"additional_protein_sequences chain count ({1 + len(norm_additional)}) does not match "
                     f"reference_bundle molecules ({len(reference_bundle.molecules)})."
                 )
-            if prot_clean.endswith("*"):
-                prot_clean = prot_clean[:-1]
         chem: UridineChemistry = (
             "unmodified_u"
             if eff_modality in ("circrna", "sarna")
@@ -1722,11 +1744,21 @@ class ProjectHarnessSession:
             if eff_next_mod in ("circrna", "sarna")
             else (updated_chemistry or prev.uridine_chemistry)
         )
-        next_ref_id = (
-            None
-            if eff_next_mod != prev.modality
-            else (self.active_reference_bundle_id or prev.reference_bundle_id)
-        )
+        if eff_next_mod != prev.modality:
+            self.active_reference_bundle_id = None
+            next_ref_id: str | None = None
+        else:
+            cand_ref_id = self.active_reference_bundle_id or prev.reference_bundle_id
+            cand_ref_bnd = self._bundles.get(cand_ref_id) if cand_ref_id else None
+            if (
+                cand_ref_bnd is not None
+                and cand_ref_bnd.molecules
+                and cand_ref_bnd.molecules[0].modality != eff_next_mod
+            ):
+                self.active_reference_bundle_id = None
+                next_ref_id = None
+            else:
+                next_ref_id = cand_ref_id
         updated = prev.model_copy_validated(
             intent_id=f"int_{uuid.uuid4().hex[:8]}",
             intent_version=prev.intent_version + 1,

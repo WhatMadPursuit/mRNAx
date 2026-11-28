@@ -457,6 +457,7 @@ const state = {
   projectKey: mintProjectKey(),
   entryMode: "protein_only",
   additionalProteinSequences: [],
+  proteinAccession: null,
   presets: null,
   intentHistory: [],
   completedRevisions: [],
@@ -618,12 +619,18 @@ function humanizeCandidateLabel(cand) {
   if (low.endsWith("_expb")) {
     return "探索重排方案 (高表达)";
   }
+  const candIdx = Array.isArray(state.candidates) ? state.candidates.indexOf(cand) : -1;
   const rankPrefix = cand.pareto_rank != null ? `Pareto #${cand.pareto_rank}` : "";
   const lamMatch = low.match(/lam([0-9]+(?:\.[0-9]+)?)/);
   const lamTag = lamMatch ? `λ=${lamMatch[1]}` : "";
+  const disambigSuffix = (baseLbl) => {
+    if (!Array.isArray(state.candidates) || candIdx < 0) return baseLbl;
+    const sameCount = state.candidates.filter((other) => other && other !== cand && other.pareto_rank === cand.pareto_rank && (other.molecules?.length || 1) === (cand.molecules?.length || 1)).length;
+    return sameCount > 0 && !baseLbl.includes(`#${candIdx + 1}`) ? `${baseLbl} · #${candIdx + 1}` : baseLbl;
+  };
   if (Array.isArray(cand.molecules) && cand.molecules.length > 1) {
     const chainTag = `${cand.molecules.length}链共表达候选`;
-    return [rankPrefix, chainTag, lamTag].filter(Boolean).join(" · ");
+    return disambigSuffix([rankPrefix, chainTag, lamTag].filter(Boolean).join(" · "));
   }
   const pieTag = low.includes("t4td") || low.includes("t4_td")
     ? "T4 td PIE"
@@ -632,16 +639,15 @@ function humanizeCandidateLabel(cand) {
     : "";
   const iresTag = low.includes("hrvb3") ? "HRV-B3" : low.includes("cvb3") ? "CVB3" : "";
   if (pieTag || iresTag) {
-    return [rankPrefix, pieTag, iresTag, lamTag].filter(Boolean).join(" · ");
+    return disambigSuffix([rankPrefix, pieTag, iresTag, lamTag].filter(Boolean).join(" · "));
   }
   const paretoMatch = low.match(/(?:^|_)pareto_0*(\d+)/);
   if (paretoMatch) {
     return [rankPrefix || "多目标", `均衡方案 #${paretoMatch[1]}`, lamTag].filter(Boolean).join(" · ");
   }
   if (low.includes("ld") || low.includes("lineardesign")) {
-    return [rankPrefix, "LinearDesign 候选", lamTag].filter(Boolean).join(" · ");
+    return disambigSuffix([rankPrefix, "LinearDesign 候选", lamTag].filter(Boolean).join(" · "));
   }
-  const candIdx = Array.isArray(state.candidates) ? state.candidates.indexOf(cand) : -1;
   const numSuffix = candIdx >= 0 ? ` #${candIdx + 1}` : "";
   if (rankPrefix) {
     return `${rankPrefix} · 多目标候选${numSuffix}`;
@@ -2072,7 +2078,7 @@ function renderCandidates() {
               ${isRec ? '<span class="badge ok mono">推荐</span>' : ""}
               <span>${escapeHtml(cleanTitle)}</span>
             </div>
-            <div class="cand-sub-line mono" title="${escapeHtml(c.bundle_id)}">
+            <div class="cand-sub-line mono" title="#${escapeHtml(shortDigest)}">
               <span>门禁 ${escapeHtml(gatePass)}/${escapeHtml(gateTot)}</span>
               <span>·</span>
               <span style="color:var(--${ftoMeta.cls === "teal" ? "accent-teal" : ftoMeta.cls});">${escapeHtml(ftoMeta.label)}</span>
@@ -2674,15 +2680,21 @@ function getActiveInspectedChain() {
 }
 
 function getActiveComplianceTrackForCandidate(cand) {
+  const profSel = document.getElementById("sel-profile")?.value;
+  if (profSel === "commercial_clean") return "commercial_clean";
   const latestIntent = state.intentHistory.length
     ? state.intentHistory[state.intentHistory.length - 1]
     : null;
+  if (cand && cand.compliance_track) {
+    return cand.compliance_track;
+  }
+  const segs = Array.isArray(cand?.segments) ? cand.segments : [];
+  if (segs.some((s) => s && s.license_track && s.license_track !== "commercial_clean")) {
+    return latestIntent?.compliance_track || profSel || "research_max";
+  }
   if (latestIntent && latestIntent.compliance_track) {
     return latestIntent.compliance_track;
   }
-  const profSel = document.getElementById("sel-profile")?.value;
-  if (profSel === "commercial_clean") return "commercial_clean";
-  const segs = Array.isArray(cand?.segments) ? cand.segments : [];
   if (segs.length && segs.every((s) => !s.license_track || s.license_track === "commercial_clean")) {
     return profSel === "research_max" ? "research_max" : "commercial_clean";
   }
@@ -2707,7 +2719,15 @@ async function runStructureAnalysisForSelected() {
     u3 ? Number(u3.start) : "",
     u3 ? Number(u3.end) : "",
   ].join(",");
+  const reqProjId = state.projectId;
+  const reqRev = state.activeVersion;
+  const reqBid = cand.bundle_id;
+  const reqMolId = chain.molecule_id || null;
+  const reqApiBase = normalizeOrigin(state.apiBase);
+  const reqProjKey = state.projectKey;
   const cacheKey = [
+    reqApiBase || "local",
+    reqProjId || "p0",
     cand.bundle_id || "raw",
     cand.version_digest || "v0",
     chain.molecule_id || "mol0",
@@ -2721,12 +2741,18 @@ async function runStructureAnalysisForSelected() {
     return state.structureCache[cacheKey];
   }
 
-  const reqProjId = state.projectId;
-  const reqRev = state.activeVersion;
-  const reqBid = cand.bundle_id;
-  const reqMolId = chain.molecule_id || null;
-  const reqApiBase = normalizeOrigin(state.apiBase);
-  const reqProjKey = state.projectKey;
+  const isCurrentSelection = () => {
+    const activeChainNow = getActiveInspectedChain();
+    return Boolean(
+      reqApiBase === normalizeOrigin(state.apiBase) &&
+        reqProjId === state.projectId &&
+        reqRev === state.activeVersion &&
+        reqBid === state.selectedBundleId &&
+        activeChainNow &&
+        (activeChainNow.molecule_id || null) === reqMolId &&
+        activeChainNow.full_sequence === chain.full_sequence
+    );
+  };
 
   const payload = {
     sequence: seq,
@@ -2751,17 +2777,10 @@ async function runStructureAnalysisForSelected() {
       body: JSON.stringify(payload),
     });
     if (data && data.initiation_window) {
-      state.structureCache[cacheKey] = data;
-      const activeChainNow = getActiveInspectedChain();
-      if (
-        reqApiBase === normalizeOrigin(state.apiBase) &&
-        reqProjId === state.projectId &&
-        reqRev === state.activeVersion &&
-        reqBid === state.selectedBundleId &&
-        activeChainNow &&
-        (activeChainNow.molecule_id || null) === reqMolId &&
-        activeChainNow.full_sequence === chain.full_sequence
-      ) {
+      if (reqApiBase === normalizeOrigin(state.apiBase) && reqProjId === state.projectId) {
+        state.structureCache[cacheKey] = data;
+      }
+      if (isCurrentSelection()) {
         renderStructureVisuals(data, chain);
       }
       return data;
@@ -2770,7 +2789,7 @@ async function runStructureAnalysisForSelected() {
     // Keep client deterministic structure profile when offline or mocked
   }
   const fallback = computeClientStructureProfile(chain, effMod);
-  if (fallback) renderStructureVisuals(fallback, chain);
+  if (fallback && isCurrentSelection()) renderStructureVisuals(fallback, chain);
   return fallback;
 }
 
@@ -3477,8 +3496,10 @@ async function refreshSystemStatus() {
       return;
     }
     state.gatewayOnline = false;
+    state.systemStatus = null;
     if (dot) dot.className = "dot err";
     if (txt) txt.textContent = `离线 (${err.message})`;
+    renderComputeTierCards(null);
   }
 }
 
@@ -3915,8 +3936,11 @@ async function runInitialTurn(customUtterance = null, meta = {}) {
   const shouldAttachSeq = Boolean(
     prot && (meta.fromForm || prot !== defaultProt || state.userEditedProtein || extraChains.length > 0)
   );
+  const effAccession =
+    state.proteinAccession ||
+    (prot === defaultProt && !extraChains.length ? "GenBank:U55762.1" : null);
   const formBlock = meta.fromForm
-    ? `\n[表单参数：modality=${state.modality}, compliance_track=${prof}${prof === "commercial_clean" ? " (use_commercial_surrogate=true)" : ""}, uridine_chemistry=${chem}, entry_mode=${useR ? "protein_with_reference_r" : "protein_only"}, restriction_enzymes=${JSON.stringify(enz)}, detarget_liver=${detarget}, prioritize_late_signal=${late}]`
+    ? `\n[表单参数：modality=${effModality}, scaffold_id=${effScaffold || "none"}, compliance_track=${effProf}${effProf === "commercial_clean" ? " (use_commercial_surrogate=true)" : ""}, uridine_chemistry=${effInitChem}, entry_mode=${useR ? "protein_with_reference_r" : "protein_only"}, restriction_enzymes=${JSON.stringify(effEnz)}, detarget_liver=${effDetarget}, prioritize_late_signal=${late}${effAccession ? `, accession_or_source=${effAccession}` : ""}]`
     : "";
   const seqBlock = shouldAttachSeq
     ? extraChains.length
@@ -3925,7 +3949,14 @@ async function runInitialTurn(customUtterance = null, meta = {}) {
           .join("\n")}\n请将 Chain 1 作为 protein_sequence，其余链作为 additional_protein_sequences 传给 design_constructs。）`
       : `\n（目标蛋白序列：${prot}）`
     : "";
-  const fullPrompt = `${utterance}${formBlock}${seqBlock}`;
+  const combinedAgentPrompt = `${utterance}${formBlock}${seqBlock}`;
+  const fullPrompt =
+    combinedAgentPrompt.length <= 3900
+      ? combinedAgentPrompt
+      : `${utterance}${formBlock}\n（目标蛋白共 ${1 + extraChains.length} 条链已通过结构化字段附带，主链 ${prot.length} aa；请直接调用 design_constructs。）`.slice(
+          0,
+          3980
+        );
 
   const reqPath = isAgent ? `/v1/projects/${reqProjectId}/agent-chat` : `/v1/projects/${reqProjectId}/turn`;
   const reqProvider = isAgent ? state.llmProvider : null;
@@ -3948,17 +3979,31 @@ async function runInitialTurn(customUtterance = null, meta = {}) {
     modality: effModality,
     scaffold_id: effScaffold,
   };
+  if (usePrefilledDefaultForDet && effAccession && (extraChains.length || state.proteinAccession)) {
+    turnBodyObj.accession_or_source = effAccession;
+  }
   if (usePrefilledDefaultForDet && extraChains.length) {
     turnBodyObj.additional_protein_sequences = extraChains;
   }
-  const bodyObj = isAgent
-    ? {
-        message: fullPrompt,
-        provider: reqProvider,
-        model: reqModel,
-        client_request_id: clientRequestId,
-      }
-    : turnBodyObj;
+  let bodyObj;
+  if (isAgent) {
+    bodyObj = {
+      message: fullPrompt,
+      provider: reqProvider,
+      model: reqModel,
+      client_request_id: clientRequestId,
+      compliance_track: effProf,
+      modality: effModality,
+    };
+    if (effScaffold) bodyObj.scaffold_id = effScaffold;
+    if (shouldAttachSeq && prot) {
+      bodyObj.protein_sequence = prot;
+      if (extraChains.length) bodyObj.additional_protein_sequences = extraChains;
+      if (effAccession) bodyObj.accession_or_source = effAccession;
+    }
+  } else {
+    bodyObj = turnBodyObj;
+  }
   const replayRequest = {
     path: reqPath,
     method: "POST",
@@ -4576,6 +4621,8 @@ const LICENSE_TRACK_LABELS = {
   needs_vendor_license: "需厂商授权",
   quarantine_reference: "隔离参考",
   research_only: "仅限科研",
+  internal_evaluation_only: "仅限内部评测（禁外发）",
+  unverified_license: "待核验许可",
 };
 
 const COLAB_ASSET_META = {
@@ -4592,7 +4639,7 @@ function renderComputeTierCards(statusObj = state.systemStatus) {
   const ct = st && st.compute_tier && typeof st.compute_tier === "object" ? st.compute_tier : null;
 
   if (badge) {
-    if (ct) {
+    if (state.gatewayOnline && ct) {
       badge.textContent = ct.vps_heavy_binaries_disabled_by_policy !== false
         ? "控制面在线 · 重算按需调度"
         : "双层算力拓扑已同步";
@@ -4613,8 +4660,12 @@ function renderComputeTierCards(statusObj = state.systemStatus) {
       ? ct.lease_keepalive_endpoints.length
       : 3;
   const hostText = (st && st.hostname) || "Vultr 7×24 节点";
-  const colabBridgeText = st && st.colab_bridge_present ? "Colab CLI 桥接就绪" : "按需脚本触发 (0 闲置 VM)";
+  const colabBridgeText = st && st.colab_bridge_present ? "Colab CLI 桥接就绪" : "按需脚本触发（用后即毁）";
   const driveBridgeText = st && st.drive_bridge_present ? "Drive 产物回传就绪" : "Drive 校验与 CAS 落盘";
+  const vmPolicyBadge =
+    ct && typeof ct.active_colab_vms === "number"
+      ? `策略：用后销毁 · 当前 ${ct.active_colab_vms} 闲置 VM`
+      : "策略：按需拉起用后销毁";
 
   const rawAssets =
     ct && ct.colab_drive_sota_assets && typeof ct.colab_drive_sota_assets === "object"
@@ -4670,10 +4721,10 @@ function renderComputeTierCards(statusObj = state.systemStatus) {
       <article class="tier-card tier-pool">
         <div class="tier-card-head">
           <span class="tier-card-title">Colab + Drive 重算引擎池</span>
-          <span class="badge mono ok">跑完即毁 · 0 闲置 VM</span>
+          <span class="badge mono ok">${escapeHtml(vmPolicyBadge)}</span>
         </div>
         <div class="tier-card-desc">
-          按需拉起执行 LinearDesign、EternaFold v1.3.1（待商用放行）与 CodonTransformer / GPU 折叠任务，结果写回 Google Drive 与 Vultr CAS 回执，跑完自动销毁（0 闲置 VM）。
+          按需拉起执行 LinearDesign、EternaFold v1.3.1（待商用放行）与 CodonTransformer / GPU 折叠任务，结果写回 Google Drive 与 Vultr CAS 回执，并在 finally 钩子中释放实例。
         </div>
         <div class="tier-meta-row mono">
           <span class="kpi-pill">调度 <strong>${escapeHtml(colabBridgeText)}</strong></span>
@@ -4716,7 +4767,7 @@ function renderDataHub(hub) {
             const roleText =
               ENGINE_ROLE_MAP[rawRole] ||
               (rawRole && !/^[a-z0-9_]+$/.test(rawRole) ? rawRole : e.description || "已编译就绪");
-            const trk = e.license_track || (e.license && e.license.license_track) || "commercial_clean";
+            const trk = e.license_track || (e.license && e.license.license_track) || "unverified_license";
             const trkLabel = LICENSE_TRACK_LABELS[trk] || "受控轨道";
             const cls = trk === "commercial_clean" ? "ok" : trk === "research_max" ? "teal" : "";
             return `
@@ -4886,9 +4937,14 @@ function renderDataHubDatasetsTable() {
   tbody.innerHTML = filtered
     .slice(0, 40)
     .map((d) => {
-      const trk = (d.license && d.license.license_track) || d.license_track || "commercial_clean";
-      const spdx = (d.license && d.license.spdx) || trk;
-      const cls = trk === "commercial_clean" ? "ok" : trk.includes("pending") ? "warn" : "";
+      const trk =
+        (d.license && d.license.license_track) ||
+        d.license_track ||
+        (d.external_redistribution_allowed === false || d.governance_scope === "internal_evaluation_only"
+          ? "internal_evaluation_only"
+          : "unverified_license");
+      const spdx = (d.license && d.license.spdx) || d.data_license || trk;
+      const cls = trk === "commercial_clean" ? "ok" : "warn";
       const chems = Array.isArray(d.chemistry) ? d.chemistry.join(", ") : d.chemistry || "unmodified_u";
       return `
         <tr>
@@ -5016,6 +5072,9 @@ async function resolveTargetProteinInHub(customQuery = null) {
       if (protField) {
         protField.value = state.resolvedTarget.protein_sequence;
         state.additionalProteinSequences = [];
+        state.proteinAccession = state.resolvedTarget.uniprot_accession
+          ? `UniProt:${state.resolvedTarget.uniprot_accession}`
+          : "user_supplied";
         state.userEditedProtein = true;
         updateProteinBadge();
       }
@@ -5892,6 +5951,7 @@ function wireEvents() {
 
   document.getElementById("input-protein")?.addEventListener("input", (e) => {
     state.userEditedProtein = true;
+    state.proteinAccession = "user_supplied";
     if (!e?.detail?.keepAdditionalChains) {
       const rawVal = String(e?.target?.value ?? document.getElementById("input-protein")?.value ?? "");
       const fastaMatches = rawVal.match(/^\s*>/gm);
@@ -6000,6 +6060,7 @@ function wireEvents() {
     setEntryMode("protein_only");
     document.getElementById("input-protein").value = seq;
     state.additionalProteinSequences = [];
+    state.proteinAccession = "GenBank:U55762.1";
     state.userEditedProtein = false;
     syncTrackButtons("research_max");
     document.getElementById("sel-chemistry").value = "m1psi";
@@ -6021,6 +6082,7 @@ function wireEvents() {
     setEntryMode("protein_only");
     document.getElementById("input-protein").value = FALLBACK_HEPO;
     state.additionalProteinSequences = [];
+    state.proteinAccession = "UniProt:P01588";
     state.userEditedProtein = true;
     syncTrackButtons("commercial_clean");
     document.getElementById("sel-chemistry").value = "m1psi";
@@ -6048,6 +6110,8 @@ function wireEvents() {
     setEntryMode("protein_only");
     document.getElementById("input-protein").value = primarySeq;
     state.additionalProteinSequences = extraSeqs;
+    state.proteinAccession =
+      dll3.accession_or_source || FALLBACK_DLL3_CD3.accession_or_source || "SYNTHETIC_NON_PROPRIETARY_DLL3_CD3_DUAL_CHAIN_DEMO_V1";
     state.userEditedProtein = true;
     syncTrackButtons("commercial_clean");
     document.getElementById("sel-chemistry").value = "m1psi";
@@ -6073,6 +6137,7 @@ function wireEvents() {
     setEntryMode("protein_only");
     document.getElementById("input-protein").value = seq;
     state.additionalProteinSequences = [];
+    state.proteinAccession = "GenBank:U55762.1";
     state.userEditedProtein = false;
     syncTrackButtons("research_max");
     document.getElementById("sel-chemistry").value = "unmodified_u";
@@ -6097,6 +6162,7 @@ function wireEvents() {
     setEntryMode("protein_only");
     document.getElementById("input-protein").value = seq;
     state.additionalProteinSequences = [];
+    state.proteinAccession = "GenBank:U55762.1";
     state.userEditedProtein = false;
     syncTrackButtons("research_max");
     document.getElementById("sel-chemistry").value = "unmodified_u";
@@ -6119,6 +6185,7 @@ function wireEvents() {
     setEntryMode("with_r");
     document.getElementById("input-protein").value = seq;
     state.additionalProteinSequences = [];
+    state.proteinAccession = "GenBank:U55762.1";
     state.userEditedProtein = false;
     syncTrackButtons("research_max");
     document.getElementById("sel-chemistry").value = "m1psi";

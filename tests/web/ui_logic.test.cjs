@@ -1381,13 +1381,28 @@ test("v2.5.2 WebUI upgrades: dual-chain DLL3, circRNA T4 td default, unified opt
   const dll3Turn = requests.find((r) => r.url.endsWith("/turn"));
   assert.equal(dll3Turn.body.protein_sequence, vhExpected);
   assert.deepEqual(dll3Turn.body.additional_protein_sequences, [vlExpected]);
+  assert.equal(dll3Turn.body.accession_or_source, "SYNTHETIC_NON_PROPRIETARY_DLL3_CD3_DUAL_CHAIN_DEMO_V1");
 
-  // llm_agent mode mentions both chains
+  // llm_agent mode mentions both chains and forwards structured context fields
   document.getElementById("sel-exec-mode").value = "llm_agent";
   await run('runInitialTurn("Design DLL3xCD3", { fromForm: true })');
   const dll3Agent = requests.find((r) => r.url.endsWith("/agent-chat"));
   assert.ok(dll3Agent.body.message.includes(vhExpected));
   assert.ok(dll3Agent.body.message.includes(vlExpected));
+  assert.equal(dll3Agent.body.compliance_track, "commercial_clean");
+  assert.equal(dll3Agent.body.accession_or_source, "SYNTHETIC_NON_PROPRIETARY_DLL3_CD3_DUAL_CHAIN_DEMO_V1");
+  assert.deepEqual(dll3Agent.body.additional_protein_sequences, [vlExpected]);
+
+  // Huge multi-chain inputs (> 4000 chars) keep agent message <= 4000 chars and forward full chains structurally
+  const longA = "M" + "A".repeat(2499);
+  const longB = "M" + "C".repeat(2499);
+  document.getElementById("input-protein").value = longA;
+  run(`state.additionalProteinSequences = ["${longB}"]; state.userEditedProtein = true;`);
+  await run('runInitialTurn("Design large dual chain", { fromForm: true })');
+  const largeAgent = requests[requests.length - 1];
+  assert.ok(largeAgent.body.message.length <= 4000);
+  assert.equal(largeAgent.body.protein_sequence, longA);
+  assert.deepEqual(largeAgent.body.additional_protein_sequences, [longB]);
 
   // Chain picker switches between chain_01 and chain_02
   run(`
@@ -1447,6 +1462,7 @@ test("v2.5.2 WebUI upgrades: dual-chain DLL3, circRNA T4 td default, unified opt
 
   // 5. Data Hub compute_tier cards (live status + omitted fallback) and human-readable engine titles
   run(`
+    state.gatewayOnline = true;
     state.systemStatus = {
       hostname: "vultr-relay-01",
       colab_bridge_present: false,
@@ -1489,10 +1505,28 @@ test("v2.5.2 WebUI upgrades: dual-chain DLL3, circRNA T4 td default, unified opt
   assert.match(engHtml, /Surrogate v2 \(商用洁净代理\)/);
   assert.doesNotMatch(engHtml, /stage0_random_and_bicodon_proposer|cds_generator/);
 
-  // Fallback when st.compute_tier is omitted
-  run("state.systemStatus = null; renderComputeTierCards(null);");
+  // Fallback when st.compute_tier is omitted or gateway goes offline
+  run("state.gatewayOnline = false; state.systemStatus = null; renderComputeTierCards(null);");
   const fallbackCtHtml = document.getElementById("dh-compute-tier-grid").innerHTML;
   assert.match(fallbackCtHtml, /Vultr 7×24 轻量控制面与保活中转/);
   assert.match(fallbackCtHtml, /Colab \+ Drive 重算引擎池/);
   assert.equal(document.getElementById("dh-compute-tier-badge").textContent, "离线参考拓扑");
+
+  // Gate B-R2: commercial_clean UI track wins over older research_max intent; missing license_track never becomes commercial_clean; colliding fallback labels disambiguate
+  run('state.intentHistory = [{ compliance_track: "research_max" }];');
+  document.getElementById("sel-profile").value = "commercial_clean";
+  assert.equal(run('getActiveComplianceTrackForCandidate({ segments: [{ license_track: "commercial_clean" }] })'), "commercial_clean");
+  run(`
+    state.candidates = [
+      { bundle_id: "b1", pareto_rank: 1, molecules: [{ molecule_id: "c1" }, { molecule_id: "c2" }] },
+      { bundle_id: "b2", pareto_rank: 1, molecules: [{ molecule_id: "c1" }, { molecule_id: "c2" }] },
+    ];
+  `);
+  assert.notEqual(run("humanizeCandidateLabel(state.candidates[0])"), run("humanizeCandidateLabel(state.candidates[1])"));
+  run(`
+    state.dataHubCache = { datasets: [{ dataset_id: "su2025", external_redistribution_allowed: false, governance_scope: "internal_evaluation_only" }] };
+    renderDataHubDatasetsTable();
+  `);
+  assert.doesNotMatch(document.getElementById("dh-datasets-tbody").innerHTML, /commercial_clean/);
+  assert.match(document.getElementById("dh-datasets-tbody").innerHTML, /internal_evaluation_only/);
 });

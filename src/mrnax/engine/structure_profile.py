@@ -15,6 +15,7 @@ import threading
 from typing import Any
 
 from mrnax.constraints.sequence_gates import RESTRICTION_SITES_RNA
+from mrnax.engine.lineardesign_adapter import local_heavy_binaries_disabled
 from mrnax.engine.profiles import resolve_default_seed_dir
 from mrnax.engine.surrogates import CODON_W
 
@@ -64,6 +65,8 @@ def _try_vienna() -> Any | None:
 
 def discover_eternafold_binary() -> tuple[Path, Path] | None:
     """Locate executable `contrafold` binary and `EternaFoldParams.v1` parameters."""
+    if local_heavy_binaries_disabled():
+        return None
     bin_cands: list[Path] = []
     env_bin = os.environ.get("MRNAX_ETERNAFOLD_BIN", "").strip()
     if env_bin:
@@ -755,6 +758,10 @@ def _analyze_rna_structure_impl(
         if compliance_track == "commercial_clean":
             raise PermissionError(
                 "EternaFold v1.3.1 has license_track='commercial_clearance_pending' and cannot run under commercial_clean."
+            )
+        if local_heavy_binaries_disabled():
+            raise PermissionError(
+                "Local EternaFold binary execution is disabled by compute-tier policy; dispatch heavy folding to Colab."
             )
         ef_found = discover_eternafold_binary()
         if ef_found is not None:

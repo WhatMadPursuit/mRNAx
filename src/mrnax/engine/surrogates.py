@@ -28,6 +28,7 @@ import numpy as np
 from mrnax.engine.checkpoint_identity import (
     verify_checkpoint,
     verify_release_directory_artifacts,
+    verify_surrogate_manifest_bytes_trust_anchor,
     verify_surrogate_manifest_trust_anchor,
 )
 from mrnax.schemas.construct_bundle import ConstructBundle, RNAMoleculeSpec
@@ -359,7 +360,8 @@ def _verify_manifest_artifact(
         raise FileNotFoundError(
             f"Refusing to deserialize '{filename}': missing provenance manifest '{manifest_path}'"
         )
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest_bytes = manifest_path.read_bytes()
+    manifest = json.loads(manifest_bytes.decode("utf-8"))
     if not isinstance(manifest, dict):
         raise ValueError(f"Refusing to deserialize '{filename}': provenance manifest must be a JSON object")
     by_name = {
@@ -424,8 +426,8 @@ def _verify_manifest_artifact(
             f"Integrity error on '{filename}': sha256 {actual_sha} != expected {expected['sha256']}"
         )
     if require_commercial_clean:
-        verify_surrogate_manifest_trust_anchor(
-            manifest_path, allow_sandbox_override=allow_sandbox_override
+        verify_surrogate_manifest_bytes_trust_anchor(
+            manifest_path, manifest_bytes, allow_sandbox_override=allow_sandbox_override
         )
     return raw_bytes, actual_sha, decl_feats, expected, str(schema_id or "")
 

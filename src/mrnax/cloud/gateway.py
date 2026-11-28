@@ -47,6 +47,7 @@ from mrnax.cloud.cas_store import (
 from mrnax.cloud.drive_rest_v3 import DriveRestV3Client, GdriveCliDriveV3Transport
 from mrnax.constraints.frameshift_m1psi import remediate_m1psi_slippery_runs
 from mrnax.constraints.registry import ScopedConstraintEngine
+from mrnax.engine.lineardesign_adapter import enforce_local_heavy_binaries_policy
 from mrnax.engine.pareto_director import project_report_for_intent
 from mrnax.engine.profiles import resolve_default_seed_dir
 from mrnax.harness.auth_secrets import SecretVault
@@ -88,7 +89,7 @@ from mrnax.io_insdc.genbank_io import (
     export_construct_package,
     verify_bundle_export_eligibility,
 )
-from mrnax.schemas.common import ComplianceProfile, SegmentScope, UridineChemistry
+from mrnax.schemas.common import ComplianceProfile, Modality, SegmentScope, UridineChemistry
 from mrnax.schemas.construct_bundle import (
     ChemistryTrackSpec,
     ConstructBundle,
@@ -699,6 +700,12 @@ class AgentChatRequest(BaseModel):
     provider: Annotated[str, AfterValidator(normalize_dialogue_provider)] | None = None
     model: str | None = Field(default=None, max_length=100)
     client_request_id: str | None = Field(default=None, max_length=80)
+    compliance_track: ComplianceProfile | None = None
+    modality: Modality | None = None
+    scaffold_id: StrictStr | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9_-]{1,63}$")
+    protein_sequence: StrictStr | None = Field(default=None, max_length=5500)
+    additional_protein_sequences: list[StrictStr] | None = None
+    accession_or_source: StrictStr | None = Field(default=None, max_length=200)
 
     @field_validator("model")
     @classmethod
@@ -1218,6 +1225,7 @@ def create_control_plane_app(
     seed_dir: Path | None = None,
     access_token: str | None = None,
     rate_limit_clock: Callable[[], float] | None = None,
+    disable_local_heavy_binaries: bool = True,
 ) -> FastAPI:
     resolved_seed = seed_dir or Path(os.environ.get("MRNAX_SEED_DIR", str(DEFAULT_SEED_DIR)))
     resolved_projects = projects_root or Path(
@@ -1590,7 +1598,8 @@ def create_control_plane_app(
         prov = vault.provider_status()
         configured_providers = [k for k, v in prov.items() if v.get("configured")]
         token_valid = _is_valid_admin_token(x_mrnax_access_token)
-        engines_status = detect_available_engines(resolved_seed)
+        with enforce_local_heavy_binaries_policy(disable_local_heavy_binaries):
+            engines_status = detect_available_engines(resolved_seed)
         return {
             "status": "online",
             "hostname": socket.gethostname(),
@@ -1606,7 +1615,7 @@ def create_control_plane_app(
             "compute_tier": {
                 "gateway_role": "lightweight_relay_and_keepalive_control_plane",
                 "heavy_compute_backend": "google_colab_and_drive",
-                "vps_heavy_binaries_disabled_by_policy": True,
+                "vps_heavy_binaries_disabled_by_policy": bool(disable_local_heavy_binaries),
                 "lease_keepalive_endpoints": [
                     "/v1/executions",
                     "/v1/executions/{execution_id}/leases",
@@ -1750,7 +1759,16 @@ def create_control_plane_app(
                     detail="Invalid X-MRNAX-Idempotency-Key header.",
                 )
         turn_req_key = _hash_client_request_id(turn_idemp_raw) if turn_idemp_raw else None
-        turn_req_digest = hashlib.sha256(req.model_dump_json().encode("utf-8")).hexdigest() if turn_req_key else None
+        if turn_req_key:
+            turn_digest_doc = req.model_dump(mode="json")
+            for opt_key in ("additional_protein_sequences", "modality", "scaffold_id"):
+                if turn_digest_doc.get(opt_key) is None:
+                    turn_digest_doc.pop(opt_key, None)
+            turn_req_digest: str | None = hashlib.sha256(
+                json.dumps(turn_digest_doc, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+            ).hexdigest()
+        else:
+            turn_req_digest = None
         safe_pid_preview = _validate_safe_id(project_id, "project_id")
         pre_turn_cookie = request.cookies.get(f"mrnax_pk_{safe_pid_preview}", "")
         turn_claim_proof = (
@@ -2012,7 +2030,8 @@ def create_control_plane_app(
                 ) from exc
             try:
                 if existing_rep is None:
-                    bundles = session.execute_design(intent)
+                    with enforce_local_heavy_binaries_policy(disable_local_heavy_binaries):
+                        bundles = session.execute_design(intent)
                     latest_rep = session.latest_report(intent.intent_id)
                 else:
                     latest_rep = existing_rep
@@ -2107,12 +2126,23 @@ def create_control_plane_app(
 
         req_id = req.client_request_id
         req_key = _hash_client_request_id(req_id) if req_id else None
+        digest_payload: dict[str, Any] = {
+            "message": req.message,
+            "provider": effective_provider,
+            "model": req.model or "",
+        }
+        for opt_k, opt_v in (
+            ("compliance_track", req.compliance_track),
+            ("modality", req.modality),
+            ("scaffold_id", req.scaffold_id),
+            ("protein_sequence", req.protein_sequence),
+            ("additional_protein_sequences", req.additional_protein_sequences),
+            ("accession_or_source", req.accession_or_source),
+        ):
+            if opt_v is not None:
+                digest_payload[opt_k] = opt_v
         req_digest = hashlib.sha256(
-            json.dumps(
-                {"message": req.message, "provider": effective_provider, "model": req.model or ""},
-                sort_keys=True,
-                ensure_ascii=False,
-            ).encode("utf-8")
+            json.dumps(digest_payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
         ).hexdigest()
         byo_clean = (x_mrnax_llm_key or "").strip()
         claim_proof = (
@@ -2380,6 +2410,13 @@ def create_control_plane_app(
                 session,
                 turn_id_prefix=turn_id_prefix,
                 expected_parent_intent_id=expected_parent_id,
+                default_compliance_track=req.compliance_track,
+                forced_commercial_clean=(req.compliance_track == "commercial_clean"),
+                default_modality=req.modality,
+                default_scaffold_id=req.scaffold_id,
+                default_protein_sequence=req.protein_sequence,
+                default_additional_protein_sequences=req.additional_protein_sequences,
+                default_accession_or_source=req.accession_or_source,
             )
             pre_intent_ids = {i.intent_id for i in session._intents}
             pre_exp_ids = set(owned_exp_ids)
@@ -2813,11 +2850,12 @@ def create_control_plane_app(
                 raise HTTPException(status_code=502, detail=err_detail)
 
             try:
-                reply = agent.send_user_message(
-                    message_to_send,
-                    explicit_api_key=x_mrnax_llm_key.strip() if x_mrnax_llm_key else None,
-                    allow_tools=allow_tools,
-                )
+                with enforce_local_heavy_binaries_policy(disable_local_heavy_binaries):
+                    reply = agent.send_user_message(
+                        message_to_send,
+                        explicit_api_key=x_mrnax_llm_key.strip() if x_mrnax_llm_key else None,
+                        allow_tools=allow_tools,
+                    )
             except UpstreamProviderProtocolError:
                 return _handle_agent_failure("Upstream LLM provider returned an invalid response envelope.")
             except httpx.HTTPStatusError as exc:
@@ -3111,9 +3149,24 @@ def create_control_plane_app(
         catalog = load_registry_json(resolved_seed, "data_hub_catalog_v2.json")
         if catalog is None:
             v9_inv = load_registry_json(resolved_seed, "v9_wetlab_benchmarks_inventory.json") or {}
+            fallback_datasets = []
+            for b in v9_inv.get("benchmarks", []):
+                if not isinstance(b, dict):
+                    continue
+                item = dict(b)
+                if "license_track" not in item:
+                    gov = str(item.get("governance_scope") or "").strip()
+                    ext_ok = item.get("external_redistribution_allowed")
+                    if gov == "internal_evaluation_only" or ext_ok is False:
+                        item["license_track"] = "internal_evaluation_only"
+                    elif gov == "commercial_clean_benchmark" and ext_ok is True:
+                        item["license_track"] = "commercial_clean"
+                    else:
+                        item["license_track"] = "unverified_license"
+                fallback_datasets.append(item)
             catalog = {
                 "catalog_id": "v9_fallback_inventory",
-                "datasets": v9_inv.get("benchmarks", []),
+                "datasets": fallback_datasets,
                 "external_apis": [],
                 "engines_and_models": [],
             }
@@ -3226,11 +3279,7 @@ def create_control_plane_app(
                     b_intent = session.intent_for_bundle(safe_bid)
                     eff_track = b_intent.compliance_track
                 except ValueError:
-                    eff_track = (
-                        session._intents[-1].compliance_track
-                        if session._intents
-                        else "commercial_clean"
-                    )
+                    eff_track = "commercial_clean"
                 if req.compliance_track == "commercial_clean":
                     eff_track = "commercial_clean"
                 elif eff_track == "commercial_clean" and req.compliance_track != "commercial_clean":
@@ -3267,18 +3316,19 @@ def create_control_plane_app(
             )
 
         try:
-            res = run_structure_and_motif_analysis(
-                target_seq,
-                five_prime_end=eff_u5_end,
-                cds_start=eff_cds_start,
-                cds_end=eff_cds_end,
-                three_prime_start=eff_u3_start,
-                three_prime_end=eff_u3_end,
-                modality=eff_modality,
-                compliance_track=eff_track,
-                include_eternafold=req.include_eternafold,
-                seed_dir=resolved_seed,
-            )
+            with enforce_local_heavy_binaries_policy(disable_local_heavy_binaries):
+                res = run_structure_and_motif_analysis(
+                    target_seq,
+                    five_prime_end=eff_u5_end,
+                    cds_start=eff_cds_start,
+                    cds_end=eff_cds_end,
+                    three_prime_start=eff_u3_start,
+                    three_prime_end=eff_u3_end,
+                    modality=eff_modality,
+                    compliance_track=eff_track,
+                    include_eternafold=req.include_eternafold,
+                    seed_dir=resolved_seed,
+                )
             res["compliance_track"] = eff_track
         except StructureProfilerBusyError as exc:
             raise HTTPException(

@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
-"""Standalone Colab Linux x86_64 Heavy SOTA Worker (LinearDesign + EternaFold) with Vultr CAS Lease Keepalive.
+"""Standalone Colab Linux x86_64 Heavy SOTA Worker (LinearDesign + EternaFold) with Drive Sealing & Vultr CAS Keepalive.
 
 Design invariants:
 - Pure Python 3.10+ standard library only (runs on ephemeral Colab VMs with zero extra installs).
-- Strict track isolation: `commercial_clean` immediately refuses LinearDesign and EternaFold (exit code 2).
-- Pinned SHA-256 verification and strict tar path/link validation before extracting any archive.
-- Secret-free execution: reads `MRNAX_GATEWAY_ACCESS_TOKEN` exclusively from environment, never CLI argv/logs/output.
-- Bounded no-redirect HTTPS/localhost CAS client with background lease keepalive and `finally:` cleanup.
+- Strict track isolation: `commercial_clean` immediately refuses LinearDesign and EternaFold (exit code 2),
+  and conflicting CLI vs `--job-json` compliance tracks fail closed before lease acquisition or extraction.
+- Pinned SHA-256 verification and streaming single-FD tar path/link validation before extracting into a fresh run dir.
+- Secret-free execution: reads `MRNAX_GATEWAY_ACCESS_TOKEN` / `MRNAX_DRIVE_ACCESS_TOKEN` strictly from env,
+  validates against control characters and private-IP SSRF destinations, and scrubs tokens from all logs/JSON.
+- Production Drive-first CAS commit: writes immutable `output_json` BEFORE commit, uploads result + `SEALED.json`
+  under `<runs_root_id>/<execution_id>/attempts/<attempt_id>/SEALED.json`, and commits `(sealed_file_id, sha256(SEALED.json))`.
 """
 
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import hashlib
 import hmac
 import ipaddress
@@ -20,6 +24,7 @@ import math
 import os
 from pathlib import Path
 import re
+import socket
 import subprocess
 import sys
 import tarfile
@@ -30,22 +35,34 @@ from typing import Any
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 
 PINNED_LINEARDESIGN_TAR_SHA256 = "949802af5f0833bc2ec69dfe27a0dcaf01e4f8450d9242bd13672b3221a9fff3"
 PINNED_ETERNAFOLD_TAR_SHA256 = "84fe61a28c4a4fc4b5bc1be7736cd888fd59e57c875efd81f8e1f0911187e1db"
 
-_STANDARD_AA_OPT_STOP_RE = re.compile(r"^[ACDEFGHIKLMNPQRSTVWY]+[*]?$")
+_STANDARD_AA_OPT_STOP_RE = re.compile(r"^[ACDEFGHIKLMNPQRSTVWYacdefghiklmnpqrstvwy]+[*]?$", re.ASCII)
 _RNA_UPPER_RE = re.compile(r"^[ACGU]+$")
+_SHA256_HEX_RE = re.compile(r"^[0-9a-f]{64}$")
 _SEQ_LINE_RE = re.compile(r"(?:^|[\r\n])[ \t]*mRNA sequence:[ \t]*([ACGUacgu]+)[ \t]*(?=\r?\n|$)")
 _ENERGY_CAI_RE = re.compile(
     r"mRNA folding free energy:\s*([-+]?\d+(?:\.\d+)?)\s*kcal/mol;\s*mRNA CAI:\s*([-+]?\d+(?:\.\d+)?)"
 )
+_REDACT_PATTERNS = re.compile(r"(?:tok_[A-Za-z0-9_-]{8,}|lzk_[A-Za-z0-9_-]{8,}|Bearer\s+\S+)", re.IGNORECASE)
 
 _MAX_TAR_MEMBERS = 5000
 _MAX_TAR_BYTES = 512 * 1024 * 1024
 _MAX_HTTP_RESPONSE_BYTES = 2 * 1024 * 1024
 _MAX_ETERNAFOLD_POST_BYTES = 2 * 1024 * 1024
 _MAX_SUBPROCESS_TIMEOUT_SEC = 300.0
+_DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder"
+_CAS_COMMIT_ALLOWLIST_KEYS = (
+    "execution_id",
+    "status",
+    "winning_attempt_id",
+    "winning_sealed_file_id",
+    "winning_sealed_sha256",
+    "lease_epoch",
+)
 
 _CODON_TABLE_1: dict[str, str] = {
     "UUU": "F", "UUC": "F", "UUA": "L", "UUG": "L",
@@ -82,6 +99,28 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
         raise urllib.error.HTTPError(req.full_url, code, f"Redirects are disallowed ({code})", headers, fp)
 
 
+def _redact_secrets(text: str, *secrets_to_scrub: str) -> str:
+    out = str(text)
+    for sec in secrets_to_scrub:
+        s = (sec or "").strip()
+        if s and len(s) >= 4:
+            out = out.replace(s, "[REDACTED]")
+    return _REDACT_PATTERNS.sub("[REDACTED]", out)
+
+
+def _validate_env_token(raw: str, *, env_name: str) -> str:
+    tok = raw.strip()
+    if not tok:
+        return ""
+    if any(ch in tok for ch in ("\r", "\n", "\x00")):
+        raise ValueError(f"{env_name} contains invalid control characters")
+    return tok
+
+
+def _is_loopback_host(host: str) -> bool:
+    return host.lower() in ("127.0.0.1", "localhost", "::1")
+
+
 def validate_gateway_url(url: str) -> str:
     """Validate gateway URL: HTTPS required unless localhost/127.0.0.1; disallow credentials and metadata IPs."""
     raw = url.strip().rstrip("/")
@@ -101,28 +140,63 @@ def validate_gateway_url(url: str) -> str:
         ip_obj = ipaddress.ip_address(host)
         if ip_obj.is_link_local or ip_obj.is_multicast:
             raise ValueError(f"Blocked non-routable/link-local gateway IP: '{host}'")
+        if not ip_obj.is_loopback and (ip_obj.is_private or ip_obj.is_reserved or ip_obj.is_unspecified):
+            raise ValueError(f"Blocked private/non-global gateway IP: '{host}'")
     except ValueError as exc:
         if "Blocked" in str(exc):
             raise
-    is_loopback = host in ("127.0.0.1", "localhost", "::1")
+    is_loopback = _is_loopback_host(host)
     if parsed.scheme == "http" and not is_loopback:
         raise ValueError("Plain HTTP gateway URL is only permitted for localhost/127.0.0.1; use HTTPS.")
+
+    allowed_raw = os.environ.get("MRNAX_ALLOWED_GATEWAY_ORIGINS", "").strip()
+    if allowed_raw:
+        allowed_set = {item.strip().rstrip("/").lower() for item in allowed_raw.split(",") if item.strip()}
+        origin = f"{parsed.scheme}://{parsed.netloc}".lower()
+        if origin not in allowed_set:
+            raise ValueError(f"Gateway origin '{origin}' is not in MRNAX_ALLOWED_GATEWAY_ORIGINS")
     return raw
 
 
+def _assert_safe_gateway_peer(base_url: str) -> None:
+    """Verify resolved non-loopback gateway DNS records never point to private, loopback, or metadata IPs."""
+    parsed = urllib.parse.urlsplit(base_url)
+    host = (parsed.hostname or "").strip().lower()
+    if _is_loopback_host(host):
+        return
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    if not infos:
+        raise ValueError(f"Unable to resolve gateway host '{host}'")
+    for _fam, _stype, _proto, _canon, sockaddr in infos:
+        ip_str = str(sockaddr[0]).split("%", 1)[0]
+        ip_obj = ipaddress.ip_address(ip_str)
+        if (
+            ip_obj.is_private
+            or ip_obj.is_loopback
+            or ip_obj.is_link_local
+            or ip_obj.is_multicast
+            or ip_obj.is_reserved
+            or ip_obj.is_unspecified
+        ):
+            raise ValueError(f"Blocked resolved non-public gateway IP '{ip_str}' for '{host}'")
+
+
 def normalize_protein_sequence(protein_seq: str) -> str:
-    cleaned = protein_seq.strip().upper()
-    if not cleaned or not _STANDARD_AA_OPT_STOP_RE.fullmatch(cleaned):
+    stripped = protein_seq.strip()
+    if not stripped or not stripped.isascii() or not _STANDARD_AA_OPT_STOP_RE.fullmatch(stripped):
         raise ValueError("Protein sequence must contain only canonical 20 standard amino acids (optional trailing '*').")
-    if cleaned.endswith("*"):
-        cleaned = cleaned[:-1]
-    if len(cleaned) < 1 or len(cleaned) > 5000:
-        raise ValueError(f"Protein length ({len(cleaned)} AA) must be within [1, 5000].")
-    return cleaned
+    if stripped.endswith("*"):
+        stripped = stripped[:-1]
+    if len(stripped) < 1 or len(stripped) > 5000:
+        raise ValueError(f"Protein length ({len(stripped)} AA) must be within [1, 5000].")
+    return stripped.upper()
 
 
 def parse_lambdas(raw: str | list[float]) -> tuple[float, ...]:
     if isinstance(raw, list):
+        if not raw:
+            raise ValueError("At least one lambda value must be provided")
         items = [float(x) for x in raw]
     else:
         parts = [p.strip() for p in str(raw).split(",") if p.strip()]
@@ -176,66 +250,92 @@ def verify_and_extract_tarball(
     *,
     expected_sha256: str,
 ) -> Path:
-    """Verify pinned SHA-256 and validate every tar member before safely extracting into `dest_dir`."""
+    """Verify pinned SHA-256 and validate every tar member incrementally on ONE file handle before extraction."""
     if not tar_path.is_file():
         raise FileNotFoundError(f"Archive not found: '{tar_path}'")
     expected_norm = expected_sha256.strip().lower()
-    if not re.fullmatch(r"[0-9a-f]{64}", expected_norm):
+    if not _SHA256_HEX_RE.fullmatch(expected_norm):
         raise ValueError("Invalid expected SHA-256 digest")
-    actual_sha = compute_file_sha256(tar_path)
-    if not hmac.compare_digest(actual_sha, expected_norm):
-        raise ValueError(
-            f"SHA-256 mismatch for '{tar_path.name}': got {actual_sha}, expected {expected_norm}"
-        )
 
     dest_root = dest_dir.resolve()
-    dest_root.mkdir(parents=True, exist_ok=True)
-    validated_members: list[tuple[tarfile.TarInfo, Path]] = []
+    validated_count = 0
     total_bytes = 0
 
-    with tarfile.open(tar_path, mode="r:*") as tf:
-        members = tf.getmembers()
-        if len(members) > _MAX_TAR_MEMBERS:
-            raise ValueError(f"Archive '{tar_path.name}' exceeds member limit ({len(members)} > {_MAX_TAR_MEMBERS})")
-        for member in members:
-            raw_name = member.name
-            if not raw_name or "\x00" in raw_name or "\\" in raw_name:
-                raise ValueError(f"Unsafe tar member name: {raw_name!r}")
-            if raw_name.startswith("/") or (len(raw_name) >= 2 and raw_name[1] == ":"):
-                raise ValueError(f"Absolute path forbidden in tar archive: {raw_name!r}")
-            parts = Path(raw_name).parts
-            if ".." in parts:
-                raise ValueError(f"Path traversal ('..') forbidden in tar archive: {raw_name!r}")
-            if member.issym() or member.islnk():
-                raise ValueError(f"Symlink/hardlink forbidden in tar archive: {raw_name!r}")
-            if member.isdev() or not (member.isdir() or member.isreg()):
-                raise ValueError(f"Unsupported non-regular tar member type for {raw_name!r}")
-            if member.size < 0:
-                raise ValueError(f"Negative tar member size for {raw_name!r}")
-            total_bytes += member.size
-            if total_bytes > _MAX_TAR_BYTES:
-                raise ValueError(f"Archive '{tar_path.name}' exceeds uncompressed safety limit ({_MAX_TAR_BYTES} bytes)")
-            target_path = (dest_root / raw_name).resolve()
-            if target_path != dest_root and not target_path.is_relative_to(dest_root):
-                raise ValueError(f"Tar member escapes destination directory: {raw_name!r}")
-            validated_members.append((member, target_path))
+    with tar_path.open("rb") as fh:
+        h = hashlib.sha256()
+        compressed_bytes = 0
+        while True:
+            chunk = fh.read(65536)
+            if not chunk:
+                break
+            compressed_bytes += len(chunk)
+            if compressed_bytes > _MAX_TAR_BYTES:
+                raise ValueError(f"Archive '{tar_path.name}' exceeds compressed safety limit ({_MAX_TAR_BYTES} bytes)")
+            h.update(chunk)
+        actual_sha = h.hexdigest()
+        if not hmac.compare_digest(actual_sha, expected_norm):
+            raise ValueError(
+                f"SHA-256 mismatch for '{tar_path.name}': got {actual_sha}, expected {expected_norm}"
+            )
+        fh.seek(0)
 
-        for member, target_path in validated_members:
-            if member.isdir():
-                target_path.mkdir(parents=True, exist_ok=True)
-                continue
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            src_fh = tf.extractfile(member)
-            if src_fh is None:
-                raise ValueError(f"Failed to read tar member payload: {member.name!r}")
-            with src_fh, target_path.open("wb") as out_fh:
-                while True:
-                    buf = src_fh.read(65536)
-                    if not buf:
-                        break
-                    out_fh.write(buf)
-            mode = 0o755 if (member.mode & 0o111) else 0o644
-            os.chmod(target_path, mode)
+        # Pass 1: validate every member header incrementally on the same open file handle before writing anything
+        with tarfile.open(fileobj=fh, mode="r:*") as tf:
+            while True:
+                member = tf.next()
+                if member is None:
+                    break
+                validated_count += 1
+                if validated_count > _MAX_TAR_MEMBERS:
+                    raise ValueError(f"Archive '{tar_path.name}' exceeds member limit (> {_MAX_TAR_MEMBERS})")
+                raw_name = member.name
+                if not raw_name or "\x00" in raw_name or "\\" in raw_name:
+                    raise ValueError(f"Unsafe tar member name: {raw_name!r}")
+                if raw_name.startswith("/") or (len(raw_name) >= 2 and raw_name[1] == ":"):
+                    raise ValueError(f"Absolute path forbidden in tar archive: {raw_name!r}")
+                if ".." in Path(raw_name).parts:
+                    raise ValueError(f"Path traversal ('..') forbidden in tar archive: {raw_name!r}")
+                if member.issym() or member.islnk():
+                    raise ValueError(f"Symlink/hardlink forbidden in tar archive: {raw_name!r}")
+                if member.isdev() or not (member.isdir() or member.isreg()):
+                    raise ValueError(f"Unsupported non-regular tar member type for {raw_name!r}")
+                if member.size < 0:
+                    raise ValueError(f"Negative tar member size for {raw_name!r}")
+                total_bytes += member.size
+                if total_bytes > _MAX_TAR_BYTES:
+                    raise ValueError(f"Archive '{tar_path.name}' exceeds uncompressed safety limit ({_MAX_TAR_BYTES} bytes)")
+                target_path = (dest_root / raw_name).resolve()
+                if target_path != dest_root and not target_path.is_relative_to(dest_root):
+                    raise ValueError(f"Tar member escapes destination directory: {raw_name!r}")
+
+        # Pass 2: create dest_root and extract using the exact same verified file handle
+        dest_root.mkdir(parents=True, exist_ok=True)
+        fh.seek(0)
+        with tarfile.open(fileobj=fh, mode="r:*") as tf:
+            while True:
+                member = tf.next()
+                if member is None:
+                    break
+                target_path = (dest_root / member.name).resolve()
+                if member.isdir():
+                    target_path.mkdir(parents=True, exist_ok=True)
+                    continue
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                src_fh = tf.extractfile(member)
+                if src_fh is None:
+                    raise ValueError(f"Failed to read tar member payload: {member.name!r}")
+                with src_fh, target_path.open("wb") as out_fh:
+                    remaining = member.size
+                    while True:
+                        buf = src_fh.read(min(65536, max(1, remaining)))
+                        if not buf:
+                            break
+                        remaining -= len(buf)
+                        if remaining < 0:
+                            raise ValueError(f"Tar member '{member.name}' payload exceeded declared size")
+                        out_fh.write(buf)
+                mode = 0o755 if (member.mode & 0o111) else 0o644
+                os.chmod(target_path, mode)
     return dest_root
 
 
@@ -332,6 +432,21 @@ def run_lineardesign_binary(
     }
 
 
+def _read_bounded_bytes(path: Path, max_bytes: int, *, label: str) -> bytes:
+    chunks: list[bytes] = []
+    seen = 0
+    with path.open("rb") as fh:
+        while True:
+            blk = fh.read(65536)
+            if not blk:
+                break
+            seen += len(blk)
+            if seen > max_bytes:
+                raise RuntimeError(f"{label} output exceeded byte limit ({max_bytes} bytes)")
+            chunks.append(blk)
+    return b"".join(chunks)
+
+
 def run_eternafold_aup(
     contrafold_bin: Path,
     params_path: Path,
@@ -355,9 +470,7 @@ def run_eternafold_aup(
             timeout=timeout_sec,
             check=True,
         )
-        raw_bytes = post.read_bytes()
-        if len(raw_bytes) > _MAX_ETERNAFOLD_POST_BYTES:
-            raise RuntimeError("EternaFold posteriors output exceeded byte limit")
+        raw_bytes = _read_bounded_bytes(post, _MAX_ETERNAFOLD_POST_BYTES, label="EternaFold posteriors")
         paired = [0.0] * len(sub)
         positions = 0
         for line in raw_bytes.decode("utf-8").splitlines():
@@ -388,27 +501,140 @@ def run_eternafold_aup(
         }
 
 
+class _StdlibDriveRestClient:
+    """Minimal pure-stdlib Google Drive REST v3 sealer matching DriveRestV3Client's seal contract."""
+
+    FILES_API = "https://www.googleapis.com/drive/v3/files"
+    UPLOAD_API = "https://www.googleapis.com/upload/drive/v3/files"
+
+    def __init__(self, oauth_token: str, *, timeout_sec: float = 30.0) -> None:
+        self._token = _validate_env_token(oauth_token, env_name="MRNAX_DRIVE_ACCESS_TOKEN")
+        if not self._token:
+            raise ValueError("MRNAX_DRIVE_ACCESS_TOKEN is empty")
+        self.timeout_sec = timeout_sec
+        self._opener = urllib.request.build_opener(_NoRedirectHandler())
+
+    def _request_json(self, method: str, url: str, *, body: bytes | None = None, content_type: str | None = None) -> dict[str, Any]:
+        headers = {
+            "Authorization": f"Bearer {self._token}",
+            "Accept": "application/json",
+        }
+        if content_type:
+            headers["Content-Type"] = content_type
+        req = urllib.request.Request(url, data=body, headers=headers, method=method)
+        with self._opener.open(req, timeout=self.timeout_sec) as resp:
+            raw = resp.read(_MAX_HTTP_RESPONSE_BYTES + 1)
+            if len(raw) > _MAX_HTTP_RESPONSE_BYTES:
+                raise RuntimeError("Drive REST response exceeded byte cap")
+            decoded = json.loads(raw.decode("utf-8"))
+            if not isinstance(decoded, dict):
+                raise RuntimeError("Drive REST response must be a JSON object")
+            return decoded
+
+    def create_folder(self, parent_id: str, name: str) -> str:
+        q = f"'{parent_id}' in parents and trashed = false and name = '{name.replace(chr(39), '')}' and mimeType = '{_DRIVE_FOLDER_MIME}'"
+        qs = urllib.parse.urlencode(
+            {"q": q, "fields": "files(id,name)", "supportsAllDrives": "true", "includeItemsFromAllDrives": "true"}
+        )
+        listed = self._request_json("GET", f"{self.FILES_API}?{qs}")
+        files = listed.get("files") or []
+        if files:
+            return str(files[0]["id"])
+        meta_bytes = json.dumps({"name": name, "mimeType": _DRIVE_FOLDER_MIME, "parents": [parent_id]}).encode("utf-8")
+        created = self._request_json(
+            "POST",
+            f"{self.FILES_API}?fields=id,name,mimeType,parents&supportsAllDrives=true",
+            body=meta_bytes,
+            content_type="application/json; charset=UTF-8",
+        )
+        return str(created["id"])
+
+    def ensure_attempt_dir(self, runs_root_id: str, execution_id: str, attempt_id: str) -> str:
+        exec_dir = self.create_folder(runs_root_id, execution_id)
+        attempts_dir = self.create_folder(exec_dir, "attempts")
+        return self.create_folder(attempts_dir, attempt_id)
+
+    def upload_verified_bytes(
+        self, parent_folder_id: str, name: str, payload: bytes, mime_type: str = "application/json"
+    ) -> dict[str, Any]:
+        local_md5 = hashlib.md5(payload).hexdigest()
+        local_sha256 = hashlib.sha256(payload).hexdigest()
+        boundary = f"mrnax_colab_{uuid.uuid4().hex}"
+        meta_bytes = json.dumps({"name": name, "mimeType": mime_type, "parents": [parent_folder_id]}).encode("utf-8")
+        body = (
+            f"--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n".encode("utf-8")
+            + meta_bytes
+            + f"\r\n--{boundary}\r\nContent-Type: {mime_type}\r\n\r\n".encode("utf-8")
+            + payload
+            + f"\r\n--{boundary}--\r\n".encode("utf-8")
+        )
+        res = self._request_json(
+            "POST",
+            f"{self.UPLOAD_API}?uploadType=multipart&fields=id,name,parents,md5Checksum,size&supportsAllDrives=true",
+            body=body,
+            content_type=f"multipart/related; boundary={boundary}",
+        )
+        if res.get("md5Checksum") != local_md5:
+            raise RuntimeError(f"Drive md5Checksum mismatch for '{name}'")
+        return {
+            "file_id": str(res["id"]),
+            "name": name,
+            "parent_id": parent_folder_id,
+            "mime_type": mime_type,
+            "bytes": len(payload),
+            "md5": local_md5,
+            "sha256": local_sha256,
+        }
+
+    def write_attempt_seal(
+        self,
+        attempt_folder_id: str,
+        *,
+        execution_id: str,
+        attempt_id: str,
+        lease_epoch: int,
+        receipts: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        seal_doc = {
+            "schema": "mrnax.attempt_seal.v1",
+            "execution_id": execution_id,
+            "attempt_id": attempt_id,
+            "lease_epoch": lease_epoch,
+            "sealed_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "artifacts": receipts,
+        }
+        payload = (json.dumps(seal_doc, indent=2, sort_keys=True) + "\n").encode("utf-8")
+        return self.upload_verified_bytes(attempt_folder_id, "SEALED.json", payload, mime_type="application/json")
+
+
 class VultrCASClient:
     """Minimal stdlib HTTP client for Vultr CAS execution submission, lease keepalive, and commit."""
 
     def __init__(self, gateway_url: str, *, access_token: str = "", timeout_sec: float = 15.0) -> None:
         self.base_url = validate_gateway_url(gateway_url)
-        self._access_token = access_token.strip()
+        self._access_token = _validate_env_token(access_token, env_name="MRNAX_GATEWAY_ACCESS_TOKEN")
         self.timeout_sec = timeout_sec
         host = (urllib.parse.urlsplit(self.base_url).hostname or "").lower()
         handlers: list[Any] = [_NoRedirectHandler()]
-        if host in ("127.0.0.1", "localhost", "::1"):
+        if _is_loopback_host(host):
             handlers.append(urllib.request.ProxyHandler({}))
         self._opener = urllib.request.build_opener(*handlers)
 
-    def post_json(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
+    @property
+    def is_loopback(self) -> bool:
+        host = (urllib.parse.urlsplit(self.base_url).hostname or "").lower()
+        return _is_loopback_host(host)
+
+    def post_json(self, path: str, body: dict[str, Any], *, timeout_sec: float | None = None) -> dict[str, Any]:
+        _assert_safe_gateway_peer(self.base_url)
         url = f"{self.base_url}{path}"
         data = json.dumps(body, separators=(",", ":")).encode("utf-8")
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
         if self._access_token:
             headers["X-MRNAX-Access-Token"] = self._access_token
         req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-        with self._opener.open(req, timeout=self.timeout_sec) as resp:
+        eff_to = self.timeout_sec if timeout_sec is None else max(0.5, float(timeout_sec))
+        with self._opener.open(req, timeout=eff_to) as resp:
             raw = resp.read(_MAX_HTTP_RESPONSE_BYTES + 1)
             if len(raw) > _MAX_HTTP_RESPONSE_BYTES:
                 raise RuntimeError("Gateway CAS response exceeded byte cap")
@@ -434,12 +660,13 @@ class VultrCASClient:
         worker_id: str,
         ttl_seconds: int,
         lease_token: str | None = None,
+        timeout_sec: float | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {"worker_id": worker_id, "ttl_seconds": ttl_seconds}
         if lease_token is not None:
             payload["lease_token"] = lease_token
         safe_exec = urllib.parse.quote(execution_id, safe="")
-        return self.post_json(f"/v1/executions/{safe_exec}/leases", payload)
+        return self.post_json(f"/v1/executions/{safe_exec}/leases", payload, timeout_sec=timeout_sec)
 
     def commit_attempt(
         self,
@@ -478,6 +705,44 @@ def _atomic_write_bytes(path: Path, content: bytes) -> None:
     os.replace(tmp_path, path)
 
 
+def _sanitize_commit_receipt(raw: dict[str, Any], *, secrets_to_scrub: tuple[str, ...]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for k in _CAS_COMMIT_ALLOWLIST_KEYS:
+        if k in raw:
+            val = raw[k]
+            out[k] = _redact_secrets(val, *secrets_to_scrub) if isinstance(val, str) else val
+    return out
+
+
+def _seal_to_drive(
+    drive_client: Any,
+    *,
+    drive_runs_root_id: str,
+    execution_id: str,
+    attempt_id: str,
+    lease_epoch: int,
+    artifact_name: str,
+    artifact_bytes: bytes,
+) -> tuple[str, str]:
+    attempt_folder_id = drive_client.ensure_attempt_dir(drive_runs_root_id, execution_id, attempt_id)
+    art_receipt = drive_client.upload_verified_bytes(
+        attempt_folder_id,
+        artifact_name,
+        artifact_bytes,
+        mime_type="application/json",
+    )
+    seal_receipt = drive_client.write_attempt_seal(
+        attempt_folder_id,
+        execution_id=execution_id,
+        attempt_id=attempt_id,
+        lease_epoch=lease_epoch,
+        receipts=[art_receipt],
+    )
+    if isinstance(seal_receipt, dict):
+        return str(seal_receipt["file_id"]), str(seal_receipt["sha256"])
+    return str(seal_receipt.file_id), str(seal_receipt.sha256)
+
+
 def run_worker(
     *,
     protein_seq: str,
@@ -487,6 +752,7 @@ def run_worker(
     lineardesign_tar: Path | None = None,
     eternafold_tar: Path | None = None,
     lineardesign_bin: Path | None = None,
+    lineardesign_bin_sha256: str | None = None,
     work_dir: Path | None = None,
     gateway_url: str | None = None,
     execution_id: str | None = None,
@@ -497,16 +763,23 @@ def run_worker(
     request_digest: str | None = None,
     intent_id: str = "int_colab_sota",
     sealed_file_id: str | None = None,
+    sealed_sha256: str | None = None,
+    drive_runs_root_id: str | None = None,
+    drive_client: Any = None,
+    defer_commit: bool = False,
     output_json: Path | None = None,
+    commit_receipt_json: Path | None = None,
     heartbeat_interval_sec: float | None = None,
 ) -> dict[str, Any]:
-    """Execute Colab heavy SOTA workload with strict clean-room isolation, pinned tar verification, and CAS keepalive."""
+    """Execute Colab heavy SOTA workload with strict clean-room isolation, pinned tar verification, Drive seal, and CAS keepalive."""
     if compliance_track not in ("research_max", "commercial_clean"):
         raise ValueError(f"Unsupported compliance_track '{compliance_track}'")
     if compliance_track == "commercial_clean":
         raise PermissionError(
             "Track isolation blocked: LinearDesign and EternaFold are strictly disallowed under 'commercial_clean'."
         )
+    if not lambdas:
+        raise ValueError("At least one lambda value must be provided")
 
     sense_aa = normalize_protein_sequence(protein_seq)
     eff_ttl = min(600, max(15, int(ttl_seconds)))
@@ -515,21 +788,58 @@ def run_worker(
         if heartbeat_interval_sec is None
         else max(0.01, float(heartbeat_interval_sec))
     )
-    access_token = os.environ.get("MRNAX_GATEWAY_ACCESS_TOKEN", "").strip()
+    access_token = _validate_env_token(
+        os.environ.get("MRNAX_GATEWAY_ACCESS_TOKEN", ""), env_name="MRNAX_GATEWAY_ACCESS_TOKEN"
+    )
+    drive_token = _validate_env_token(
+        os.environ.get("MRNAX_DRIVE_ACCESS_TOKEN", ""), env_name="MRNAX_DRIVE_ACCESS_TOKEN"
+    )
+    scrub_secrets = (access_token, drive_token)
+
     cas_client = VultrCASClient(gateway_url, access_token=access_token) if gateway_url else None
+    eff_drive_runs_root = (drive_runs_root_id or os.environ.get("MRNAX_DRIVE_RUNS_ROOT_ID", "")).strip() or None
+    eff_drive_client = drive_client
+    if eff_drive_client is None and eff_drive_runs_root and drive_token:
+        eff_drive_client = _StdlibDriveRestClient(drive_token)
+
+    if sealed_file_id and not sealed_sha256:
+        raise ValueError("--sealed-file-id requires matching --sealed-sha256 of the uploaded SEALED.json")
+    if sealed_sha256 and not _SHA256_HEX_RE.fullmatch(sealed_sha256.strip().lower()):
+        raise ValueError("--sealed-sha256 must be a 64-char lowercase hex SHA-256 digest")
+
+    if cas_client is not None and not defer_commit and not cas_client.is_loopback:
+        if eff_drive_client is None and not (sealed_file_id and sealed_sha256):
+            raise ValueError(
+                "Remote HTTPS gateway commit requires Drive sealing (--drive-runs-root-id + MRNAX_DRIVE_ACCESS_TOKEN "
+                "or drive_client) or explicit (--sealed-file-id + --sealed-sha256); pass --defer-commit for compute-only."
+            )
 
     eff_exec_id = (execution_id or "").strip() or None
     if cas_client is not None and eff_exec_id is None:
-        eff_sub_id = (submission_id or "").strip() or f"sub_colab_{hashlib.sha256(sense_aa.encode('ascii')).hexdigest()[:12]}"
         eff_req_dig = (request_digest or "").strip() or hashlib.sha256(
-            json.dumps({"protein": sense_aa, "lambdas": list(lambdas), "ef": include_eternafold}, sort_keys=True).encode("utf-8")
+            json.dumps(
+                {
+                    "protein": sense_aa,
+                    "lambdas": list(lambdas),
+                    "ef": include_eternafold,
+                    "track": compliance_track,
+                    "intent_id": intent_id,
+                },
+                sort_keys=True,
+            ).encode("utf-8")
         ).hexdigest()
+        eff_sub_id = (submission_id or "").strip() or f"sub_colab_{eff_req_dig[:16]}"
         sub_row = cas_client.submit_execution(
             submission_id=eff_sub_id,
             request_digest=eff_req_dig,
             intent_id=intent_id,
         )
         eff_exec_id = str(sub_row["execution_id"])
+        if str(sub_row.get("status") or "") == "COMMITTED":
+            raise RuntimeError(
+                f"Execution '{eff_exec_id}' (submission_id='{eff_sub_id}') is already COMMITTED "
+                f"(winning_attempt_id={sub_row.get('winning_attempt_id')})."
+            )
 
     lease_grant: dict[str, Any] | None = None
     if cas_client is not None and eff_exec_id is not None:
@@ -543,24 +853,42 @@ def run_worker(
     renewal_count = 0
     renewal_lock = threading.Lock()
     renewal_errors: list[str] = []
+    lease_superseded = False
+    active_grant: dict[str, Any] | None = dict(lease_grant) if lease_grant is not None else None
 
     def _heartbeat_loop() -> None:
-        nonlocal renewal_count
-        assert cas_client is not None and eff_exec_id is not None and lease_grant is not None
-        tok = str(lease_grant["lease_token"])
+        nonlocal renewal_count, lease_superseded
+        assert cas_client is not None and eff_exec_id is not None
+        hb_http_timeout = min(15.0, max(2.0, eff_interval))
         while not stop_event.wait(timeout=eff_interval):
+            with renewal_lock:
+                assert active_grant is not None
+                cur_tok = str(active_grant["lease_token"])
+                cur_att = str(active_grant["attempt_id"])
+                cur_epoch = int(active_grant["lease_epoch"])
             try:
-                cas_client.acquire_or_renew_lease(
+                renewed = cas_client.acquire_or_renew_lease(
                     eff_exec_id,
                     worker_id=worker_id,
                     ttl_seconds=eff_ttl,
-                    lease_token=tok,
+                    lease_token=cur_tok,
+                    timeout_sec=hb_http_timeout,
                 )
                 with renewal_lock:
+                    assert active_grant is not None
+                    new_att = str(renewed.get("attempt_id") or "")
+                    new_epoch = int(renewed.get("lease_epoch", -1))
+                    if new_att != cur_att or new_epoch != cur_epoch:
+                        lease_superseded = True
+                        renewal_errors.append(
+                            f"Lease superseded during heartbeat: attempt {cur_att} (epoch {cur_epoch}) -> {new_att} (epoch {new_epoch})"
+                        )
+                        break
+                    active_grant.update(renewed)
                     renewal_count += 1
             except Exception as exc:
                 with renewal_lock:
-                    renewal_errors.append(str(exc))
+                    renewal_errors.append(_redact_secrets(f"{type(exc).__name__}: {exc}", *scrub_secrets))
                 break
 
     hb_thread: threading.Thread | None = None
@@ -572,51 +900,72 @@ def run_worker(
         with tempfile.TemporaryDirectory(prefix="mrnax_colab_sota_") as tmp_td:
             eff_work = work_dir.resolve() if work_dir is not None else Path(tmp_td)
             eff_work.mkdir(parents=True, exist_ok=True)
-
-            if lineardesign_tar is not None:
-                ld_dir = verify_and_extract_tarball(
-                    lineardesign_tar,
-                    eff_work / "lineardesign",
-                    expected_sha256=PINNED_LINEARDESIGN_TAR_SHA256,
-                )
-                ld_bin, ld_runtime = _locate_lineardesign_binary(ld_dir)
-            elif lineardesign_bin is not None:
-                ld_bin = lineardesign_bin.resolve()
-                if not ld_bin.is_file():
-                    raise FileNotFoundError(f"LinearDesign binary not found: '{ld_bin}'")
-                ld_runtime = ld_bin.parent
-            else:
-                raise FileNotFoundError("Provide --lineardesign-tar (pinned SHA-256) or --lineardesign-bin.")
-
-            candidates: list[dict[str, Any]] = []
-            for lam in lambdas:
-                candidates.append(
-                    run_lineardesign_binary(ld_bin, ld_runtime, sense_aa, lambda_val=lam)
-                )
-
-            ef_metrics: list[dict[str, Any]] = []
-            if include_eternafold:
-                if eternafold_tar is None:
-                    raise FileNotFoundError("--include-eternafold requires --eternafold-tar with pinned SHA-256.")
-                ef_dir = verify_and_extract_tarball(
-                    eternafold_tar,
-                    eff_work / "eternafold",
-                    expected_sha256=PINNED_ETERNAFOLD_TAR_SHA256,
-                )
-                ef_bin, ef_params = _locate_eternafold_binary(ef_dir)
-                for cand in candidates:
-                    ef_metrics.append(
-                        {
-                            "lambda": cand["lambda"],
-                            **run_eternafold_aup(ef_bin, ef_params, cand["cds_rna"]),
-                        }
+            with tempfile.TemporaryDirectory(prefix="verified_run_", dir=eff_work) as isolated_dir_raw:
+                isolated_dir = Path(isolated_dir_raw)
+                if lineardesign_tar is not None:
+                    ld_dir = verify_and_extract_tarball(
+                        lineardesign_tar,
+                        isolated_dir / "lineardesign",
+                        expected_sha256=PINNED_LINEARDESIGN_TAR_SHA256,
                     )
+                    ld_bin, ld_runtime = _locate_lineardesign_binary(ld_dir)
+                elif lineardesign_bin is not None:
+                    ld_bin = lineardesign_bin.resolve()
+                    if not ld_bin.is_file():
+                        raise FileNotFoundError(f"LinearDesign binary not found: '{ld_bin}'")
+                    if not lineardesign_bin_sha256:
+                        raise ValueError("--lineardesign-bin requires pinned --lineardesign-bin-sha256")
+                    exp_bin_sha = lineardesign_bin_sha256.strip().lower()
+                    if not _SHA256_HEX_RE.fullmatch(exp_bin_sha):
+                        raise ValueError("--lineardesign-bin-sha256 must be a valid 64-char hex SHA-256")
+                    actual_bin_sha = compute_file_sha256(ld_bin)
+                    if not hmac.compare_digest(actual_bin_sha, exp_bin_sha):
+                        raise ValueError(
+                            f"LinearDesign binary SHA-256 mismatch: got {actual_bin_sha}, expected {exp_bin_sha}"
+                        )
+                    ld_runtime = ld_bin.parent
+                else:
+                    raise FileNotFoundError("Provide --lineardesign-tar (pinned SHA-256) or --lineardesign-bin + --lineardesign-bin-sha256.")
+
+                candidates: list[dict[str, Any]] = []
+                for lam in lambdas:
+                    candidates.append(
+                        run_lineardesign_binary(ld_bin, ld_runtime, sense_aa, lambda_val=lam)
+                    )
+
+                ef_metrics: list[dict[str, Any]] = []
+                if include_eternafold:
+                    if eternafold_tar is None:
+                        raise FileNotFoundError("--include-eternafold requires --eternafold-tar with pinned SHA-256.")
+                    ef_dir = verify_and_extract_tarball(
+                        eternafold_tar,
+                        isolated_dir / "eternafold",
+                        expected_sha256=PINNED_ETERNAFOLD_TAR_SHA256,
+                    )
+                    ef_bin, ef_params = _locate_eternafold_binary(ef_dir)
+                    for cand in candidates:
+                        ef_metrics.append(
+                            {
+                                "lambda": cand["lambda"],
+                                **run_eternafold_aup(ef_bin, ef_params, cand["cds_rna"]),
+                            }
+                        )
+
+        stop_event.set()
+        if hb_thread is not None:
+            hb_thread.join(timeout=5.0)
 
         with renewal_lock:
             renewals_snapshot = renewal_count
             errors_snapshot = list(renewal_errors)
+            superseded_snapshot = lease_superseded
+            grant_snapshot = dict(active_grant) if active_grant is not None else None
 
-        eff_attempt_id = str(lease_grant["attempt_id"]) if lease_grant is not None else (attempt_id or "")
+        if superseded_snapshot:
+            raise RuntimeError(errors_snapshot[-1] if errors_snapshot else "CAS lease expired and was superseded")
+
+        eff_attempt_id = str(grant_snapshot["attempt_id"]) if grant_snapshot is not None else (attempt_id or "")
+        eff_lease_epoch = int(grant_snapshot["lease_epoch"]) if grant_snapshot is not None else None
         result_core: dict[str, Any] = {
             "status": "COMPUTED",
             "compliance_track": compliance_track,
@@ -626,35 +975,78 @@ def run_worker(
             "eternafold_metrics": ef_metrics,
             "execution_id": eff_exec_id,
             "attempt_id": eff_attempt_id or None,
-            "lease_epoch": lease_grant["lease_epoch"] if lease_grant is not None else None,
+            "lease_epoch": eff_lease_epoch,
             "heartbeat_renewals": renewals_snapshot,
             "heartbeat_errors": errors_snapshot,
         }
-        canonical_bytes = (json.dumps(result_core, indent=2, sort_keys=True) + "\n").encode("utf-8")
-        result_sha256 = hashlib.sha256(canonical_bytes).hexdigest()
-        result_core["result_sha256"] = result_sha256
+        immutable_bytes = (json.dumps(result_core, indent=2, sort_keys=True) + "\n").encode("utf-8")
+        result_sha256 = hashlib.sha256(immutable_bytes).hexdigest()
 
-        if cas_client is not None and eff_exec_id is not None and lease_grant is not None:
-            eff_sealed_id = (
-                sealed_file_id
-                or (str(output_json.resolve()) if output_json is not None else f"colab://result/{eff_exec_id}/{eff_attempt_id}")
-            )
-            commit_receipt = cas_client.commit_attempt(
+        # Persist immutable computed output BEFORE Drive upload / CAS commit so a rejected commit never discards results
+        if output_json is not None:
+            _atomic_write_bytes(output_json, immutable_bytes)
+
+        result_out: dict[str, Any] = {**result_core, "result_sha256": result_sha256}
+
+        if cas_client is not None and eff_exec_id is not None and grant_snapshot is not None and not defer_commit:
+            if eff_drive_client is not None and eff_drive_runs_root is not None:
+                eff_sealed_id, eff_sealed_sha256 = _seal_to_drive(
+                    eff_drive_client,
+                    drive_runs_root_id=eff_drive_runs_root,
+                    execution_id=eff_exec_id,
+                    attempt_id=eff_attempt_id,
+                    lease_epoch=int(grant_snapshot["lease_epoch"]),
+                    artifact_name=output_json.name if output_json is not None else "colab_sota_result.json",
+                    artifact_bytes=immutable_bytes,
+                )
+            elif sealed_file_id and sealed_sha256:
+                eff_sealed_id = sealed_file_id.strip()
+                eff_sealed_sha256 = sealed_sha256.strip().lower()
+            elif cas_client.is_loopback:
+                eff_sealed_id = (
+                    str(output_json.resolve())
+                    if output_json is not None
+                    else f"local://result/{eff_exec_id}/{eff_attempt_id}"
+                )
+                eff_sealed_sha256 = result_sha256
+            else:
+                raise ValueError("Cannot commit to remote gateway without Drive SEALED.json or explicit sealed digest")
+
+            raw_commit_receipt = cas_client.commit_attempt(
                 execution_id=eff_exec_id,
                 attempt_id=eff_attempt_id,
-                lease_epoch=int(lease_grant["lease_epoch"]),
-                lease_token=str(lease_grant["lease_token"]),
+                lease_epoch=int(grant_snapshot["lease_epoch"]),
+                lease_token=str(grant_snapshot["lease_token"]),
                 sealed_file_id=eff_sealed_id,
-                sealed_sha256=result_sha256,
+                sealed_sha256=eff_sealed_sha256,
             )
-            result_core["status"] = str(commit_receipt.get("status", "COMMITTED"))
-            result_core["cas_commit"] = commit_receipt
+            clean_receipt = _sanitize_commit_receipt(raw_commit_receipt, secrets_to_scrub=scrub_secrets)
+            result_out["status"] = str(clean_receipt.get("status", "COMMITTED"))
+            result_out["sealed_file_id"] = eff_sealed_id
+            result_out["sealed_sha256"] = eff_sealed_sha256
+            result_out["cas_commit"] = clean_receipt
 
-        if output_json is not None:
-            final_bytes = (json.dumps(result_core, indent=2, sort_keys=True) + "\n").encode("utf-8")
-            _atomic_write_bytes(output_json, final_bytes)
+            receipt_target = commit_receipt_json or (
+                output_json.with_name(f"{output_json.stem}.commit_receipt.json")
+                if output_json is not None
+                else None
+            )
+            if receipt_target is not None:
+                receipt_doc = {
+                    "execution_id": eff_exec_id,
+                    "attempt_id": eff_attempt_id,
+                    "status": result_out["status"],
+                    "result_sha256": result_sha256,
+                    "sealed_file_id": eff_sealed_id,
+                    "sealed_sha256": eff_sealed_sha256,
+                    "cas_commit": clean_receipt,
+                }
+                _atomic_write_bytes(
+                    receipt_target,
+                    (json.dumps(receipt_doc, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+                )
 
-        return result_core
+        return result_out
     finally:
         stop_event.set()
         if hb_thread is not None:
@@ -662,15 +1054,23 @@ def run_worker(
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Colab Heavy SOTA Worker (LinearDesign + EternaFold) with Vultr CAS Keepalive")
+    p = argparse.ArgumentParser(
+        description="Colab Heavy SOTA Worker (LinearDesign + EternaFold) with Drive Sealing & Vultr CAS Keepalive"
+    )
     p.add_argument("--protein-seq", default="", help="Primary target protein sequence (canonical AA)")
     p.add_argument("--job-json", type=Path, default=None, help="Optional JSON job descriptor file")
-    p.add_argument("--compliance-track", default="research_max", choices=("research_max", "commercial_clean"))
+    p.add_argument(
+        "--compliance-track",
+        default=None,
+        choices=("research_max", "commercial_clean"),
+        help="Compliance track (defaults to research_max unless set by --job-json; conflicts fail closed)",
+    )
     p.add_argument("--lambdas", default="1.0,2.0", help="Comma-separated LinearDesign lambda weights")
     p.add_argument("--include-eternafold", action="store_true", help="Also run EternaFold AUP scoring")
     p.add_argument("--lineardesign-tar", type=Path, default=None, help="Path to pinned LinearDesign Linux tarball")
     p.add_argument("--eternafold-tar", type=Path, default=None, help="Path to pinned EternaFold Linux tarball")
     p.add_argument("--lineardesign-bin", type=Path, default=None, help="Optional pre-extracted local binary path")
+    p.add_argument("--lineardesign-bin-sha256", default=None, help="Required SHA-256 pin when using --lineardesign-bin")
     p.add_argument("--work-dir", type=Path, default=None, help="Extraction/working directory")
     p.add_argument("--gateway-url", default=None, help="Vultr control-plane HTTPS/localhost URL")
     p.add_argument("--execution-id", default=None, help="Pre-submitted CAS execution_id")
@@ -680,17 +1080,26 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--submission-id", default=None, help="Optional CAS submission_id for auto-submit")
     p.add_argument("--request-digest", default=None, help="Optional CAS request_digest for auto-submit")
     p.add_argument("--intent-id", default="int_colab_sota", help="Intent ID for CAS auto-submit")
-    p.add_argument("--sealed-file-id", default=None, help="Drive SEALED.json file ID or artifact URI")
-    p.add_argument("--output-json", type=Path, default=None, help="Output JSON artifact path")
+    p.add_argument("--drive-runs-root-id", default=None, help="Drive runs root folder ID for SEALED.json upload")
+    p.add_argument("--sealed-file-id", default=None, help="Pre-uploaded Drive SEALED.json file ID")
+    p.add_argument("--sealed-sha256", default=None, help="SHA-256 of pre-uploaded Drive SEALED.json")
+    p.add_argument("--defer-commit", action="store_true", help="Run compute only and leave CAS commit to external sealer")
+    p.add_argument("--output-json", type=Path, default=None, help="Immutable output artifact JSON path")
+    p.add_argument("--commit-receipt-json", type=Path, default=None, help="Optional CAS commit receipt JSON path")
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = _build_arg_parser()
     args = parser.parse_args(argv)
+    scrub_secrets = (
+        os.environ.get("MRNAX_GATEWAY_ACCESS_TOKEN", ""),
+        os.environ.get("MRNAX_DRIVE_ACCESS_TOKEN", ""),
+    )
 
     protein_seq = args.protein_seq
-    compliance_track = args.compliance_track
+    cli_track: str | None = args.compliance_track
+    job_track: str | None = None
     lambdas_raw: str | list[float] = args.lambdas
     include_eternafold = bool(args.include_eternafold)
 
@@ -700,11 +1109,24 @@ def main(argv: list[str] | None = None) -> int:
             print("Error: --job-json must decode to a JSON object", file=sys.stderr)
             return 1
         protein_seq = str(job_doc.get("protein_seq") or job_doc.get("protein_sequence") or protein_seq)
-        compliance_track = str(job_doc.get("compliance_track") or compliance_track)
+        if "compliance_track" in job_doc and job_doc["compliance_track"] is not None:
+            job_track = str(job_doc["compliance_track"]).strip()
+            if job_track not in ("research_max", "commercial_clean"):
+                print(f"Error: unsupported compliance_track '{job_track}' in --job-json", file=sys.stderr)
+                return 2
         if "lambdas" in job_doc:
             lambdas_raw = job_doc["lambdas"]
         if "include_eternafold" in job_doc:
             include_eternafold = bool(job_doc["include_eternafold"])
+
+    if cli_track is not None and job_track is not None and cli_track != job_track:
+        print(
+            f"PermissionError: Conflicting compliance_track between CLI ('{cli_track}') and --job-json ('{job_track}')",
+            file=sys.stderr,
+        )
+        return 2
+
+    compliance_track = cli_track or job_track or "research_max"
 
     if not protein_seq.strip():
         print("Error: --protein-seq (or --job-json protein_seq) is required", file=sys.stderr)
@@ -720,6 +1142,7 @@ def main(argv: list[str] | None = None) -> int:
             lineardesign_tar=args.lineardesign_tar,
             eternafold_tar=args.eternafold_tar,
             lineardesign_bin=args.lineardesign_bin,
+            lineardesign_bin_sha256=args.lineardesign_bin_sha256,
             work_dir=args.work_dir,
             gateway_url=args.gateway_url,
             execution_id=args.execution_id,
@@ -730,13 +1153,17 @@ def main(argv: list[str] | None = None) -> int:
             request_digest=args.request_digest,
             intent_id=args.intent_id,
             sealed_file_id=args.sealed_file_id,
+            sealed_sha256=args.sealed_sha256,
+            drive_runs_root_id=args.drive_runs_root_id,
+            defer_commit=bool(args.defer_commit),
             output_json=args.output_json,
+            commit_receipt_json=args.commit_receipt_json,
         )
     except PermissionError as exc:
-        print(f"PermissionError: {exc}", file=sys.stderr)
+        print(_redact_secrets(f"PermissionError: {exc}", *scrub_secrets), file=sys.stderr)
         return 2
     except Exception as exc:
-        print(f"Error: {type(exc).__name__}: {exc}", file=sys.stderr)
+        print(_redact_secrets(f"Error: {type(exc).__name__}: {exc}", *scrub_secrets), file=sys.stderr)
         return 1
 
     summary = {

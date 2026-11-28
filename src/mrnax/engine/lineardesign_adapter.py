@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+import contextvars
 from dataclasses import dataclass
 import functools
 import math
@@ -141,8 +142,33 @@ def compute_5prime_initiation_openness(
     return round(max(0.05, min(0.95, 1.0 - 0.85 * gc_frac)), 6)
 
 
+_LOCAL_HEAVY_BINARY_DISABLED_CTX: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "mrnax_disable_local_heavy_binaries", default=False
+)
+
+
+def local_heavy_binaries_disabled() -> bool:
+    """Return True when local external heavy C++ binaries (LinearDesign/EternaFold) are disabled by policy."""
+    if _LOCAL_HEAVY_BINARY_DISABLED_CTX.get():
+        return True
+    raw = os.environ.get("MRNAX_DISABLE_LOCAL_HEAVY_BINARIES", "").strip().lower()
+    return raw in ("1", "true", "yes")
+
+
+@contextmanager
+def enforce_local_heavy_binaries_policy(disabled: bool = True) -> Iterator[None]:
+    """Temporarily enforce local external heavy-binary policy across gateway calls."""
+    token = _LOCAL_HEAVY_BINARY_DISABLED_CTX.set(bool(disabled))
+    try:
+        yield
+    finally:
+        _LOCAL_HEAVY_BINARY_DISABLED_CTX.reset(token)
+
+
 def discover_lineardesign_binary() -> tuple[Path, Path] | None:
     """Discover executable `lineardesign` binary and runtime table directory (`coding_wheel.txt` + CSV)."""
+    if local_heavy_binaries_disabled():
+        return None
     candidates: list[Path] = []
     env_bin = os.environ.get("MRNAX_LINEARDESIGN_BIN", "").strip()
     if env_bin:
@@ -219,8 +245,8 @@ def _validate_timeout_sec(timeout_sec: float) -> float:
     return min(max(0.1, val), _MAX_LD_TIMEOUT_SEC)
 
 
-_LD_SEMAPHORE_LOCK = threading.Lock()
-_LD_SEMAPHORES: dict[int, threading.BoundedSemaphore] = {}
+_LD_GATE_COND = threading.Condition()
+_LD_ACTIVE_SLOTS = 0
 _LD_SEM_STATE = threading.local()
 
 
@@ -235,17 +261,9 @@ def resolve_lineardesign_max_workers() -> int:
     return min(5, max(1, os.cpu_count() or 1))
 
 
-def _get_lineardesign_semaphore(limit: int) -> threading.BoundedSemaphore:
-    with _LD_SEMAPHORE_LOCK:
-        sem = _LD_SEMAPHORES.get(limit)
-        if sem is None:
-            sem = threading.BoundedSemaphore(limit)
-            _LD_SEMAPHORES[limit] = sem
-        return sem
-
-
 @contextmanager
 def _lineardesign_concurrency_slot() -> Iterator[None]:
+    global _LD_ACTIVE_SLOTS
     depth = int(getattr(_LD_SEM_STATE, "depth", 0))
     if depth > 0:
         _LD_SEM_STATE.depth = depth + 1
@@ -254,14 +272,18 @@ def _lineardesign_concurrency_slot() -> Iterator[None]:
         finally:
             _LD_SEM_STATE.depth = depth
         return
-    sem = _get_lineardesign_semaphore(resolve_lineardesign_max_workers())
-    sem.acquire()
+    with _LD_GATE_COND:
+        while _LD_ACTIVE_SLOTS >= resolve_lineardesign_max_workers():
+            _LD_GATE_COND.wait()
+        _LD_ACTIVE_SLOTS += 1
     _LD_SEM_STATE.depth = 1
     try:
         yield
     finally:
         _LD_SEM_STATE.depth = 0
-        sem.release()
+        with _LD_GATE_COND:
+            _LD_ACTIVE_SLOTS = max(0, _LD_ACTIVE_SLOTS - 1)
+            _LD_GATE_COND.notify_all()
 
 
 def _build_lineardesign_subprocess_env(argv: list[str]) -> dict[str, str]:

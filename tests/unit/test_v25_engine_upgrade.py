@@ -943,3 +943,44 @@ def test_circrna_pie_backbone_routing_and_ivt_fail_closed() -> None:
             assert f"SCAF-CIRC-IRES-{expected_ires}-WT" in u5_seg.origin_source
             with pytest.raises((ExportConstraintViolationError, ValueError), match="verified split PIE intron"):
                 render_ivt_synthesis_order(b, intent=intent_ana)
+
+
+def test_pinned_llm_transport_enforces_hard_overall_deadline() -> None:
+    import socket
+    import ssl
+    import threading
+    import time
+    import httpx
+    from mrnax.harness.dialogue import _PinnedHostHTTPTransport
+
+    srv_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv_sock.bind(("127.0.0.1", 0))
+    srv_sock.listen(4)
+    port = int(srv_sock.getsockname()[1])
+
+    def _stall_server() -> None:
+        try:
+            conn, _ = srv_sock.accept()
+            with conn:
+                time.sleep(3.0)
+        except OSError:
+            pass
+
+    t = threading.Thread(target=_stall_server, daemon=True)
+    t.start()
+    try:
+        transport = _PinnedHostHTTPTransport(
+            expected_host="api.example.com",
+            pinned_ip="127.0.0.1",
+            pinned_port=port,
+            timeout_sec=0.3,
+        )
+        req = httpx.Request("POST", f"https://api.example.com:{port}/v1/chat/completions", content=b"{}")
+        t0 = time.monotonic()
+        with pytest.raises((httpx.ReadTimeout, httpx.ConnectError)):
+            transport.handle_request(req)
+        assert time.monotonic() - t0 < 2.0
+    finally:
+        srv_sock.close()
+        t.join(timeout=1.0)
+
