@@ -48,8 +48,8 @@ def compute_kozak_unpaired_probability(mol: RNAMoleculeSpec) -> float:
         return 0.5
 
     w_size = min(len(sub), 70)
-    l_span = min(len(sub), 50)
-    up = _rna().pfl_fold_up(sub, 1, l_span, w_size)
+    l_span = min(w_size, 50)
+    up = _rna().pfl_fold_up(sub, 1, w_size, l_span)
 
     rel_aug = cds_seg.start - win_start
     probe_lo = max(0, rel_aug - 15)
@@ -99,8 +99,8 @@ def compute_rnaup_mirna_interaction(
 
     u_max = min(target_site_len, 24)
     w_size = min(len(context_rna), 120)
-    l_span = min(len(context_rna), 90)
-    up = _rna().pfl_fold_up(context_rna, u_max, l_span, w_size)
+    l_span = min(w_size, 90)
+    up = _rna().pfl_fold_up(context_rna, u_max, w_size, l_span)
 
     end_1based = target_site_start_in_context + target_site_len
     p_site_unpaired = max(float(up[end_1based][u_max]), 1e-12)

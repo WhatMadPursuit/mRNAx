@@ -42,9 +42,20 @@ def _sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def export_construct_package(
+def resolve_expected_chemistry_for_bundle(
     bundle: ConstructBundle,
-    out_dir: Path,
+    declared_chemistry: UridineChemistry | None,
+) -> UridineChemistry | None:
+    """Resolve expected chemistry consistently across qualification and export for unmodified-U non-linear modalities."""
+    if declared_chemistry is None:
+        return None
+    if bundle.molecules and all(m.modality in {"circrna", "sarna"} for m in bundle.molecules):
+        return "unmodified_u"
+    return declared_chemistry
+
+
+def verify_bundle_export_eligibility(
+    bundle: ConstructBundle,
     *,
     constraint_engine: ScopedConstraintEngine,
     constraints: list[ConstraintSpec],
@@ -52,8 +63,9 @@ def export_construct_package(
     expected_chemistry: UridineChemistry | None = None,
     locked_scopes: dict[SegmentScope, LockedRegionSpec] | None = None,
     expected_protein_targets: list[ProteinTargetSpec] | None = None,
-) -> dict[str, Any]:
-    """Re-verify with the exact shared `ScopedConstraintEngine` then export INSDC 4-file package."""
+) -> Any:
+    """Shared export release check across INSDC packages, HTML QC dossiers, and IVT synthesis orders."""
+    eff_expected_chemistry = resolve_expected_chemistry_for_bundle(bundle, expected_chemistry)
     if compliance_track == "commercial_clean":
         if constraint_engine.seed_dir is not None:
             from mrnax.federated.external_evidence_adapter import CleanRoomPolicyError
@@ -73,13 +85,37 @@ def export_construct_package(
         bundle,
         constraints,
         compliance_track=compliance_track,
-        expected_chemistry=expected_chemistry,
+        expected_chemistry=eff_expected_chemistry,
         locked_scopes=locked_scopes,
         expected_protein_targets=expected_protein_targets,
     )
     if not outcome.passed_all_hard_gates:
         reasons = "; ".join(f"{v.violated_requirement_id}@{v.violated_scope}:{v.reason}" for v in outcome.violations)
         raise ExportConstraintViolationError(f"Export blocked by shared ScopedConstraintEngine: {reasons}")
+    return outcome
+
+
+def export_construct_package(
+    bundle: ConstructBundle,
+    out_dir: Path,
+    *,
+    constraint_engine: ScopedConstraintEngine,
+    constraints: list[ConstraintSpec],
+    compliance_track: ComplianceProfile,
+    expected_chemistry: UridineChemistry | None = None,
+    locked_scopes: dict[SegmentScope, LockedRegionSpec] | None = None,
+    expected_protein_targets: list[ProteinTargetSpec] | None = None,
+) -> dict[str, Any]:
+    """Re-verify with the exact shared `ScopedConstraintEngine` then export INSDC 4-file package."""
+    outcome = verify_bundle_export_eligibility(
+        bundle,
+        constraint_engine=constraint_engine,
+        constraints=constraints,
+        compliance_track=compliance_track,
+        expected_chemistry=expected_chemistry,
+        locked_scopes=locked_scopes,
+        expected_protein_targets=expected_protein_targets,
+    )
 
     out_dir.mkdir(parents=True, exist_ok=True)
     full_fasta_path = out_dir / "full_rna.fasta"

@@ -486,3 +486,55 @@ class RuleRegistry:
                 continue
             active.append(r)
         return active
+
+
+def load_scientific_rules_v2(seed_dir: Path | None = None) -> dict:
+    """Load the 38-rule quantitative rulebook (`rules_scientific_v2.json`) from `seed_dir`."""
+    from mrnax.engine.profiles import resolve_default_seed_dir
+
+    eff_seed = Path(seed_dir) if seed_dir is not None else resolve_default_seed_dir()
+    v2_path = eff_seed / "rules_scientific_v2.json"
+    if not v2_path.is_file():
+        raise FileNotFoundError(f"Scientific rulebook v2 not found at '{v2_path}'")
+    return json.loads(v2_path.read_text(encoding="utf-8"))
+
+
+def query_scientific_rules(
+    *,
+    seed_dir: Path | None = None,
+    modality: str | None = None,
+    region: str | None = None,
+    evidence_grade: str | None = None,
+    query: str | None = None,
+    include_debunked_myths: bool = True,
+) -> list[dict]:
+    """Filter `rules_scientific_v2.json` across modality, region, evidence_grade, and free-text query."""
+    doc = load_scientific_rules_v2(seed_dir)
+    out: list[dict] = []
+    mod_norm = modality.strip().lower() if modality else None
+    reg_norm = region.strip().lower() if region else None
+    grade_norm = evidence_grade.strip().lower() if evidence_grade else None
+    q_norm = query.strip().lower() if query else None
+
+    for rule in doc.get("rules", []):
+        r_grade = str(rule.get("evidence_grade", "")).lower()
+        if not include_debunked_myths and r_grade == "debunked_myth":
+            continue
+        if grade_norm and r_grade != grade_norm:
+            continue
+        if mod_norm:
+            mods = rule.get("modality", [])
+            mod_list = [str(m).lower() for m in mods] if isinstance(mods, list) else [str(mods).lower()]
+            if mod_norm not in mod_list:
+                continue
+        if reg_norm and str(rule.get("region", "")).lower() != reg_norm:
+            continue
+        if q_norm:
+            haystack = " ".join(
+                str(rule.get(k, ""))
+                for k in ("rule_id", "title_zh", "title_en", "effect_size_summary", "machine_check_key")
+            ).lower()
+            if q_norm not in haystack:
+                continue
+        out.append(rule)
+    return out

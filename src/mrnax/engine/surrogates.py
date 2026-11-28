@@ -25,7 +25,11 @@ from weakref import WeakSet
 
 import numpy as np
 
-from mrnax.engine.checkpoint_identity import verify_checkpoint, verify_release_directory_artifacts
+from mrnax.engine.checkpoint_identity import (
+    verify_checkpoint,
+    verify_release_directory_artifacts,
+    verify_surrogate_manifest_trust_anchor,
+)
 from mrnax.schemas.construct_bundle import ConstructBundle, RNAMoleculeSpec
 from mrnax.schemas.evaluation_report import AdvisoryNote, MetricResult
 
@@ -146,12 +150,22 @@ def extract_cds_features(seq: str) -> dict[str, float]:
     return feats
 
 
-def extract_full_tx_halflife_features(utr5_seq: str, cds_seq: str, utr3_seq: str) -> dict[str, float]:
+@functools.lru_cache(maxsize=2048)
+def _halflife_u5_subfeats(utr5_seq: str) -> tuple[float, float, float]:
     u5 = clean_dna(utr5_seq)
+    u5_len = max(len(u5), 1)
+    return (
+        float(len(u5)),
+        (u5.count("G") + u5.count("C")) / u5_len,
+        float(len(re.findall("ATG", u5))),
+    )
+
+
+@functools.lru_cache(maxsize=2048)
+def _halflife_cds_subfeats(cds_seq: str) -> tuple[float, float, float, float, float, float, tuple[tuple[str, float], ...]]:
     cds = clean_dna(cds_seq)
-    u3 = clean_dna(utr3_seq)
-    L = max(len(cds), 1)
-    nc = L // 3
+    c_len = max(len(cds), 1)
+    nc = c_len // 3
     pos3 = cds[2 : nc * 3 : 3]
     logs = [
         math.log(CODON_W[cds[3 * i : 3 * i + 3]])
@@ -160,30 +174,72 @@ def extract_full_tx_halflife_features(utr5_seq: str, cds_seq: str, utr3_seq: str
     ]
     cai = math.exp(sum(logs) / len(logs)) if logs else 0.5
     cods = Counter(cds[3 * i : 3 * i + 3] for i in range(nc))
-    u3L = max(len(u3), 1)
-    u5L = max(len(u5), 1)
+    denom_nc = max(nc, 1)
+    cod_pairs = tuple((f"cod_{cod}", cods[cod] / denom_nc) for cod in SENSE_CODONS_SORTED)
+    return (
+        float(len(cds)),
+        math.log1p(len(cds)),
+        (cds.count("G") + cds.count("C")) / c_len,
+        (pos3.count("G") + pos3.count("C")) / max(len(pos3), 1),
+        cds.count("T") / c_len,
+        float(cai),
+        cod_pairs,
+    )
+
+
+@functools.lru_cache(maxsize=2048)
+def _halflife_u3_subfeats(utr3_seq: str) -> tuple[float, float, float, float, float, float, float, float, float]:
+    u3 = clean_dna(utr3_seq)
+    u3_len = max(len(u3), 1)
+    are_cnt = len(re.findall("ATTTA", u3))
+    return (
+        float(len(u3)),
+        math.log1p(len(u3)),
+        (u3.count("G") + u3.count("C")) / u3_len,
+        u3.count("T") / u3_len,
+        float(are_cnt),
+        are_cnt / (u3_len / 1000.0),
+        float(len(re.findall(r"TGTA[ACGT]ATA", u3))),
+        float(len(re.findall("AATAAA", u3))),
+        sum(1 for i in range(max(len(u3) - 1, 0)) if u3[i : i + 2] == "CG") / u3_len,
+    )
+
+
+def extract_full_tx_halflife_features(utr5_seq: str, cds_seq: str, utr3_seq: str) -> dict[str, float]:
+    utr5_len, u5_gc, u5_uaug = _halflife_u5_subfeats(utr5_seq)
+    cds_len, log_cds_len, cds_gc, cds_gc3, cds_u, cds_cai, cod_pairs = _halflife_cds_subfeats(cds_seq)
+    (
+        utr3_len,
+        log_utr3_len,
+        u3_gc,
+        u3_u,
+        u3_are_cnt,
+        u3_are_density,
+        u3_pumilio_cnt,
+        u3_pas_cnt,
+        u3_cpg,
+    ) = _halflife_u3_subfeats(utr3_seq)
     feats: dict[str, float] = {
-        "cds_len": float(len(cds)),
-        "utr5_len": float(len(u5)),
-        "utr3_len": float(len(u3)),
-        "log_cds_len": math.log1p(len(cds)),
-        "log_utr3_len": math.log1p(len(u3)),
-        "cds_gc": (cds.count("G") + cds.count("C")) / L,
-        "cds_gc3": (pos3.count("G") + pos3.count("C")) / max(len(pos3), 1),
-        "cds_u": cds.count("T") / L,
-        "cds_cai": float(cai),
-        "u5_gc": (u5.count("G") + u5.count("C")) / u5L,
-        "u5_uaug": float(len(re.findall("ATG", u5))),
-        "u3_gc": (u3.count("G") + u3.count("C")) / u3L,
-        "u3_u": u3.count("T") / u3L,
-        "u3_are_cnt": float(len(re.findall("ATTTA", u3))),
-        "u3_are_density": len(re.findall("ATTTA", u3)) / (u3L / 1000.0),
-        "u3_pumilio_cnt": float(len(re.findall(r"TGTA[ACGT]ATA", u3))),
-        "u3_pas_cnt": float(len(re.findall("AATAAA", u3))),
-        "u3_cpg": sum(1 for i in range(max(len(u3) - 1, 0)) if u3[i : i + 2] == "CG") / u3L,
+        "cds_len": cds_len,
+        "utr5_len": utr5_len,
+        "utr3_len": utr3_len,
+        "log_cds_len": log_cds_len,
+        "log_utr3_len": log_utr3_len,
+        "cds_gc": cds_gc,
+        "cds_gc3": cds_gc3,
+        "cds_u": cds_u,
+        "cds_cai": cds_cai,
+        "u5_gc": u5_gc,
+        "u5_uaug": u5_uaug,
+        "u3_gc": u3_gc,
+        "u3_u": u3_u,
+        "u3_are_cnt": u3_are_cnt,
+        "u3_are_density": u3_are_density,
+        "u3_pumilio_cnt": u3_pumilio_cnt,
+        "u3_pas_cnt": u3_pas_cnt,
+        "u3_cpg": u3_cpg,
     }
-    for cod in SENSE_CODONS_SORTED:
-        feats[f"cod_{cod}"] = cods[cod] / max(nc, 1)
+    feats.update(cod_pairs)
     return feats
 
 
@@ -223,18 +279,139 @@ def extract_3utr_features(seq: str) -> dict[str, float]:
     return feats
 
 
-def _load_verified_joblib(weights_dir: Path, filename: str) -> dict[str, Any]:
-    """Authenticate joblib artifact size & SHA-256 against TRAINING_PROVENANCE_MANIFEST.json BEFORE deserializing."""
+_SUPPORTED_PROVENANCE_SCHEMAS = frozenset(
+    {
+        "mrnax.surrogate_training_provenance.v2.0",
+        "mrnax.surrogate_training_provenance.v1.2",
+    }
+)
+
+
+_APPROVED_LICENSE_CLAUSE_RE = re.compile(
+    r"^(?:mit(?:\s+license)?|apache-2\.0|bsd-[23]-clause|cc(?:\s+|-)by(?:\s+|-)?4\.0|cc0(?:\s+|-)?1\.0|cc0|(?:ncbi\s+geo\s+|us[-_\s]+)?public[-_\s]+domain)$",
+    re.IGNORECASE,
+)
+_LICENSE_SPLIT_RE = re.compile(r"\s*(?:/|\+|,|;|\bAND\b|\bOR\b)\s*", re.IGNORECASE)
+
+
+def _assert_permissive_artifact_license(lic_raw: Any, *, filename: str) -> None:
+    lic_s = str(lic_raw or "").strip()
+    if not lic_s:
+        raise PermissionError(
+            f"Refusing to deserialize '{filename}' in commercial_clean loader: missing artifact license declaration"
+        )
+    clauses = [c.strip() for c in _LICENSE_SPLIT_RE.split(lic_s) if c.strip()]
+    if not clauses or any(not _APPROVED_LICENSE_CLAUSE_RE.fullmatch(c) for c in clauses):
+        raise PermissionError(
+            f"Refusing to deserialize '{filename}' in commercial_clean loader: prohibited or unrecognized artifact license '{lic_s}'"
+        )
+
+
+def extract_circrna_ires_interval(mol: RNAMoleculeSpec) -> str:
+    """Resolve the canonical circRNA viral IRES slice across compound/origin-spanning intervals & sense strand."""
+    u5_seq = mol.get_segment_sequence("five_prime_utr")
+    ires_ann = next(
+        (a for a in mol.annotations if a.feature_id.startswith("viral_ires_") and a.intervals),
+        None,
+    )
+    if ires_ann is not None:
+        if ires_ann.strand != 1:
+            raise ValueError(
+                f"circRNA annotation '{ires_ann.feature_id}' must lie on positive (+1) sense strand, got {ires_ann.strand}"
+            )
+        seq_len = len(mol.sequence)
+        is_circular = mol.topology == "circular"
+        pieces: list[str] = []
+        covered: list[tuple[int, int]] = []
+        prev_hi = 0
+        wrapped_once = False
+        for lo, hi in ires_ann.intervals:
+            if lo < 0 or hi <= lo or hi > seq_len:
+                raise ValueError(
+                    f"Invalid interval ({lo}, {hi}) on '{ires_ann.feature_id}' for molecule length {seq_len}"
+                )
+            if lo < prev_hi:
+                if is_circular and not wrapped_once:
+                    wrapped_once = True
+                else:
+                    raise ValueError(
+                        f"Out-of-order interval ({lo}, {hi}) on '{ires_ann.feature_id}'"
+                    )
+            if any(not (hi <= clo or lo >= chi) for clo, chi in covered):
+                raise ValueError(f"Overlapping intervals on '{ires_ann.feature_id}'")
+            covered.append((lo, hi))
+            pieces.append(mol.sequence[lo:hi])
+            prev_hi = hi
+        return "".join(pieces)
+    return u5_seq[-600:]
+
+
+def _verify_manifest_artifact(
+    weights_dir: Path,
+    filename: str,
+    *,
+    require_commercial_clean: bool = True,
+    allow_sandbox_override: bool = False,
+) -> tuple[bytes, str, int, dict[str, Any], str]:
+    """Authenticate joblib artifact size, SHA-256, and license track against TRAINING_PROVENANCE_MANIFEST.json without unpickling."""
     manifest_path = weights_dir / "TRAINING_PROVENANCE_MANIFEST.json"
     if not manifest_path.is_file():
         raise FileNotFoundError(
             f"Refusing to deserialize '{filename}': missing provenance manifest '{manifest_path}'"
         )
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    by_name = {str(item["filename"]): item for item in manifest.get("artifacts", [])}
+    if not isinstance(manifest, dict):
+        raise ValueError(f"Refusing to deserialize '{filename}': provenance manifest must be a JSON object")
+    by_name = {
+        str(item["filename"]): item
+        for item in manifest.get("artifacts", [])
+        if isinstance(item, dict) and "filename" in item
+    }
     if filename not in by_name:
         raise ValueError(f"Refusing to deserialize '{filename}': not registered in TRAINING_PROVENANCE_MANIFEST.json")
     expected = by_name[filename]
+    schema_id = manifest.get("schema")
+    if require_commercial_clean:
+        top_track = manifest.get("compliance_track")
+        item_track = expected.get("license_track")
+        if top_track is not None and str(top_track) != "commercial_clean":
+            raise PermissionError(
+                f"Refusing to deserialize '{filename}' in commercial_clean loader: manifest compliance_track='{top_track}'"
+            )
+        if item_track is not None and str(item_track) != "commercial_clean":
+            raise PermissionError(
+                f"Refusing to deserialize '{filename}' in commercial_clean loader: artifact license_track='{item_track}'"
+            )
+        if schema_id not in _SUPPORTED_PROVENANCE_SCHEMAS:
+            raise PermissionError(
+                f"Refusing to deserialize '{filename}' in commercial_clean loader: unsupported or missing manifest schema '{schema_id}'"
+            )
+        if top_track != "commercial_clean":
+            raise PermissionError(
+                f"Refusing to deserialize '{filename}' in commercial_clean loader: missing manifest compliance_track='commercial_clean'"
+            )
+        if manifest.get("zero_viennarna_features_or_distilled_labels") is not True:
+            raise PermissionError(
+                f"Refusing to deserialize '{filename}' in commercial_clean loader: zero_viennarna_features_or_distilled_labels must be true"
+            )
+        if manifest.get("zero_gpl_or_noncommercial_weights") is not True:
+            raise PermissionError(
+                f"Refusing to deserialize '{filename}' in commercial_clean loader: zero_gpl_or_noncommercial_weights must be true"
+            )
+        if schema_id == "mrnax.surrogate_training_provenance.v2.0" and item_track != "commercial_clean":
+            raise PermissionError(
+                f"Refusing to deserialize '{filename}' in commercial_clean loader: v2.0 artifact missing license_track='commercial_clean'"
+            )
+        _assert_permissive_artifact_license(expected.get("license"), filename=filename)
+        if expected.get("uses_viennarna_features_or_labels") is not False:
+            raise PermissionError(
+                f"Refusing to deserialize '{filename}' in commercial_clean loader: uses_viennarna_features_or_labels must be literal false"
+            )
+    decl_feats = expected.get("n_features") if "n_features" in expected else expected.get("feature_count")
+    if isinstance(decl_feats, bool) or not isinstance(decl_feats, int) or decl_feats <= 0:
+        raise ValueError(
+            f"Refusing to deserialize '{filename}': manifest must declare a positive integer n_features / feature_count"
+        )
     fpath = weights_dir / filename
     raw_bytes = fpath.read_bytes()
     if len(raw_bytes) != int(expected["bytes"]):
@@ -246,14 +423,44 @@ def _load_verified_joblib(weights_dir: Path, filename: str) -> dict[str, Any]:
         raise ValueError(
             f"Integrity error on '{filename}': sha256 {actual_sha} != expected {expected['sha256']}"
         )
+    if require_commercial_clean:
+        verify_surrogate_manifest_trust_anchor(
+            manifest_path, allow_sandbox_override=allow_sandbox_override
+        )
+    return raw_bytes, actual_sha, decl_feats, expected, str(schema_id or "")
+
+
+def _load_verified_joblib(
+    weights_dir: Path,
+    filename: str,
+    *,
+    require_commercial_clean: bool = True,
+    allow_sandbox_override: bool = False,
+) -> dict[str, Any]:
+    """Authenticate joblib artifact size, SHA-256, and license track against TRAINING_PROVENANCE_MANIFEST.json."""
+    raw_bytes, actual_sha, decl_feats, expected, schema_id = _verify_manifest_artifact(
+        weights_dir,
+        filename,
+        require_commercial_clean=require_commercial_clean,
+        allow_sandbox_override=allow_sandbox_override,
+    )
     if sys.platform == "darwin":
         from mrnax.engine._darwin_joblib_worker import get_darwin_joblib_client
 
-        return get_darwin_joblib_client().load_verified_bytes(f"{weights_dir.resolve()}::{filename}::{actual_sha}", raw_bytes)
+        loaded = dict(
+            get_darwin_joblib_client().load_verified_bytes(
+                f"{weights_dir.resolve()}::{filename}::{actual_sha}", raw_bytes
+            )
+        )
+    else:
+        import joblib
 
-    import joblib
+        loaded = dict(joblib.load(io.BytesIO(raw_bytes)))
 
-    loaded = joblib.load(io.BytesIO(raw_bytes))
+    loaded["_manifest_n_features"] = decl_feats
+    loaded["_manifest_filename"] = filename
+    loaded["_manifest_schema"] = schema_id
+    loaded["_manifest_model_name"] = str(expected.get("model_name") or Path(filename).stem)
     return loaded
 
 
@@ -267,20 +474,31 @@ class CommercialCleanSurrogateV1:
     - Axis 4 (`utr3_stability_pred`): `utr3_stability_pure_seq_lgbm.joblib` (Siegel et al. 2022 G3 CC-BY-4.0 / fastUTR MPRA)
     """
 
-    def __init__(self, weights_dir: Path) -> None:
+    def __init__(self, weights_dir: Path, *, allow_sandbox_override: bool = False) -> None:
         self.weights_dir = Path(weights_dir)
+        self._allow_sandbox_override = bool(allow_sandbox_override)
         self._utr5_bundle: dict[str, Any] = _load_verified_joblib(
-            self.weights_dir, "utr5_mrl_pure_seq_lgbm.joblib"
+            self.weights_dir,
+            "utr5_mrl_pure_seq_lgbm.joblib",
+            allow_sandbox_override=self._allow_sandbox_override,
         )
         self._cds_bundle: dict[str, Any] = _load_verified_joblib(
-            self.weights_dir, "cds_codon_stability_pure_seq_lgbm.joblib"
+            self.weights_dir,
+            "cds_codon_stability_pure_seq_lgbm.joblib",
+            allow_sandbox_override=self._allow_sandbox_override,
         )
         self._hl_bundle: dict[str, Any] = _load_verified_joblib(
-            self.weights_dir, "saluki_consensus_halflife_pure_seq_lgbm.joblib"
+            self.weights_dir,
+            "saluki_consensus_halflife_pure_seq_lgbm.joblib",
+            allow_sandbox_override=self._allow_sandbox_override,
         )
         utr3_path = self.weights_dir / "utr3_stability_pure_seq_lgbm.joblib"
         self._utr3_bundle: dict[str, Any] | None = (
-            _load_verified_joblib(self.weights_dir, "utr3_stability_pure_seq_lgbm.joblib")
+            _load_verified_joblib(
+                self.weights_dir,
+                "utr3_stability_pure_seq_lgbm.joblib",
+                allow_sandbox_override=self._allow_sandbox_override,
+            )
             if utr3_path.is_file()
             else None
         )
@@ -293,32 +511,50 @@ class CommercialCleanSurrogateV1:
         return heads
 
     @classmethod
-    @functools.lru_cache(maxsize=4)
-    def from_seed_dir(cls, seed_dir: Path) -> CommercialCleanSurrogateV1:
-        return cls(Path(seed_dir) / "surrogate_v1")
+    @functools.lru_cache(maxsize=8)
+    def from_seed_dir(
+        cls, seed_dir: Path, *, allow_sandbox_override: bool = False
+    ) -> CommercialCleanSurrogateV1:
+        return cls(
+            Path(seed_dir) / "surrogate_v1",
+            allow_sandbox_override=allow_sandbox_override,
+        )
 
     @staticmethod
     def _predict_bundle(bundle: dict[str, Any], X: np.ndarray) -> np.ndarray:
+        expected_w = bundle.get("_manifest_n_features")
+        if X.ndim != 2:
+            raise ValueError(f"Expected 2D feature matrix for '{bundle.get('_manifest_filename')}', got shape={X.shape}")
+        if isinstance(expected_w, bool) or not isinstance(expected_w, int) or expected_w <= 0:
+            raise ValueError(f"Missing verified manifest feature width for '{bundle.get('_manifest_filename')}'")
+        if X.shape[1] != expected_w:
+            raise ValueError(
+                f"Feature width drift for '{bundle.get('_manifest_filename')}': assembled {X.shape[1]} columns != manifest n_features={expected_w}"
+            )
         return np.asarray(bundle["model"].predict(X), dtype=np.float64)
 
     def score_5utr_mrl(self, utr5_seqs: list[str]) -> np.ndarray:
         if not utr5_seqs:
             return np.empty(0, dtype=np.float64)
-        cols = self._utr5_bundle["features"]
-        X = np.array(
-            [[f[c] for c in cols] for f in (extract_5utr_features(s) for s in utr5_seqs)],
+        cols = tuple(self._utr5_bundle["features"])
+        n_rows, n_cols = len(utr5_seqs), len(cols)
+        X = np.fromiter(
+            (f[c] for f in (extract_5utr_features(s) for s in utr5_seqs) for c in cols),
             dtype=np.float32,
-        )
+            count=n_rows * n_cols,
+        ).reshape(n_rows, n_cols)
         return self._predict_bundle(self._utr5_bundle, X)
 
     def score_cds_stability(self, cds_seqs: list[str]) -> np.ndarray:
         if not cds_seqs:
             return np.empty(0, dtype=np.float64)
-        cols = self._cds_bundle["features"]
-        X = np.array(
-            [[f[c] for c in cols] for f in (extract_cds_features(s) for s in cds_seqs)],
+        cols = tuple(self._cds_bundle["features"])
+        n_rows, n_cols = len(cds_seqs), len(cols)
+        X = np.fromiter(
+            (f[c] for f in (extract_cds_features(s) for s in cds_seqs) for c in cols),
             dtype=np.float32,
-        )
+            count=n_rows * n_cols,
+        ).reshape(n_rows, n_cols)
         return self._predict_bundle(self._cds_bundle, X)
 
     def score_consensus_halflife_batch(
@@ -326,14 +562,17 @@ class CommercialCleanSurrogateV1:
     ) -> np.ndarray:
         if not triplets:
             return np.empty(0, dtype=np.float64)
-        cols = self._hl_bundle["features"]
-        X = np.array(
-            [
-                [f[c] for c in cols]
+        cols = tuple(self._hl_bundle["features"])
+        n_rows, n_cols = len(triplets), len(cols)
+        X = np.fromiter(
+            (
+                f[c]
                 for f in (extract_full_tx_halflife_features(u5, cds, u3) for u5, cds, u3 in triplets)
-            ],
+                for c in cols
+            ),
             dtype=np.float32,
-        )
+            count=n_rows * n_cols,
+        ).reshape(n_rows, n_cols)
         return self._predict_bundle(self._hl_bundle, X)
 
     def score_consensus_halflife(self, utr5_seq: str, cds_seq: str, utr3_seq: str) -> float:
@@ -344,11 +583,13 @@ class CommercialCleanSurrogateV1:
             return np.empty(0, dtype=np.float64)
         if self._utr3_bundle is None:
             raise RuntimeError("3'UTR MPRA stability head (utr3_stability_pure_seq_lgbm.joblib) not loaded.")
-        cols = self._utr3_bundle["features"]
-        X = np.array(
-            [[f[c] for c in cols] for f in (extract_3utr_features(s) for s in utr3_seqs)],
+        cols = tuple(self._utr3_bundle["features"])
+        n_rows, n_cols = len(utr3_seqs), len(cols)
+        X = np.fromiter(
+            (f[c] for f in (extract_3utr_features(s) for s in utr3_seqs) for c in cols),
             dtype=np.float32,
-        )
+            count=n_rows * n_cols,
+        ).reshape(n_rows, n_cols)
         return self._predict_bundle(self._utr3_bundle, X)
 
     def score_molecule_axes(self, mol: RNAMoleculeSpec) -> dict[str, float]:
@@ -481,6 +722,390 @@ class CommercialCleanSurrogateV1:
             )
         )
         return metrics, advisories
+
+
+_SURROGATE_V2_HEAD_CANDIDATES: dict[str, tuple[str, ...]] = {
+    "utr5": ("utr5_mrl_pure_seq_v2.joblib", "utr5_mrl_pure_seq_lgbm.joblib"),
+    "cds": ("cds_codon_stability_v2.joblib", "cds_codon_stability_pure_seq_lgbm.joblib"),
+    "hl": ("saluki_consensus_halflife_v2.joblib", "saluki_consensus_halflife_pure_seq_lgbm.joblib"),
+    "utr3": ("utr3_stability_pure_seq_v2.joblib", "utr3_stability_pure_seq_lgbm.joblib"),
+    "isoform_mrl": ("full_tx_isoform_mrl_v2.joblib",),
+    "rmdb_aup": ("rmdb_aup_hydrolysis_proxy_v2.joblib",),
+    "circ_ires": ("circrna_ires_translation_v2.joblib",),
+}
+
+
+def has_surrogate_v2_artifacts(
+    seed_dir: Path, *, allow_sandbox_override: bool = False
+) -> bool:
+    """Return True when `seed_dir / 'surrogate_v2'` has SHA-256 & license-verified core and optional heads."""
+    v2_dir = Path(seed_dir) / "surrogate_v2"
+    if not (v2_dir / "TRAINING_PROVENANCE_MANIFEST.json").is_file():
+        return False
+    try:
+        for head_key, candidates in _SURROGATE_V2_HEAD_CANDIDATES.items():
+            chosen = next((fname for fname in candidates if (v2_dir / fname).is_file()), None)
+            if chosen is None:
+                if head_key in ("utr5", "cds", "hl"):
+                    return False
+                continue
+            _verify_manifest_artifact(
+                v2_dir,
+                chosen,
+                require_commercial_clean=True,
+                allow_sandbox_override=allow_sandbox_override,
+            )
+    except (OSError, ValueError, KeyError, PermissionError, json.JSONDecodeError):
+        return False
+    return True
+
+
+class CommercialCleanSurrogateV2(CommercialCleanSurrogateV1):
+    """Wave 1B `surrogate_v2` commercial-clean jury with stacked Ridge+VotingRegressor heads & circRNA IRES scorer."""
+
+    def __init__(
+        self,
+        weights_dir: Path,
+        *,
+        fallback_v1_dir: Path | None = None,
+        allow_sandbox_override: bool = False,
+    ) -> None:
+        self.weights_dir = Path(weights_dir)
+        self._allow_sandbox_override = bool(allow_sandbox_override)
+        resolved_v1 = (
+            Path(fallback_v1_dir)
+            if fallback_v1_dir is not None
+            else (self.weights_dir.parent / "surrogate_v1")
+        )
+        self._utr5_bundle = self._load_first_available("utr5", required=True)  # type: ignore[assignment]
+        self._cds_bundle = self._load_first_available("cds", required=True)  # type: ignore[assignment]
+        self._hl_bundle = self._load_first_available("hl", required=True)  # type: ignore[assignment]
+        self._utr3_bundle = self._load_first_available("utr3", required=False)
+        if (
+            self._utr3_bundle is None
+            and (resolved_v1 / "utr3_stability_pure_seq_lgbm.joblib").is_file()
+            and (resolved_v1 / "TRAINING_PROVENANCE_MANIFEST.json").is_file()
+        ):
+            self._utr3_bundle = _load_verified_joblib(
+                resolved_v1,
+                "utr3_stability_pure_seq_lgbm.joblib",
+                allow_sandbox_override=self._allow_sandbox_override,
+            )
+        self._isoform_mrl_bundle = self._load_first_available("isoform_mrl", required=False)
+        self._rmdb_aup_bundle = self._load_first_available("rmdb_aup", required=False)
+        self._circ_ires_bundle = self._load_first_available("circ_ires", required=False)
+
+    @classmethod
+    @functools.lru_cache(maxsize=8)
+    def from_seed_dir(
+        cls, seed_dir: Path, *, allow_sandbox_override: bool = False
+    ) -> CommercialCleanSurrogateV2:
+        resolved = Path(seed_dir)
+        return cls(
+            resolved / "surrogate_v2",
+            fallback_v1_dir=resolved / "surrogate_v1",
+            allow_sandbox_override=allow_sandbox_override,
+        )
+
+    def _load_first_available(self, head_key: str, *, required: bool) -> dict[str, Any] | None:
+        for fname in _SURROGATE_V2_HEAD_CANDIDATES[head_key]:
+            if (self.weights_dir / fname).is_file():
+                return _load_verified_joblib(
+                    self.weights_dir,
+                    fname,
+                    allow_sandbox_override=self._allow_sandbox_override,
+                )
+        if required:
+            raise FileNotFoundError(
+                f"Missing required surrogate_v2 head '{head_key}' in '{self.weights_dir}'"
+            )
+        return None
+
+    @property
+    def loaded_heads(self) -> list[str]:
+        heads = super().loaded_heads
+        if self._isoform_mrl_bundle is not None:
+            heads.append("full_tx_isoform_mrl")
+        if self._rmdb_aup_bundle is not None:
+            heads.append("rmdb_reactivity_hydrolysis_proxy")
+        if self._circ_ires_bundle is not None:
+            heads.append("circrna_ires_translation")
+        return heads
+
+    def score_5utr_mrl(self, utr5_seqs: list[str]) -> np.ndarray:
+        if not utr5_seqs:
+            return np.empty(0, dtype=np.float64)
+        if "tab_features" not in self._utr5_bundle:
+            return super().score_5utr_mrl(utr5_seqs)
+        from mrnax.engine.features_v2 import dict_list_to_matrix, extract_utr5_v2, seq_to_kmer_tokens
+
+        Xm = dict_list_to_matrix(
+            [extract_utr5_v2(s) for s in utr5_seqs],
+            list(self._utr5_bundle["tab_features"]),
+        )
+        ks = tuple(int(k) for k in self._utr5_bundle.get("kmer_ks", [3, 4]))
+        km = np.asarray(
+            self._utr5_bundle["kmer_ridge"].predict([seq_to_kmer_tokens(s, ks=ks) for s in utr5_seqs]),
+            dtype=np.float32,
+        )
+        return self._predict_bundle(self._utr5_bundle, np.hstack([Xm, km[:, None]]))
+
+    def score_cds_stability(self, cds_seqs: list[str]) -> np.ndarray:
+        if not cds_seqs:
+            return np.empty(0, dtype=np.float64)
+        if "tab_features" not in self._cds_bundle:
+            return super().score_cds_stability(cds_seqs)
+        from mrnax.engine.features_v2 import cds_to_bicodon_tokens, dict_list_to_matrix, extract_cds_v2
+
+        Xm = dict_list_to_matrix(
+            [extract_cds_v2(s) for s in cds_seqs],
+            list(self._cds_bundle["tab_features"]),
+        )
+        bm = np.asarray(
+            self._cds_bundle["kmer_ridge"].predict([cds_to_bicodon_tokens(s) for s in cds_seqs]),
+            dtype=np.float32,
+        )
+        return self._predict_bundle(self._cds_bundle, np.hstack([Xm, bm[:, None]]))
+
+    def score_consensus_halflife_batch(
+        self, triplets: list[tuple[str, str, str]]
+    ) -> np.ndarray:
+        if not triplets:
+            return np.empty(0, dtype=np.float64)
+        if "tab_features" not in self._hl_bundle:
+            return super().score_consensus_halflife_batch(triplets)
+        from mrnax.engine.features_v2 import (
+            cds_to_bicodon_tokens,
+            dict_list_to_matrix,
+            extract_full_tx_v2,
+            seq_to_kmer_tokens,
+        )
+
+        Xm = dict_list_to_matrix(
+            [extract_full_tx_v2(u5, cds, u3) for u5, cds, u3 in triplets],
+            list(self._hl_bundle["tab_features"]),
+        )
+        m1 = np.asarray(
+            self._hl_bundle["utr3_kmer_ridge"].predict(
+                [seq_to_kmer_tokens(u3, ks=(4, 5)) for _, _, u3 in triplets]
+            ),
+            dtype=np.float32,
+        )
+        m2 = np.asarray(
+            self._hl_bundle["cds_bicodon_ridge"].predict(
+                [cds_to_bicodon_tokens(cds) for _, cds, _ in triplets]
+            ),
+            dtype=np.float32,
+        )
+        return self._predict_bundle(self._hl_bundle, np.hstack([Xm, m1[:, None], m2[:, None]]))
+
+    def score_isoform_mrl(self, triplets: list[tuple[str, str, str]]) -> np.ndarray:
+        if not triplets:
+            return np.empty(0, dtype=np.float64)
+        if self._isoform_mrl_bundle is None:
+            raise RuntimeError("Full-transcript isoform MRL head (full_tx_isoform_mrl_v2.joblib) not loaded.")
+        from mrnax.engine.features_v2 import dict_list_to_matrix, extract_full_tx_v2, seq_to_kmer_tokens
+
+        Xm = dict_list_to_matrix(
+            [extract_full_tx_v2(u5, cds, u3) for u5, cds, u3 in triplets],
+            list(self._isoform_mrl_bundle["tab_features"]),
+        )
+        m1 = np.asarray(
+            self._isoform_mrl_bundle["utr3_kmer_ridge"].predict(
+                [seq_to_kmer_tokens(u3, ks=(4,)) for _, _, u3 in triplets]
+            ),
+            dtype=np.float32,
+        )
+        return self._predict_bundle(self._isoform_mrl_bundle, np.hstack([Xm, m1[:, None]]))
+
+    def score_rmdb_aup_proxy(self, seqs: list[str]) -> np.ndarray:
+        if not seqs:
+            return np.empty(0, dtype=np.float64)
+        if self._rmdb_aup_bundle is None:
+            raise RuntimeError("RMDB AUP hydrolysis proxy head (rmdb_aup_hydrolysis_proxy_v2.joblib) not loaded.")
+        from mrnax.engine.features_v2 import dict_list_to_matrix, extract_rmdb_seq_v2, seq_to_kmer_tokens
+
+        Xm = dict_list_to_matrix(
+            [extract_rmdb_seq_v2(s) for s in seqs],
+            list(self._rmdb_aup_bundle["tab_features"]),
+        )
+        km = np.asarray(
+            self._rmdb_aup_bundle["kmer_ridge"].predict(
+                [seq_to_kmer_tokens(s, ks=(4,)) for s in seqs]
+            ),
+            dtype=np.float32,
+        )
+        return self._predict_bundle(self._rmdb_aup_bundle, np.hstack([Xm, km[:, None]]))
+
+    def score_circrna_ires(self, ires_seqs: list[str]) -> np.ndarray:
+        if not ires_seqs:
+            return np.empty(0, dtype=np.float64)
+        if self._circ_ires_bundle is None:
+            raise RuntimeError("circRNA IRES translation head (circrna_ires_translation_v2.joblib) not loaded.")
+        from mrnax.engine.features_v2 import dict_list_to_matrix, extract_circrna_ires_v2
+
+        Xm = dict_list_to_matrix(
+            [extract_circrna_ires_v2(s) for s in ires_seqs],
+            list(self._circ_ires_bundle["features"]),
+        )
+        return self._predict_bundle(self._circ_ires_bundle, Xm)
+
+    def score_molecule_axes(self, mol: RNAMoleculeSpec) -> dict[str, float]:
+        out = super().score_molecule_axes(mol)
+        u5 = mol.get_segment_sequence("five_prime_utr")
+        cds = mol.get_segment_sequence("cds")
+        u3 = mol.get_segment_sequence("three_prime_utr")
+        if self._isoform_mrl_bundle is not None:
+            out["full_tx_isoform_mrl_pred"] = round(
+                float(self.score_isoform_mrl([(u5, cds, u3)])[0]), 6
+            )
+        if self._rmdb_aup_bundle is not None:
+            out["rmdb_aup_hydrolysis_proxy_pred"] = round(
+                float(self.score_rmdb_aup_proxy([u5 + cds + u3])[0]), 6
+            )
+        if mol.modality == "circrna" and self._circ_ires_bundle is not None:
+            ires_slice = extract_circrna_ires_interval(mol)
+            out["circrna_ires_translation_pred"] = round(
+                float(self.score_circrna_ires([ires_slice])[0]), 6
+            )
+        return out
+
+    @staticmethod
+    def _bundle_provenance(bundle: dict[str, Any], default_v1_tag: str) -> tuple[str, str]:
+        schema = str(bundle.get("_manifest_schema") or "")
+        mdl_name = str(bundle.get("_manifest_model_name") or default_v1_tag)
+        if schema == "mrnax.surrogate_training_provenance.v2.0" or "tab_features" in bundle:
+            return f"CommercialCleanSurrogateV2:{mdl_name}", "2.0.0"
+        return f"CommercialCleanSurrogateV1:{default_v1_tag}", "1.1.0"
+
+    def evaluate_molecule_metrics(
+        self, mol: RNAMoleculeSpec, *, participated_in: str = "pareto_selection_or_ranking"
+    ) -> list[MetricResult]:
+        axes = self.score_molecule_axes(mol)
+        schema_chem_mode = (
+            "native_chemistry_validated"
+            if mol.chemistry_track.uridine_chemistry == "unmodified_u"
+            else "cross_chemistry_thermodynamic_approximation"
+        )
+        u5_tool, u5_ver = self._bundle_provenance(self._utr5_bundle, "utr5_mrl_lgbm")
+        cds_tool, cds_ver = self._bundle_provenance(self._cds_bundle, "cds_stability_lgbm")
+        hl_tool, hl_ver = self._bundle_provenance(self._hl_bundle, "saluki_consensus_lgbm")
+        res = [
+            MetricResult(
+                metric_id="utr5_mrl_pred",
+                value=axes["utr5_mrl_pred"],
+                unit="predicted_mrl",
+                direction="maximize",
+                evaluated_scopes=["five_prime_utr"],
+                tool_name=u5_tool,
+                tool_version=u5_ver,
+                chemistry_evaluation_mode=schema_chem_mode,  # type: ignore[arg-type]
+                participated_in=participated_in,  # type: ignore[arg-type]
+            ),
+            MetricResult(
+                metric_id="cds_stability_pred",
+                value=axes["cds_stability_pred"],
+                unit="predicted_stability_slope",
+                direction="maximize",
+                evaluated_scopes=["cds"],
+                tool_name=cds_tool,
+                tool_version=cds_ver,
+                chemistry_evaluation_mode=schema_chem_mode,  # type: ignore[arg-type]
+                participated_in=participated_in,  # type: ignore[arg-type]
+            ),
+            MetricResult(
+                metric_id="consensus_halflife_pred",
+                value=axes["consensus_halflife_pred"],
+                unit="predicted_halflife_zscore",
+                direction="maximize",
+                evaluated_scopes=["five_prime_utr", "cds", "three_prime_utr"],
+                tool_name=hl_tool,
+                tool_version=hl_ver,
+                chemistry_evaluation_mode=schema_chem_mode,  # type: ignore[arg-type]
+                participated_in=participated_in,  # type: ignore[arg-type]
+            ),
+        ]
+        if "utr3_stability_pred" in axes and self._utr3_bundle is not None:
+            u3_tool, u3_ver = self._bundle_provenance(self._utr3_bundle, "fastutr_3utr_lgbm")
+            res.append(
+                MetricResult(
+                    metric_id="utr3_stability_pred",
+                    value=axes["utr3_stability_pred"],
+                    unit="predicted_3utr_mpra_stability",
+                    direction="maximize",
+                    evaluated_scopes=["three_prime_utr"],
+                    tool_name=u3_tool,
+                    tool_version=u3_ver,
+                    chemistry_evaluation_mode=schema_chem_mode,  # type: ignore[arg-type]
+                    participated_in=participated_in,  # type: ignore[arg-type]
+                )
+            )
+        if "full_tx_isoform_mrl_pred" in axes and self._isoform_mrl_bundle is not None:
+            iso_tool, iso_ver = self._bundle_provenance(self._isoform_mrl_bundle, "full_tx_isoform_mrl_v2")
+            res.append(
+                MetricResult(
+                    metric_id="full_tx_isoform_mrl_pred",
+                    value=axes["full_tx_isoform_mrl_pred"],
+                    unit="predicted_isoform_mrl",
+                    direction="maximize",
+                    evaluated_scopes=["five_prime_utr", "cds", "three_prime_utr"],
+                    tool_name=iso_tool,
+                    tool_version=iso_ver,
+                    chemistry_evaluation_mode=schema_chem_mode,  # type: ignore[arg-type]
+                    participated_in="display_only",
+                )
+            )
+        if "rmdb_aup_hydrolysis_proxy_pred" in axes and self._rmdb_aup_bundle is not None:
+            aup_tool, aup_ver = self._bundle_provenance(self._rmdb_aup_bundle, "rmdb_aup_hydrolysis_proxy_v2")
+            res.append(
+                MetricResult(
+                    metric_id="rmdb_aup_hydrolysis_proxy_pred",
+                    value=axes["rmdb_aup_hydrolysis_proxy_pred"],
+                    unit="predicted_standardized_reactivity_proxy",
+                    direction="minimize",
+                    evaluated_scopes=["five_prime_utr", "cds", "three_prime_utr"],
+                    tool_name=aup_tool,
+                    tool_version=aup_ver,
+                    chemistry_evaluation_mode=schema_chem_mode,  # type: ignore[arg-type]
+                    participated_in="display_only",
+                )
+            )
+        if "circrna_ires_translation_pred" in axes and self._circ_ires_bundle is not None:
+            ci_tool, ci_ver = self._bundle_provenance(self._circ_ires_bundle, "circrna_ires_translation_v2")
+            res.append(
+                MetricResult(
+                    metric_id="circrna_ires_translation_pred",
+                    value=axes["circrna_ires_translation_pred"],
+                    unit="predicted_standardized_ires_translation_proxy",
+                    direction="maximize",
+                    evaluated_scopes=["five_prime_utr"],
+                    tool_name=ci_tool,
+                    tool_version=ci_ver,
+                    chemistry_evaluation_mode=schema_chem_mode,  # type: ignore[arg-type]
+                    participated_in="display_only",
+                )
+            )
+        return res
+
+
+@functools.lru_cache(maxsize=16)
+def load_surrogate_jury(
+    seed_dir: Path,
+    *,
+    prefer_v2: bool = True,
+    allow_sandbox_override: bool = False,
+) -> CommercialCleanSurrogateV1:
+    """Load `surrogate_v2` when verified artifacts exist under `seed_dir / 'surrogate_v2'`, else fall back to v1."""
+    resolved = Path(seed_dir)
+    if prefer_v2 and has_surrogate_v2_artifacts(
+        resolved, allow_sandbox_override=allow_sandbox_override
+    ):
+        return CommercialCleanSurrogateV2.from_seed_dir(
+            resolved, allow_sandbox_override=allow_sandbox_override
+        )
+    return CommercialCleanSurrogateV1.from_seed_dir(
+        resolved, allow_sandbox_override=allow_sandbox_override
+    )
 
 
 # ============================================================================

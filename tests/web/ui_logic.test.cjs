@@ -6,7 +6,18 @@ const vm = require("node:vm");
 
 const source = fs.readFileSync(path.resolve(__dirname, "../../web/app.js"), "utf8");
 
-function app() {
+function response(status, body) {
+  const textBody = typeof body === "string" ? body : JSON.stringify(body);
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: { get: (k) => (String(k).toLowerCase() === "content-type" ? "application/json" : null) },
+    text: async () => textBody,
+    json: async () => JSON.parse(textBody),
+  };
+}
+
+function app(opts = {}) {
   const fields = new Map();
   const document = {
     addEventListener() {},
@@ -17,8 +28,16 @@ function app() {
   };
   const location = new URL("http://localhost");
   const window = { location, crypto: require("node:crypto").webcrypto };
+  if (opts.fetch) {
+    window.fetch = opts.fetch;
+  }
   const run = (code) => vm.runInContext(code, context);
-  const context = vm.createContext({ window, document, URL });
+  const context = vm.createContext({
+    window,
+    document,
+    URL,
+    ...(opts.fetch ? { fetch: opts.fetch } : {}),
+  });
   run(source);
   return { run, document };
 }
@@ -992,4 +1011,228 @@ test("deterministic direct submit & fallback share readonly classification, comm
   assert.equal(reqs.length, 1);
   assert.equal(reqs[0].body.protein_sequence, null);
   assert.equal(reqs[0].body.use_preset_reference_r, false);
+});
+
+test("Wave 3 Gate B security: safeExternalUrl, renderSafeExternalLink, citation allowlist, and XSS escaping", () => {
+  const { run, document } = app();
+  assert.equal(run('safeExternalUrl("javascript:alert(1)")'), "");
+  assert.equal(run('safeExternalUrl("data:text/html,<script>alert(1)</script>")'), "");
+  assert.equal(run('safeExternalUrl("vbscript:msgbox(1)")'), "");
+  assert.equal(run('safeExternalUrl("https://user:secret@example.com/path")'), "");
+  assert.equal(run('safeExternalUrl("https://doi.org/10.1038/s41586-023-06800-3")'), "https://doi.org/10.1038/s41586-023-06800-3");
+
+  const safeLink = run('renderSafeExternalLink("https://pubmed.ncbi.nlm.nih.gov/38057662/", "Mulroney <script>1</script>")');
+  assert.match(safeLink, /rel="noopener noreferrer"/);
+  assert.match(safeLink, /target="_blank"/);
+  assert.doesNotMatch(safeLink, /<script>/i);
+
+  const blockedLink = run('renderSafeExternalLink("javascript:evil()", "Click <img onerror=1>")');
+  assert.doesNotMatch(blockedLink, /<a\b|javascript:|<img/i);
+
+  assert.equal(run('buildVerifiedCitationUrl("doi", "10.1038/s41586-023-06800-3")'), "https://doi.org/10.1038/s41586-023-06800-3");
+  assert.equal(run('buildVerifiedCitationUrl("doi", "https://evil.example/x")'), "");
+  assert.equal(run('buildVerifiedCitationUrl("pmid", "38057662")'), "https://pubmed.ncbi.nlm.nih.gov/38057662/");
+  assert.equal(run('buildVerifiedCitationUrl("pmid", "38057662/../../evil")'), "");
+
+  const unwrapped = run('extractSandboxedText({ text_excerpt: "<UNTRUSTED_EXTERNAL_DATA source=\\"x\\">Safe <b>Title</b></UNTRUSTED_EXTERNAL_DATA>" })');
+  assert.equal(unwrapped, "Safe <b>Title</b>");
+  assert.doesNotMatch(run(`escapeHtml(${JSON.stringify(unwrapped)})`), /<b>/);
+
+  // Rules renderer escapes malicious rule payloads and citations
+  run(`
+    renderRulesAtlas({
+      total_available: 1,
+      rules: [{
+        rule_id: "RUL-XSS-<script>1</script>",
+        title_zh: "<img src=x onerror=alert(9)>",
+        title_en: "Test \\"quote\\"",
+        evidence_grade: "cross_lab_verified",
+        region: "5'UTR",
+        modality: ["linear_mrna"],
+        effect_size_summary: "rho=-0.58 <svg onload=1>",
+        enforced_in_generator: true,
+        failure_modes: ["<script>boom()</script>"],
+        citations: [{ authors: "Author<x>", year: 2024, doi: "10.1038/s41586-023-06800-3" }]
+      }]
+    });
+  `);
+  const rulesHtml = document.getElementById("rules-list").innerHTML;
+  assert.doesNotMatch(rulesHtml, /<script|<img|<svg onload/i);
+  assert.match(rulesHtml, /跨实验室实证/);
+  assert.match(rulesHtml, /rel="noopener noreferrer"/);
+});
+
+test("Wave 3 de-AI-ification, tool-call pills, client structure profiler, and dual-speed wet-lab calibration", () => {
+  const { run, document } = app();
+
+  // 1. Routine COMPLETED turn keeps #banner-notes hidden and moves CRS/domain advisories to boundaries modal
+  run(`
+    applyTurnResult({
+      status: "COMPLETED",
+      intent: { intent_id: "i_v1", intent_version: 1, status: "ready", compliance_track: "research_max", uridine_chemistry: "m1psi", locked_scopes: {} },
+      report: {
+        outcome_status: "COMPLETED_WITH_CANDIDATES",
+        honest_attribution_banner: "Generator attribution note",
+        pre_synthesis_advisories: [
+          { category: "crs_safety_layer_boundary", message: "CRS note" },
+          { category: "model_domain_boundary", message: "Domain note" }
+        ]
+      },
+      candidates: []
+    }, "design eGFP", 1);
+  `);
+  assert.equal(document.getElementById("banner-notes").hidden, true);
+  assert.equal(run("state.boundaryAdvisories.length"), 3);
+  assert.doesNotMatch(document.getElementById("badge-outcome").textContent, /COMPLETED_WITH_CANDIDATES/);
+
+  // 2. buildToolTraceHtml renders clean pills & collapsed receipt without raw JSON dumps
+  const traceHtml = run(`buildToolTraceHtml([{ name: "design_constructs", arguments: { uridine_chemistry: "m1psi", restriction_enzymes: ["BsaI"] } }])`);
+  assert.match(traceHtml, /tool-pill/);
+  assert.match(traceHtml, /tool-trace-fold/);
+  assert.match(traceHtml, /验证回执/);
+  assert.doesNotMatch(traceHtml, /\{"uridine_chemistry"/);
+
+  // 3. Client deterministic structure profiler builds initiation arcs, sliding tracks, and scans uAUG / UUUU
+  const profJson = run(`JSON.stringify(computeClientStructureProfile({
+    full_sequence: "GGGAUGCCCGCCACCAUGUUUUAAAACCCCGGGGUAAUAGAAAAAAAAAAAA",
+    segments: [
+      { segment_type: "five_prime_utr", start: 0, end: 15, length_nt: 15, gc_pct: 60 },
+      { segment_type: "cds", start: 15, end: 36, length_nt: 21, gc_pct: 48 },
+      { segment_type: "three_prime_utr", start: 36, end: 40, length_nt: 4, gc_pct: 25 }
+    ]
+  }, "linear_mrna"))`);
+  const prof = JSON.parse(profJson);
+  assert.ok(prof.initiation_window && prof.initiation_window.sequence.length > 10);
+  assert.ok(prof.sliding_tracks.positions.length >= 1);
+  assert.ok(prof.motifs.some((m) => m.kind === "uaug"));
+  assert.ok(prof.motifs.some((m) => m.kind === "uuuu_frameshift"));
+
+  // 4. Dual-speed wet-lab calibration rule (N=4 anchor-only vs N=8 calibration unlocked)
+  document.getElementById("wetlab-input").value = "id,pred,obs\nc1,1.0,1.2\nc2,2.0,2.1\nc3,3.0,3.4\nc4,4.0,3.9";
+  run("parseAndRenderWetLabFeedback()");
+  assert.match(document.getElementById("wetlab-gate-banner").className, /anchor-only/);
+  assert.match(document.getElementById("wetlab-svg-wrap").innerHTML, /<svg/);
+
+  document.getElementById("wetlab-input").value = "id,pred,obs\nc1,1,1.1\nc2,2,2.1\nc3,3,2.9\nc4,4,4.2\nc5,5,4.8\nc6,6,6.1";
+  run("parseAndRenderWetLabFeedback()");
+  assert.match(document.getElementById("wetlab-gate-banner").className, /calibrate-ok/);
+});
+
+test("Gate B C1/C2/I6/I7: fail-closed authorized exports, track-safe structure cache, strict resolver alias, and modality/scaffold forwarding", async () => {
+  const calls = [];
+  let rejectExports = true;
+  const { run, document } = app({
+    fetch: async (url, init) => {
+      calls.push({ url, init: init || {} });
+      if (url.includes("/ivt-order") || url.includes("/dossier")) {
+        if (rejectExports) {
+          return response(403, { detail: "Forbidden export" });
+        }
+        if (url.includes("/ivt-order")) {
+          return response(200, { ivt_synthesis_order_csv: "bundle_id,template_dna_5to3\nbnd_cc_1,ATG\n" });
+        }
+        return response(200, { qc_dossier_html: "<!DOCTYPE html><html><body>AUTHORIZED QC</body></html>" });
+      }
+      if (url.includes("/api/v1/structure/analyze")) {
+        return response(200, {
+          initiation_window: { start: 0, end: 20, aug_index_in_window: 10, sequence: "GGGAUGCCCGCCACCAUGUU", dot_bracket: "....................", arcs: [] },
+          sliding_tracks: { positions: [0], local_mfe: [-5], local_gc_pct: [50], local_u_pct: [20], local_unpaired_prob: [0.6] },
+          motifs: [],
+          engines_used: ["CleanRoomSeqScan"],
+        });
+      }
+      if (url.includes("/api/v1/evidence/resolve")) {
+        return response(200, { protein: { matched: false } });
+      }
+      if (url.endsWith("/turn")) {
+        const parsed = JSON.parse(init.body);
+        return response(200, {
+          status: "COMPLETED",
+          intent: {
+            intent_id: "i_circ_1",
+            intent_version: 1,
+            status: "ready",
+            compliance_track: "commercial_clean",
+            uridine_chemistry: "unmodified_u",
+            modality: parsed.modality || "linear_mrna",
+            scaffold_id: parsed.scaffold_id || null,
+            locked_scopes: {},
+          },
+          report: { outcome_status: "COMPLETED_WITH_CANDIDATES", recommended_bundle_ids: ["bnd_cc_1"] },
+          candidates: [{
+            bundle_id: "bnd_cc_1",
+            version_digest: "a".repeat(64),
+            pareto_rank: 1,
+            length_nt: 36,
+            full_gc_pct: 50,
+            full_sequence: "GGGAUGCCCGCCACCAUGGUGAGCAAGGGCGAGUAA",
+            molecules: [{
+              molecule_id: "mol_primary",
+              modality: parsed.modality || "linear_mrna",
+              length_nt: 36,
+              full_gc_pct: 50,
+              full_sequence: "GGGAUGCCCGCCACCAUGGUGAGCAAGGGCGAGUAA",
+              segments: [
+                { segment_type: "five_prime_utr", start: 0, end: 15, length_nt: 15, gc_pct: 60, license_track: "commercial_clean" },
+                { segment_type: "cds", start: 15, end: 33, length_nt: 18, gc_pct: 50, license_track: "commercial_clean" },
+                { segment_type: "three_prime_utr", start: 33, end: 36, length_nt: 3, gc_pct: 0, license_track: "commercial_clean" },
+              ],
+            }],
+            segments: [
+              { segment_type: "five_prime_utr", start: 0, end: 15, length_nt: 15, gc_pct: 60, license_track: "commercial_clean" },
+              { segment_type: "cds", start: 15, end: 33, length_nt: 18, gc_pct: 50, license_track: "commercial_clean" },
+              { segment_type: "three_prime_utr", start: 33, end: 36, length_nt: 3, gc_pct: 0, license_track: "commercial_clean" },
+            ],
+            metric_details: [],
+          }],
+        });
+      }
+      return response(200, {});
+    },
+  });
+
+  // I7: deterministic form forwards selected circRNA modality and CVB3 scaffold
+  run('setModality("circrna")');
+  document.getElementById("sel-scaffold").value = "circ_anabaena_cvb3";
+  document.getElementById("sel-profile").value = "commercial_clean";
+  await run('runInitialTurn(null, { fromForm: true })');
+  const turnCall = calls.find((c) => c.url.endsWith("/turn"));
+  const turnBody = JSON.parse(turnCall.init.body);
+  assert.equal(turnBody.modality, "circrna");
+  assert.equal(turnBody.scaffold_id, "circ_anabaena_cvb3");
+  assert.equal(turnBody.uridine_chemistry, "unmodified_u");
+
+  // C2: structure analysis forwards project_id, bundle_id, molecule_id, and commercial_clean track
+  await run("runStructureAnalysisForSelected()");
+  const structCall = calls.find((c) => c.url.includes("/api/v1/structure/analyze"));
+  const structBody = JSON.parse(structCall.init.body);
+  assert.equal(structBody.compliance_track, "commercial_clean");
+  assert.equal(structBody.bundle_id, "bnd_cc_1");
+  assert.equal(structBody.molecule_id, "mol_primary");
+  const cacheKeys = run("Object.keys(state.structureCache)");
+  assert.ok(cacheKeys[0].includes("bnd_cc_1:") && cacheKeys[0].includes(":commercial_clean:"));
+
+  // C1: 403 on /ivt-order and /dossier blocks local fallback and surfaces error banner
+  const ivtBlocked = await run("downloadIvtSynthesisOrder()");
+  assert.equal(ivtBlocked, false);
+  assert.equal(document.getElementById("banner-notes").hidden, false);
+  assert.match(document.getElementById("banner-notes").innerHTML, /导出受阻/);
+
+  const dosBlocked = await run("openOrDownloadQcDossier()");
+  assert.equal(dosBlocked, false);
+  assert.equal(Boolean(document.getElementById("modal-dossier-preview").open), false);
+
+  rejectExports = false;
+  const dosOk = await run("openOrDownloadQcDossier()");
+  assert.equal(dosOk, true);
+  assert.match(document.getElementById("dossier-iframe").srcdoc, /AUTHORIZED QC/);
+
+  // I6: unknown target resolver query stays unresolved with disabled import button
+  await run('resolveTargetProteinInHub("UNKNOWN_TARGET_999")');
+  assert.equal(run("state.resolvedTarget"), null);
+  assert.match(document.getElementById("dh-target-result").innerHTML, /id="btn-import-resolved-protein" disabled/);
+
+  await run('resolveTargetProteinInHub("P01588")');
+  assert.equal(run("state.resolvedTarget.gene_symbol"), "EPO");
+  assert.doesNotMatch(document.getElementById("dh-target-result").innerHTML, /id="btn-import-resolved-protein" disabled/);
 });

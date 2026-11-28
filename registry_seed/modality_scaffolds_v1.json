@@ -1,0 +1,2414 @@
+{
+  "schema_version": "1.0.0",
+  "registry_id": "modality_scaffolds_v1",
+  "generated_at_utc": "2026-11-27T18:30:35Z",
+  "provenance_policy": "ZERO guessed sequences or fabricated accessions. Every nucleotide sequence and coordinate is verbatim from mrnax-v2/registry_seed/utr_components_commercial_v2.json, utr_components_v1.json, Wave 9 CC-BY-4.0 benchmark Parquets (PMC9931579 MOESM3, PMC13092624 MOESM2), and live-verified NCBI RefSeq/GenBank records (NM_000558.5, NM_000518.5, NC_001604.1, M38692.1, M12742.1, NC_000866.4, M33854.1, DQ473485.1, NC_001479.1, U22521.1, MN747117.1, AB426609.1, L01443.1, NC_001449.1, NC_001547.1), screened with SequenceFTOGuard v2.1.0.",
+  "summary_counts": {
+    "total_scaffolds": 39,
+    "by_modality": {
+      "linear_mrna": 22,
+      "sarna": 4,
+      "circrna": 13
+    },
+    "by_license_track": {
+      "commercial_clean": 38,
+      "quarantine_reference": 1
+    },
+    "by_scaffold_category": {
+      "five_prime_utr": 8,
+      "three_prime_utr": 7,
+      "kozak_template": 2,
+      "ivt_promoter_dna": 3,
+      "poly_a_tail": 3,
+      "pie_group_i_intron": 2,
+      "circrna_spacer_enhancer": 6,
+      "viral_ires": 5,
+      "alphavirus_replicon_topology": 3
+    }
+  },
+  "modality_architectures": {
+    "linear_mrna": {
+      "canonical_5to3_order": [
+        "ivt_promoter_dna",
+        "five_prime_utr",
+        "kozak_template",
+        "cds",
+        "stop_cassette",
+        "three_prime_utr",
+        "poly_a_tail",
+        "scarless_type_iis_runoff"
+      ],
+      "supported_chemistries": [
+        "m1psi",
+        "pseudouridine",
+        "unmodified_u"
+      ],
+      "default_recommended_chemistry": "m1psi",
+      "fto_governance_summary": "All commercial_clean 5'UTRs, 3'UTRs, and homopolymeric A100/A120 tails pass SequenceFTOGuard v2.1.0 with zero blocked alerts; segmented A30L70 poly(A) is quarantined under BioNTech Family 51220548 (US10717982B2 / US12054723B2).",
+      "scaffold_ids_by_role": {
+        "five_prime_utr": [
+          "SCAF-LIN-5UTR-LGALS1-GENCODE49",
+          "SCAF-LIN-5UTR-BSG-GENCODE49",
+          "SCAF-LIN-5UTR-MDH1-GENCODE49",
+          "SCAF-LIN-5UTR-PRDX1-GENCODE49",
+          "SCAF-LIN-5UTR-PSMB3-GENCODE49",
+          "SCAF-LIN-5UTR-TIMP1-GENCODE49",
+          "SCAF-LIN-5UTR-HBB-REFSEQ",
+          "SCAF-LIN-5UTR-HBA1-REFSEQ"
+        ],
+        "three_prime_utr": [
+          "SCAF-LIN-3UTR-RPS21-GENCODE49",
+          "SCAF-LIN-3UTR-FTL-GENCODE49",
+          "SCAF-LIN-3UTR-RPS11-GENCODE49",
+          "SCAF-LIN-3UTR-MIF-GENCODE49",
+          "SCAF-LIN-3UTR-MYL6B-GENCODE49",
+          "SCAF-LIN-3UTR-HBB-SINGLE-REFSEQ",
+          "SCAF-LIN-3UTR-HBA1-SINGLE-REFSEQ"
+        ],
+        "kozak_template": [
+          "SCAF-LIN-KOZAK-VERTEBRATE-STRONG-GCCACC",
+          "SCAF-LIN-KOZAK-LOW-GC-ACAACC"
+        ],
+        "ivt_promoter_dna": [
+          "SCAF-LIN-PROMOTER-T7-CLEANCAP-AG",
+          "SCAF-LIN-PROMOTER-T7-PHI65-GGG"
+        ],
+        "poly_a_tail": [
+          "SCAF-LIN-POLYA-HOMO-A100-CLEAN",
+          "SCAF-LIN-POLYA-HOMO-A120-CLEAN",
+          "SCAF-LIN-POLYA-SEG-A30L70-QUARANTINE"
+        ]
+      }
+    },
+    "circrna": {
+      "canonical_pie_precursor_5to3_order": [
+        "ivt_promoter_dna",
+        "upstream_3prime_group_i_intron_plus_e2",
+        "five_prime_spacer",
+        "viral_ires",
+        "cds_plus_stop",
+        "three_prime_spacer",
+        "downstream_e1_plus_5prime_group_i_intron"
+      ],
+      "supported_chemistries": [
+        "unmodified_u"
+      ],
+      "default_recommended_chemistry": "unmodified_u",
+      "verified_ires_rank_order_desc": [
+        "EV-B107",
+        "HRV-B3",
+        "EV-A71",
+        "CVB3",
+        "EMCV"
+      ],
+      "cmc_and_immunogenicity_rules": [
+        "Do NOT apply 100% m1Psi co-transcriptional substitution to Group-I PIE + viral IRES constructs (abolishes ribozyme self-splicing and Type-I IRES folding).",
+        "Eliminate residual 5'-ppp linear precursors and nicked circles via Antarctic phosphatase + RNase R + SEC-HPLC to prevent RIG-I activation (Wesselhoeft et al. 2019 PMC6724735).",
+        "Check IRES-CDS antisense cross-hybridization and apply synonymous CDS uncoupling when base-pairing invades IRES functional stems (Huang et al. 2026 PMC13092624)."
+      ],
+      "scaffold_ids_by_role": {
+        "pie_group_i_intron": [
+          "SCAF-CIRC-PIE-T4-TD-GROUP1",
+          "SCAF-CIRC-PIE-ANABAENA-TRNALEU-GROUP1"
+        ],
+        "circrna_spacer_enhancer": [
+          "SCAF-CIRC-SPACER5-POLYAC-51NT",
+          "SCAF-CIRC-SPACER5-PABPV3-50NT",
+          "SCAF-CIRC-SPACER5-RANDOM50-50NT",
+          "SCAF-CIRC-SPACER3-PABPV2-50NT",
+          "SCAF-CIRC-SPACER3-RANDOM50-50NT",
+          "SCAF-CIRC-SPACER3-HBA1-101NT"
+        ],
+        "viral_ires": [
+          "SCAF-CIRC-IRES-EVB107-WT",
+          "SCAF-CIRC-IRES-HRVB3-WT",
+          "SCAF-CIRC-IRES-EVA71-WT",
+          "SCAF-CIRC-IRES-CVB3-WT",
+          "SCAF-CIRC-IRES-EMCV-WT"
+        ]
+      }
+    },
+    "sarna": {
+      "canonical_cis_replicon_5to3_order": [
+        "ivt_promoter_dna_cleancap_au",
+        "five_prime_au_leader_and_utr",
+        "nsp1_4_replicase_with_locked_51nt_cse",
+        "subgenomic_26s_promoter_junction",
+        "goi_cds_plus_stop",
+        "three_prime_utr_with_locked_19nt_cse",
+        "poly_a_tail_scarless_runoff"
+      ],
+      "supported_chemistries": [
+        "unmodified_u"
+      ],
+      "default_recommended_chemistry": "unmodified_u",
+      "innate_sensing_and_replication_rules": [
+        "Initiate transcript with authentic Cap-1 5'-AU (CleanCap AU) to preserve minus-strand synthesis and human IFIT1 evasion (Hyde et al. 2014 PMC3998667).",
+        "Lock 5'UTR, nsP1 51-nt CSE, 26S SGP, and 3' 19-nt CSE verbatim; forbid global codon optimization across nsP1 CSE.",
+        "Forbid 100% m1Psi/Psi substitution on cis-replicating alphavirus RNA; evaluate sub-microgram dose-sparing vs dsRNA replication-intermediate IFN-I reactogenicity on a explicit Pareto front (Vijayan et al. 2024 PMC11564874)."
+      ],
+      "scaffold_ids_by_role": {
+        "ivt_promoter_dna": [
+          "SCAF-SARNA-PROMOTER-T7-CLEANCAP-AU"
+        ],
+        "alphavirus_replicon_topology": [
+          "SCAF-SARNA-VEEV-TC83-CIS-REPLICON",
+          "SCAF-SARNA-VEEV-WT-REFSEQ-DESCRIPTOR",
+          "SCAF-SARNA-SINV-REFSEQ-CIS-REPLICON"
+        ]
+      }
+    }
+  },
+  "scaffolds": [
+    {
+      "scaffold_id": "SCAF-LIN-5UTR-LGALS1-GENCODE49",
+      "modality": "linear_mrna",
+      "scaffold_category": "five_prime_utr",
+      "name": "Human LGALS1 Endogenous 5'UTR (ENST00000895126)",
+      "molecule_alphabet": "RNA",
+      "sequence_rna": "AUCUCUCUCGGGUGGAGUCUUCUGACAGCUGGUGCGCCUGCCCGGGAACAUCCUCCUGGACUCAAUC",
+      "length_nt": 67,
+      "gc_content": 0.597,
+      "sha256": "a4e4ae3e5c4f4bc1eb1fbb4a76e3b1e6d10c59565f21df0a8ff9ba561f4aaee8",
+      "quantitative_metrics": {
+        "gc_tail15": 0.5333,
+        "has_uaug": false,
+        "kozak_m3_purine": true,
+        "max_homopolymer_run": 3,
+        "cao2021_te_score": 3.9371,
+        "wu2019_stability_z": -0.1492,
+        "saluki_predicted_hl": 12.7384,
+        "composite_rank_score": 4.7286
+      },
+      "license": {
+        "spdx": "CC0-1.0 AND CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence scaffold)",
+        "weights_license": "N/A (sequence scaffold)",
+        "data_license": "Public Domain GENCODE v49 sequence + CC-BY-4.0 expression evidence (GSE176581, eLife 45396)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "CLEAR_COMMERCIAL_CLEAN",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Endogenous unmodified human GENCODE v49 5'UTR; zero uAUG, zero Type IIS, <0.78 identity to Moderna/BioNTech patent UTRs."
+      },
+      "provenance": {
+        "local_seed": "mrnax-v2/registry_seed/utr_components_commercial_v2.json",
+        "component_id": "utr5_lgals1_ENST00000895126",
+        "accessions": [
+          "ENST00000895126"
+        ],
+        "citations": [
+          {
+            "pmid": "34230498",
+            "pmcid": "PMC8260622",
+            "doi": "10.1038/s41467-021-24436-7"
+          },
+          {
+            "pmid": "31012849",
+            "pmcid": "PMC6529216",
+            "doi": "10.7554/elife.45396"
+          },
+          {
+            "pmid": "36419176",
+            "pmcid": "PMC9684954",
+            "doi": "10.1186/s13059-022-02811-x"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-LIN-5UTR-BSG-GENCODE49",
+      "modality": "linear_mrna",
+      "scaffold_category": "five_prime_utr",
+      "name": "Human BSG Endogenous 5'UTR (ENST00000952323)",
+      "molecule_alphabet": "RNA",
+      "sequence_rna": "CCUCCGCCGCUUUUUAUAGCGGCCGCGGGCGGCGGCGGCAGCGGUUGGAGGUUGUAGGACCGGCGAGGAAUAGGAAUC",
+      "length_nt": 78,
+      "gc_content": 0.6667,
+      "sha256": "77a836340685f15fb7988ae1935e2d6c79c7fbe7213855e89aaa47594224ebc3",
+      "quantitative_metrics": {
+        "gc_tail15": 0.4667,
+        "has_uaug": false,
+        "kozak_m3_purine": true,
+        "max_homopolymer_run": 5,
+        "cao2021_te_score": 8.8738,
+        "wu2019_stability_z": -0.4389,
+        "saluki_predicted_hl": 10.1787,
+        "composite_rank_score": 4.0099
+      },
+      "license": {
+        "spdx": "CC0-1.0 AND CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence scaffold)",
+        "weights_license": "N/A (sequence scaffold)",
+        "data_license": "Public Domain GENCODE v49 sequence + CC-BY-4.0 expression evidence (GSE176581, eLife 45396)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "CLEAR_COMMERCIAL_CLEAN",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Endogenous unmodified human GENCODE v49 5'UTR; zero uAUG, zero Type IIS, <0.78 identity to Moderna/BioNTech patent UTRs."
+      },
+      "provenance": {
+        "local_seed": "mrnax-v2/registry_seed/utr_components_commercial_v2.json",
+        "component_id": "utr5_bsg_ENST00000952323",
+        "accessions": [
+          "ENST00000952323"
+        ],
+        "citations": [
+          {
+            "pmid": "34230498",
+            "pmcid": "PMC8260622",
+            "doi": "10.1038/s41467-021-24436-7"
+          },
+          {
+            "pmid": "31012849",
+            "pmcid": "PMC6529216",
+            "doi": "10.7554/elife.45396"
+          },
+          {
+            "pmid": "36419176",
+            "pmcid": "PMC9684954",
+            "doi": "10.1186/s13059-022-02811-x"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-LIN-5UTR-MDH1-GENCODE49",
+      "modality": "linear_mrna",
+      "scaffold_category": "five_prime_utr",
+      "name": "Human MDH1 Endogenous 5'UTR (ENST00000906791)",
+      "molecule_alphabet": "RNA",
+      "sequence_rna": "GAGUCAGUUCCGCGGUAGAGGUGACCUGACUCUCUGAGGCUCAUUUUGCAGUUGUUGAAAUUGUCCCCGCAGUUUUCAAUC",
+      "length_nt": 81,
+      "gc_content": 0.4938,
+      "sha256": "83e3f035ee45b9d69a63e419eb1c8132a75867f1cf1246150a3100f11b33d550",
+      "quantitative_metrics": {
+        "gc_tail15": 0.4667,
+        "has_uaug": false,
+        "kozak_m3_purine": true,
+        "max_homopolymer_run": 4,
+        "cao2021_te_score": 1.2,
+        "wu2019_stability_z": 0.3025,
+        "saluki_predicted_hl": 10.7889,
+        "composite_rank_score": 3.96
+      },
+      "license": {
+        "spdx": "CC0-1.0 AND CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence scaffold)",
+        "weights_license": "N/A (sequence scaffold)",
+        "data_license": "Public Domain GENCODE v49 sequence + CC-BY-4.0 expression evidence (GSE176581, eLife 45396)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "CLEAR_COMMERCIAL_CLEAN",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Endogenous unmodified human GENCODE v49 5'UTR; zero uAUG, zero Type IIS, <0.78 identity to Moderna/BioNTech patent UTRs."
+      },
+      "provenance": {
+        "local_seed": "mrnax-v2/registry_seed/utr_components_commercial_v2.json",
+        "component_id": "utr5_mdh1_ENST00000906791",
+        "accessions": [
+          "ENST00000906791"
+        ],
+        "citations": [
+          {
+            "pmid": "34230498",
+            "pmcid": "PMC8260622",
+            "doi": "10.1038/s41467-021-24436-7"
+          },
+          {
+            "pmid": "31012849",
+            "pmcid": "PMC6529216",
+            "doi": "10.7554/elife.45396"
+          },
+          {
+            "pmid": "36419176",
+            "pmcid": "PMC9684954",
+            "doi": "10.1186/s13059-022-02811-x"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-LIN-5UTR-PRDX1-GENCODE49",
+      "modality": "linear_mrna",
+      "scaffold_category": "five_prime_utr",
+      "name": "Human PRDX1 Endogenous 5'UTR (ENST00000447184)",
+      "molecule_alphabet": "RNA",
+      "sequence_rna": "GACUCUCGCGAGAUCCCUACUGGCUAUAAAGGCAGCGCCCCGGAGAGCUCUUGCGCGUCUUGUUCUUGCCUGGUGUCGGUGCUGAUAGGAAG",
+      "length_nt": 92,
+      "gc_content": 0.587,
+      "sha256": "8287d38acebeb5ee95c1212d673e2999db69d748293ec66834bcbce57a5c4c8d",
+      "quantitative_metrics": {
+        "gc_tail15": 0.5333,
+        "has_uaug": false,
+        "kozak_m3_purine": true,
+        "max_homopolymer_run": 4,
+        "cao2021_te_score": 2.5138,
+        "wu2019_stability_z": -0.1737,
+        "saluki_predicted_hl": 10.5712,
+        "composite_rank_score": 3.8848
+      },
+      "license": {
+        "spdx": "CC0-1.0 AND CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence scaffold)",
+        "weights_license": "N/A (sequence scaffold)",
+        "data_license": "Public Domain GENCODE v49 sequence + CC-BY-4.0 expression evidence (GSE176581, eLife 45396)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "CLEAR_COMMERCIAL_CLEAN",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Endogenous unmodified human GENCODE v49 5'UTR; zero uAUG, zero Type IIS, <0.78 identity to Moderna/BioNTech patent UTRs."
+      },
+      "provenance": {
+        "local_seed": "mrnax-v2/registry_seed/utr_components_commercial_v2.json",
+        "component_id": "utr5_prdx1_ENST00000447184",
+        "accessions": [
+          "ENST00000447184"
+        ],
+        "citations": [
+          {
+            "pmid": "34230498",
+            "pmcid": "PMC8260622",
+            "doi": "10.1038/s41467-021-24436-7"
+          },
+          {
+            "pmid": "31012849",
+            "pmcid": "PMC6529216",
+            "doi": "10.7554/elife.45396"
+          },
+          {
+            "pmid": "36419176",
+            "pmcid": "PMC9684954",
+            "doi": "10.1186/s13059-022-02811-x"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-LIN-5UTR-PSMB3-GENCODE49",
+      "modality": "linear_mrna",
+      "scaffold_category": "five_prime_utr",
+      "name": "Human PSMB3 Endogenous 5'UTR (ENST00000619426)",
+      "molecule_alphabet": "RNA",
+      "sequence_rna": "AGCAGUGAGAGCGGUUGCGCAGUGAAGGCUAGACCCGGUUUACUGGAAUUGCUCUGGCGAUCGAGGGAUCCUAGUACACCGCAAUC",
+      "length_nt": 86,
+      "gc_content": 0.5581,
+      "sha256": "1dba5a321cbe5b1836d909ee74868294d7af0c26144d4af8c26172e2c1a16028",
+      "quantitative_metrics": {
+        "gc_tail15": 0.4667,
+        "has_uaug": false,
+        "kozak_m3_purine": true,
+        "max_homopolymer_run": 3,
+        "cao2021_te_score": 3.9598,
+        "wu2019_stability_z": -0.3431,
+        "saluki_predicted_hl": 10.1135,
+        "composite_rank_score": 3.7906
+      },
+      "license": {
+        "spdx": "CC0-1.0 AND CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence scaffold)",
+        "weights_license": "N/A (sequence scaffold)",
+        "data_license": "Public Domain GENCODE v49 sequence + CC-BY-4.0 expression evidence (GSE176581, eLife 45396)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "CLEAR_COMMERCIAL_CLEAN",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Endogenous unmodified human GENCODE v49 5'UTR; zero uAUG, zero Type IIS, <0.78 identity to Moderna/BioNTech patent UTRs."
+      },
+      "provenance": {
+        "local_seed": "mrnax-v2/registry_seed/utr_components_commercial_v2.json",
+        "component_id": "utr5_psmb3_ENST00000619426",
+        "accessions": [
+          "ENST00000619426"
+        ],
+        "citations": [
+          {
+            "pmid": "34230498",
+            "pmcid": "PMC8260622",
+            "doi": "10.1038/s41467-021-24436-7"
+          },
+          {
+            "pmid": "31012849",
+            "pmcid": "PMC6529216",
+            "doi": "10.7554/elife.45396"
+          },
+          {
+            "pmid": "36419176",
+            "pmcid": "PMC9684954",
+            "doi": "10.1186/s13059-022-02811-x"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-LIN-5UTR-TIMP1-GENCODE49",
+      "modality": "linear_mrna",
+      "scaffold_category": "five_prime_utr",
+      "name": "Human TIMP1 Endogenous 5'UTR (ENST00000905035)",
+      "molecule_alphabet": "RNA",
+      "sequence_rna": "AUCGCCGCAGAUCCAGCGCCCAGAGAGACACCAGAGAACCCACC",
+      "length_nt": 44,
+      "gc_content": 0.6364,
+      "sha256": "0baa57dddcb8e7aaaa0bb385d85267e956218920ea7e6e3eef1c47cb073785b6",
+      "quantitative_metrics": {
+        "gc_tail15": 0.6,
+        "has_uaug": false,
+        "kozak_m3_purine": true,
+        "max_homopolymer_run": 3,
+        "cao2021_te_score": 2.6082,
+        "wu2019_stability_z": -0.2783,
+        "saluki_predicted_hl": 9.9569,
+        "composite_rank_score": 3.6539
+      },
+      "license": {
+        "spdx": "CC0-1.0 AND CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence scaffold)",
+        "weights_license": "N/A (sequence scaffold)",
+        "data_license": "Public Domain GENCODE v49 sequence + CC-BY-4.0 expression evidence (GSE176581, eLife 45396)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "CLEAR_COMMERCIAL_CLEAN",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Endogenous unmodified human GENCODE v49 5'UTR; zero uAUG, zero Type IIS, <0.78 identity to Moderna/BioNTech patent UTRs."
+      },
+      "provenance": {
+        "local_seed": "mrnax-v2/registry_seed/utr_components_commercial_v2.json",
+        "component_id": "utr5_timp1_ENST00000905035",
+        "accessions": [
+          "ENST00000905035"
+        ],
+        "citations": [
+          {
+            "pmid": "34230498",
+            "pmcid": "PMC8260622",
+            "doi": "10.1038/s41467-021-24436-7"
+          },
+          {
+            "pmid": "31012849",
+            "pmcid": "PMC6529216",
+            "doi": "10.7554/elife.45396"
+          },
+          {
+            "pmid": "36419176",
+            "pmcid": "PMC9684954",
+            "doi": "10.1186/s13059-022-02811-x"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-LIN-5UTR-HBB-REFSEQ",
+      "modality": "linear_mrna",
+      "scaffold_category": "five_prime_utr",
+      "name": "Unmodified Human HBB RefSeq 5'UTR (NM_000518.5)",
+      "molecule_alphabet": "RNA",
+      "sequence_rna": "ACAUUUGCUUCUGACACAACUGUGUUCACUAGCAACCUCAAACAGACACC",
+      "length_nt": 50,
+      "gc_content": 0.44,
+      "sha256": "f9a0979f27aa04ab08eebfe3a6f8f93d60d679942f779cad30d5230ac7c6234e",
+      "quantitative_metrics": {
+        "has_uaug": false,
+        "max_homopolymer_run": 3,
+        "kozak_m3_purine": true
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence scaffold)",
+        "weights_license": "N/A (sequence scaffold)",
+        "data_license": "US Public Domain (NCBI RefSeq curated human transcript)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "CLEAR_WITH_CARTESIAN_PAIR_GUARD",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Unmodified endogenous RefSeq 5'UTR (<0.85 identity to BioNTech US11547673B1 modified 47-nt hAg-Kozak). Do NOT co-pair on the same transcript with rotavirus VP6 or rat MnSOD 3'UTRs per CNRS WO2024231621A1 / EP4704918A1 Cartesian guard."
+      },
+      "provenance": {
+        "local_seed": "mrnax-v2/registry_seed/utr_components_v1.json",
+        "component_id": "utr5_hbb_NM_000518_5",
+        "accessions": [
+          "NM_000518.5"
+        ],
+        "citations": [
+          {
+            "pmid": "26553804",
+            "pmcid": "PMC4702869",
+            "doi": "10.1093/nar/gkv1189"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-LIN-5UTR-HBA1-REFSEQ",
+      "modality": "linear_mrna",
+      "scaffold_category": "five_prime_utr",
+      "name": "Unmodified Human HBA1 RefSeq 5'UTR (NM_000558.5)",
+      "molecule_alphabet": "RNA",
+      "sequence_rna": "ACUCUUCUGGUCCCCACAGACUCAGAGAGAACCCACC",
+      "length_nt": 37,
+      "gc_content": 0.5676,
+      "sha256": "c7420a08421cfc2fa6ec7946616bab7f83d0bf536d6bdb8c2a7eb1d2126a65cc",
+      "quantitative_metrics": {
+        "has_uaug": false,
+        "max_homopolymer_run": 4,
+        "kozak_m3_purine": true
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence scaffold)",
+        "weights_license": "N/A (sequence scaffold)",
+        "data_license": "US Public Domain (NCBI RefSeq curated human transcript)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "CLEAR_WITH_CARTESIAN_PAIR_GUARD",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Unmodified endogenous RefSeq 5'UTR (<0.85 identity to BioNTech US11547673B1 modified 47-nt hAg-Kozak). Do NOT co-pair on the same transcript with rotavirus VP6 or rat MnSOD 3'UTRs per CNRS WO2024231621A1 / EP4704918A1 Cartesian guard."
+      },
+      "provenance": {
+        "local_seed": "mrnax-v2/registry_seed/utr_components_v1.json",
+        "component_id": "utr5_hba1_NM_000558_5",
+        "accessions": [
+          "NM_000558.5"
+        ],
+        "citations": [
+          {
+            "pmid": "26553804",
+            "pmcid": "PMC4702869",
+            "doi": "10.1093/nar/gkv1189"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-LIN-3UTR-RPS21-GENCODE49",
+      "modality": "linear_mrna",
+      "scaffold_category": "three_prime_utr",
+      "name": "Human RPS21 Endogenous 3'UTR (ENST00000370592)",
+      "molecule_alphabet": "RNA",
+      "sequence_rna": "AUCUGCUGGCAGAGUAGUUUGAGCCAGCUGGACUGGGCUGGCCGCCUGCCGCUUCUUGAGGGUGGAAGAGGGGUGCUCUGAGAAGACACUCAGGCAGCAGACUCUGCCUCUCAC",
+      "length_nt": 114,
+      "gc_content": 0.6053,
+      "sha256": "087cc14fac3cafad4933027d7571a49d980db54fac532a717f27bdfecb20be07",
+      "quantitative_metrics": {
+        "has_are_auuua": false,
+        "has_unintended_mir122_142_seed": false,
+        "max_homopolymer_run": 4,
+        "wu2019_stability_z": -0.2874,
+        "saluki_predicted_hl": 16.258,
+        "composite_rank_score": 7.9853
+      },
+      "license": {
+        "spdx": "CC0-1.0 AND CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence scaffold)",
+        "weights_license": "N/A (sequence scaffold)",
+        "data_license": "Public Domain GENCODE v49 sequence + CC-BY-4.0 stability evidence (eLife 45396, Genome Biol 2022)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "CLEAR_COMMERCIAL_CLEAN",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Endogenous unmodified human GENCODE v49 3'UTR; zero ARE AUUUA, zero Type IIS, zero unintended miR-122/142 seeds, <0.78 identity to BioNTech AES 3'UTR."
+      },
+      "provenance": {
+        "local_seed": "mrnax-v2/registry_seed/utr_components_commercial_v2.json",
+        "component_id": "utr3_rps21_ENST00000370592",
+        "accessions": [
+          "ENST00000370592"
+        ],
+        "citations": [
+          {
+            "pmid": "31012849",
+            "pmcid": "PMC6529216",
+            "doi": "10.7554/elife.45396"
+          },
+          {
+            "pmid": "36419176",
+            "pmcid": "PMC9684954",
+            "doi": "10.1186/s13059-022-02811-x"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-LIN-3UTR-FTL-GENCODE49",
+      "modality": "linear_mrna",
+      "scaffold_category": "three_prime_utr",
+      "name": "Human FTL Endogenous 3'UTR (ENST00000853542)",
+      "molecule_alphabet": "RNA",
+      "sequence_rna": "GAGCCUUCUGAGCCCAGCGACUUCUGAAGGGCCCCUUGCAAAGUAAUAGGGCUUCUGCCUAAGCCUCUCCCUCCAGCCAAUAGGCAGCUUUCUUAACUAUCCUAACAAGCCUUGGACCAAAUGGAAAUAAAGCUUUUUGAUGCA",
+      "length_nt": 144,
+      "gc_content": 0.4861,
+      "sha256": "9158e41b8dc4915983bf20c2e2749296db0e9e72ff453eaa6ccc788a6639a853",
+      "quantitative_metrics": {
+        "has_are_auuua": false,
+        "has_unintended_mir122_142_seed": false,
+        "max_homopolymer_run": 5,
+        "wu2019_stability_z": -0.1174,
+        "saluki_predicted_hl": 15.8292,
+        "composite_rank_score": 7.8559
+      },
+      "license": {
+        "spdx": "CC0-1.0 AND CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence scaffold)",
+        "weights_license": "N/A (sequence scaffold)",
+        "data_license": "Public Domain GENCODE v49 sequence + CC-BY-4.0 stability evidence (eLife 45396, Genome Biol 2022)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "CLEAR_COMMERCIAL_CLEAN",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Endogenous unmodified human GENCODE v49 3'UTR; zero ARE AUUUA, zero Type IIS, zero unintended miR-122/142 seeds, <0.78 identity to BioNTech AES 3'UTR."
+      },
+      "provenance": {
+        "local_seed": "mrnax-v2/registry_seed/utr_components_commercial_v2.json",
+        "component_id": "utr3_ftl_ENST00000853542",
+        "accessions": [
+          "ENST00000853542"
+        ],
+        "citations": [
+          {
+            "pmid": "31012849",
+            "pmcid": "PMC6529216",
+            "doi": "10.7554/elife.45396"
+          },
+          {
+            "pmid": "36419176",
+            "pmcid": "PMC9684954",
+            "doi": "10.1186/s13059-022-02811-x"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-LIN-3UTR-RPS11-GENCODE49",
+      "modality": "linear_mrna",
+      "scaffold_category": "three_prime_utr",
+      "name": "Human RPS11 Endogenous 3'UTR (ENST00000270625)",
+      "molecule_alphabet": "RNA",
+      "sequence_rna": "GGCUGGACAUCGGCCCGCUCCCCACAAUGAAAUAAAGUUAUUUUCUCAUUCCCAGGCCAGACUUGGGAUCUUC",
+      "length_nt": 73,
+      "gc_content": 0.5068,
+      "sha256": "d3e3f8e90830ff5a9e560b7f63c00d8e5bc026c2516380555d1e5231dffdb71b",
+      "quantitative_metrics": {
+        "has_are_auuua": false,
+        "has_unintended_mir122_142_seed": false,
+        "max_homopolymer_run": 4,
+        "wu2019_stability_z": -0.3445,
+        "saluki_predicted_hl": 14.4782,
+        "composite_rank_score": 7.0669
+      },
+      "license": {
+        "spdx": "CC0-1.0 AND CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence scaffold)",
+        "weights_license": "N/A (sequence scaffold)",
+        "data_license": "Public Domain GENCODE v49 sequence + CC-BY-4.0 stability evidence (eLife 45396, Genome Biol 2022)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "CLEAR_COMMERCIAL_CLEAN",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Endogenous unmodified human GENCODE v49 3'UTR; zero ARE AUUUA, zero Type IIS, zero unintended miR-122/142 seeds, <0.78 identity to BioNTech AES 3'UTR."
+      },
+      "provenance": {
+        "local_seed": "mrnax-v2/registry_seed/utr_components_commercial_v2.json",
+        "component_id": "utr3_rps11_ENST00000270625",
+        "accessions": [
+          "ENST00000270625"
+        ],
+        "citations": [
+          {
+            "pmid": "31012849",
+            "pmcid": "PMC6529216",
+            "doi": "10.7554/elife.45396"
+          },
+          {
+            "pmid": "36419176",
+            "pmcid": "PMC9684954",
+            "doi": "10.1186/s13059-022-02811-x"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-LIN-3UTR-MIF-GENCODE49",
+      "modality": "linear_mrna",
+      "scaffold_category": "three_prime_utr",
+      "name": "Human MIF Endogenous 3'UTR (ENST00000215754)",
+      "molecule_alphabet": "RNA",
+      "sequence_rna": "GAGCCGCAGGGACCCACGCUGUCUGCGCUGGCUCCACCCGGGAACCCGCCGCACGCUGUGUUCUAGGCCCGCCCACCCCAACCUUCUGGUGGGGAGAAAUAAACGGUUUAGAGACUA",
+      "length_nt": 117,
+      "gc_content": 0.641,
+      "sha256": "d613143500072c9c629a6f9d4576ae5389b5b50e1821e046ee5ac3bae6efb96a",
+      "quantitative_metrics": {
+        "has_are_auuua": false,
+        "has_unintended_mir122_142_seed": false,
+        "max_homopolymer_run": 4,
+        "wu2019_stability_z": -0.4052,
+        "saluki_predicted_hl": 14.2765,
+        "composite_rank_score": 6.9357
+      },
+      "license": {
+        "spdx": "CC0-1.0 AND CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence scaffold)",
+        "weights_license": "N/A (sequence scaffold)",
+        "data_license": "Public Domain GENCODE v49 sequence + CC-BY-4.0 stability evidence (eLife 45396, Genome Biol 2022)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "CLEAR_COMMERCIAL_CLEAN",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Endogenous unmodified human GENCODE v49 3'UTR; zero ARE AUUUA, zero Type IIS, zero unintended miR-122/142 seeds, <0.78 identity to BioNTech AES 3'UTR."
+      },
+      "provenance": {
+        "local_seed": "mrnax-v2/registry_seed/utr_components_commercial_v2.json",
+        "component_id": "utr3_mif_ENST00000215754",
+        "accessions": [
+          "ENST00000215754"
+        ],
+        "citations": [
+          {
+            "pmid": "31012849",
+            "pmcid": "PMC6529216",
+            "doi": "10.7554/elife.45396"
+          },
+          {
+            "pmid": "36419176",
+            "pmcid": "PMC9684954",
+            "doi": "10.1186/s13059-022-02811-x"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-LIN-3UTR-MYL6B-GENCODE49",
+      "modality": "linear_mrna",
+      "scaffold_category": "three_prime_utr",
+      "name": "Human MYL6B Endogenous 3'UTR (ENST00000696001)",
+      "molecule_alphabet": "RNA",
+      "sequence_rna": "GUGCUGCAGAUCCAGUGGGGUCCGGACACUGGGCCCCGCAGGCGAAAGCACGUUCCAGCCACCAGGAGGCCACCUAUUGUUUCAAAAUAAAGACUGGGUUCCUCUCUUG",
+      "length_nt": 109,
+      "gc_content": 0.578,
+      "sha256": "637c66108f071847dc13815e2dbcb75905d6f6e0e9aba269eeb80ed2ef90d593",
+      "quantitative_metrics": {
+        "has_are_auuua": false,
+        "has_unintended_mir122_142_seed": false,
+        "max_homopolymer_run": 4,
+        "wu2019_stability_z": -0.3365,
+        "saluki_predicted_hl": 13.462,
+        "composite_rank_score": 6.5628
+      },
+      "license": {
+        "spdx": "CC0-1.0 AND CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence scaffold)",
+        "weights_license": "N/A (sequence scaffold)",
+        "data_license": "Public Domain GENCODE v49 sequence + CC-BY-4.0 stability evidence (eLife 45396, Genome Biol 2022)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "CLEAR_COMMERCIAL_CLEAN",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Endogenous unmodified human GENCODE v49 3'UTR; zero ARE AUUUA, zero Type IIS, zero unintended miR-122/142 seeds, <0.78 identity to BioNTech AES 3'UTR."
+      },
+      "provenance": {
+        "local_seed": "mrnax-v2/registry_seed/utr_components_commercial_v2.json",
+        "component_id": "utr3_myl6b_ENST00000696001",
+        "accessions": [
+          "ENST00000696001"
+        ],
+        "citations": [
+          {
+            "pmid": "31012849",
+            "pmcid": "PMC6529216",
+            "doi": "10.7554/elife.45396"
+          },
+          {
+            "pmid": "36419176",
+            "pmcid": "PMC9684954",
+            "doi": "10.1186/s13059-022-02811-x"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-LIN-3UTR-HBB-SINGLE-REFSEQ",
+      "modality": "linear_mrna",
+      "scaffold_category": "three_prime_utr",
+      "name": "Single-Copy Unmodified Human HBB RefSeq 3'UTR (NM_000518.5)",
+      "molecule_alphabet": "RNA",
+      "sequence_rna": "GCUCGCUUUCUUGCUGUCCAAUUUCUAUUAAAGGUUCCUUUGUUCCCUAAGUCCAACUACUAAACUGGGGGAUAUUAUGAAGGGCCUUGAGCAUCUGGAUUCUGCCUAAUAAAAAACAUUUAUUUUCAUUGC",
+      "length_nt": 132,
+      "gc_content": 0.3864,
+      "sha256": "3e605c248e96a9cea49b977c947a65ff4058986675950ed48b604080e7e64929",
+      "quantitative_metrics": {
+        "has_are_auuua": true,
+        "max_homopolymer_run": 6,
+        "copy_number": 1
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence scaffold)",
+        "weights_license": "N/A (sequence scaffold)",
+        "data_license": "US Public Domain (NCBI RefSeq curated human transcript)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "CLEAR_SINGLE_COPY_COMMERCIAL_CLEAN",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Enforce SINGLE-COPY usage only; tandem 2xHBB 3'UTR is claimed in BioNTech US10106800B2 / EP2766039B1."
+      },
+      "provenance": {
+        "local_seed": "mrnax-v2/registry_seed/utr_components_v1.json",
+        "component_id": "utr3_hbb_NM_000518_5",
+        "accessions": [
+          "NM_000518.5"
+        ],
+        "citations": [
+          {
+            "pmid": "16940422",
+            "pmcid": null,
+            "doi": "10.1182/blood-2006-04-015024"
+          },
+          {
+            "pmid": "26553804",
+            "pmcid": "PMC4702869",
+            "doi": "10.1093/nar/gkv1189"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-LIN-3UTR-HBA1-SINGLE-REFSEQ",
+      "modality": "linear_mrna",
+      "scaffold_category": "three_prime_utr",
+      "name": "Single-Copy Unmodified Human HBA1 RefSeq 3'UTR (NM_000558.5)",
+      "molecule_alphabet": "RNA",
+      "sequence_rna": "GCUGGAGCCUCGGUGGCCAUGCUUCUUGCCCCUUGGGCCUCCCCCCAGCCCCUCCUCCCCUUCCUGCACCCGUACCCCCGUGGUCUUUGAAUAAAGUCUGAGUGGGCGGC",
+      "length_nt": 110,
+      "gc_content": 0.6636,
+      "sha256": "ae44cbdf522cc7cb4a47cac2b9449991dd93443bd27b388d43ef05a070724ca3",
+      "quantitative_metrics": {
+        "has_are_auuua": false,
+        "max_homopolymer_run": 6,
+        "copy_number": 1
+      },
+      "license": {
+        "spdx": "CC0-1.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence scaffold)",
+        "weights_license": "N/A (sequence scaffold)",
+        "data_license": "US Public Domain (NCBI RefSeq curated human transcript)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "CLEAR_SINGLE_COPY_COMMERCIAL_CLEAN",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Unmodified endogenous single-copy human HBA1 3'UTR (distinct from BioNTech AES-mtRNR1 FI US11492628B2 and CureVac histone stem-loop US9447431B2)."
+      },
+      "provenance": {
+        "local_seed": "mrnax-v2/registry_seed/utr_components_v1.json",
+        "component_id": "utr3_hba1_NM_000558_5",
+        "accessions": [
+          "NM_000558.5"
+        ],
+        "citations": [
+          {
+            "pmid": "16940422",
+            "pmcid": null,
+            "doi": "10.1182/blood-2006-04-015024"
+          },
+          {
+            "pmid": "26553804",
+            "pmcid": "PMC4702869",
+            "doi": "10.1093/nar/gkv1189"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-LIN-KOZAK-VERTEBRATE-STRONG-GCCACC",
+      "modality": "linear_mrna",
+      "scaffold_category": "kozak_template",
+      "name": "Canonical Strong Mammalian Kozak 6-nt Pre-AUG Leader (GCCACC)",
+      "molecule_alphabet": "RNA",
+      "sequence_rna": "GCCACC",
+      "full_10nt_window_example_rna": "GCCACCAUGG",
+      "length_nt": 6,
+      "gc_content": 0.8333,
+      "sha256": "1ce0b4c624cfed851988484a598478665ef53e24ac67f571fb550457d0cafd6e",
+      "usage_rule": "Append immediately 5' of start codon AUG when 5'UTR does not already end in RnnAUG context; preserves native amino acid 2 without N-terminal residue mutation.",
+      "license": {
+        "spdx": "CC0-1.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (canonical biological motif)",
+        "weights_license": "N/A (canonical biological motif)",
+        "data_license": "Public Domain textbook vertebrate consensus motif (Kozak 1987)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "CLEAR_PUBLIC_PRIOR_ART",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "1987 public-domain consensus sequence; zero patent encumbrance."
+      },
+      "provenance": {
+        "local_seed": "rules_scientific_v2.json#RUL-V2-5UTR-KOZAK-M3-002",
+        "accessions": [],
+        "citations": [
+          {
+            "pmid": "3313277",
+            "pmcid": "PMC306349",
+            "doi": "10.1093/nar/15.20.8125"
+          },
+          {
+            "pmid": "38902240",
+            "pmcid": "PMC11189900",
+            "doi": "10.1038/s41467-024-49508-2"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-LIN-KOZAK-LOW-GC-ACAACC",
+      "modality": "linear_mrna",
+      "scaffold_category": "kozak_template",
+      "name": "Low-Hairpin Purine-(-3) Mammalian Kozak Variant (ACAACC)",
+      "molecule_alphabet": "RNA",
+      "sequence_rna": "ACAACC",
+      "full_10nt_window_example_rna": "ACAACCAUGG",
+      "length_nt": 6,
+      "gc_content": 0.5,
+      "sha256": "0b859ffee3c981d4dec6aa408f566f0c7ff98ff6abc630bfec4a8ce7fb905d27",
+      "usage_rule": "Use when N-terminal CDS codons are C/G-rich (GC > 0.70) to keep 5'UTR gc_tail15 <= 0.60 while maintaining mandatory -3A purine.",
+      "license": {
+        "spdx": "CC0-1.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (canonical biological motif)",
+        "weights_license": "N/A (canonical biological motif)",
+        "data_license": "Public Domain textbook vertebrate consensus motif (Kozak 1987)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "CLEAR_PUBLIC_PRIOR_ART",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "1987 public-domain consensus sequence; zero patent encumbrance."
+      },
+      "provenance": {
+        "local_seed": "rules_scientific_v2.json#RUL-V2-5UTR-KOZAK-M3-002",
+        "accessions": [],
+        "citations": [
+          {
+            "pmid": "3313277",
+            "pmcid": "PMC306349",
+            "doi": "10.1093/nar/15.20.8125"
+          },
+          {
+            "pmid": "38902240",
+            "pmcid": "PMC11189900",
+            "doi": "10.1038/s41467-024-49508-2"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-LIN-PROMOTER-T7-CLEANCAP-AG",
+      "modality": "linear_mrna",
+      "scaffold_category": "ivt_promoter_dna",
+      "name": "T7 RNA Polymerase Promoter Adapted for Co-Transcriptional CleanCap AG (+1A/+2G)",
+      "molecule_alphabet": "DNA",
+      "sequence_dna": "TAATACGACTCACTATAAG",
+      "transcribed_5prime_dinucleotide_rna": "AG",
+      "compatible_cap_chemistry": "cap1_cleancap_ag (m7GpppAmG)",
+      "length_nt": 19,
+      "gc_content": 0.3158,
+      "sha256": "9184b883a8ec6c9ca67a7dbb984c2241bc199c5d29e230069df67c177ade0ab7",
+      "license": {
+        "spdx": "CC0-1.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (DNA promoter template)",
+        "weights_license": "N/A (DNA promoter template)",
+        "data_license": "Public Domain bacteriophage T7 promoter sequence (GenBank V01146.1 / NC_001604.1)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "REAGENT_LICENSE_DEPENDENT_DNA_PROMOTER_PUBLIC",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "DNA T7 promoter sequence is public-domain/academic literature (Henderson et al. 2021); commercial GMP manufacturing using TriLink CleanCap AG trinucleotide cap analog requires standard reagent supply license from TriLink/Maravai (US10913768B2)."
+      },
+      "provenance": {
+        "local_seed": "mrnax-v2/src/mrnax/constraints/sequence_gates.py",
+        "accessions": [
+          "NC_001604.1"
+        ],
+        "citations": [
+          {
+            "pmid": "33524237",
+            "pmcid": null,
+            "doi": "10.1002/cpz1.39"
+          },
+          {
+            "pmid": "6864790",
+            "pmcid": null,
+            "doi": "10.1016/s0022-2836(83)80282-4"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-LIN-PROMOTER-T7-PHI65-GGG",
+      "modality": "linear_mrna",
+      "scaffold_category": "ivt_promoter_dna",
+      "name": "Classical Bacteriophage T7 Phi6.5 Promoter (+1G/+2G/+3G) for Enzymatic Vaccinia Cap-1 or ARCA",
+      "molecule_alphabet": "DNA",
+      "sequence_dna": "TAATACGACTCACTATAGGG",
+      "transcribed_5prime_dinucleotide_rna": "GG",
+      "compatible_cap_chemistry": "enzymatic_vaccinia_cap1_2omtase_or_cap1_arca_gg",
+      "length_nt": 20,
+      "gc_content": 0.4,
+      "sha256": "8431de827c49a7089e13652fecd55fcd338d56dd9375b5c8ad9e8e28509f1d23",
+      "license": {
+        "spdx": "CC0-1.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (DNA promoter template)",
+        "weights_license": "N/A (DNA promoter template)",
+        "data_license": "Public Domain bacteriophage T7 promoter sequence (GenBank V01146.1 / NC_001604.1)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "CLEAR_PUBLIC_PRIOR_ART",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Wild-type bacteriophage T7 Phi6.5 promoter (Dunn & Studier 1983, GenBank V01146.1); post-transcriptional Vaccinia capping enzyme + 2'-O-methyltransferase provides a reagent-independent commercial Cap-1 route."
+      },
+      "provenance": {
+        "local_seed": "mrnax-v2/src/mrnax/constraints/sequence_gates.py",
+        "accessions": [
+          "NC_001604.1"
+        ],
+        "citations": [
+          {
+            "pmid": "6864790",
+            "pmcid": null,
+            "doi": "10.1016/s0022-2836(83)80282-4"
+          },
+          {
+            "pmid": "33524237",
+            "pmcid": null,
+            "doi": "10.1002/cpz1.39"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-SARNA-PROMOTER-T7-CLEANCAP-AU",
+      "modality": "sarna",
+      "scaffold_category": "ivt_promoter_dna",
+      "name": "T7 Promoter Adapted for Alphavirus Authentic 5'-AU Initiation (CleanCap AU)",
+      "molecule_alphabet": "DNA",
+      "sequence_dna": "TAATACGACTCACTATAAT",
+      "transcribed_5prime_dinucleotide_rna": "AU",
+      "compatible_cap_chemistry": "cap1_cleancap_au (m7GpppAmU)",
+      "length_nt": 19,
+      "gc_content": 0.2632,
+      "sha256": "0534b8e9dac73dcd0c10a173c148c9a516c3cf031f678f24387c1bbdcedacca8",
+      "license": {
+        "spdx": "CC0-1.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (DNA promoter template)",
+        "weights_license": "N/A (DNA promoter template)",
+        "data_license": "Public Domain bacteriophage T7 promoter sequence (GenBank V01146.1 / NC_001604.1)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "REAGENT_LICENSE_DEPENDENT_DNA_PROMOTER_PUBLIC",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Initiates directly on authentic alphavirus 5'-AU without extraneous 5'-G overhang, preserving minus-strand synthesis fidelity and human IFIT1 evasion; check TriLink CleanCap AU reagent terms for commercial GMP."
+      },
+      "provenance": {
+        "local_seed": "mrnax-v2/src/mrnax/constraints/sequence_gates.py",
+        "accessions": [
+          "NC_001604.1"
+        ],
+        "citations": [
+          {
+            "pmid": "33524237",
+            "pmcid": null,
+            "doi": "10.1002/cpz1.39"
+          },
+          {
+            "pmid": "24482479",
+            "pmcid": "PMC3998667",
+            "doi": "10.1126/science.1248743"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-LIN-POLYA-HOMO-A100-CLEAN",
+      "modality": "linear_mrna",
+      "scaffold_category": "poly_a_tail",
+      "name": "100-nt Uninterrupted Homopolymeric Poly(A) Tail + Scarless BspQI/SapI Runoff",
+      "molecule_alphabet": "RNA",
+      "sequence_rna": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "downstream_type_iis_site_dna_sense": "GAAGAGCT",
+      "linearization_strategy": "BspQI / SapI (reverse-oriented outward Type IIS cleavage leaving exact 3'-A100-OH)",
+      "length_nt": 100,
+      "gc_content": 0.0,
+      "sha256": "d82c6aa133a0fc25b087f46ad7ed2a3042772e612e015571e61753ff55ba6da8",
+      "license": {
+        "spdx": "CC0-1.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence scaffold)",
+        "weights_license": "N/A (sequence scaffold)",
+        "data_license": "Published peer-reviewed literature sequence",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "CLEAR_COMMERCIAL_CLEAN",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Uninterrupted homopolymeric A100 avoids BioNTech Family 51220548 (US10717982B2 / US12054723B2 / EP3167059B1) segmented poly(A) genus (two >=20-A tracts separated by non-A linker); matches human uninfected physiological steady-state poly(A) length (~84-101 nt, Fuhrmann et al. 2026)."
+      },
+      "provenance": {
+        "local_seed": "mrnax-v2/registry_seed/patent_fto_guard_v2.json",
+        "accessions": [],
+        "citations": [
+          {
+            "pmid": "16940422",
+            "pmcid": null,
+            "doi": "10.1182/blood-2006-04-015024"
+          },
+          {
+            "pmid": "41790845",
+            "pmcid": "PMC12893412",
+            "doi": "10.1371/journal.ppat.1013961"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-LIN-POLYA-HOMO-A120-CLEAN",
+      "modality": "linear_mrna",
+      "scaffold_category": "poly_a_tail",
+      "name": "120-nt Uninterrupted Homopolymeric Poly(A) Tail + Scarless BsaI/BspQI Runoff",
+      "molecule_alphabet": "RNA",
+      "sequence_rna": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "downstream_type_iis_site_dna_sense": "GAGACCT",
+      "linearization_strategy": "BsaI-HFv2 or BspQI (reverse-oriented outward Type IIS cleavage leaving exact 3'-A120-OH)",
+      "length_nt": 120,
+      "gc_content": 0.0,
+      "sha256": "a4f4256159ea6fb23b27eb8c5eb9cfb9083475985f355a85c78de8f2fef2b3ac",
+      "license": {
+        "spdx": "CC0-1.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence scaffold)",
+        "weights_license": "N/A (sequence scaffold)",
+        "data_license": "Published peer-reviewed literature sequence",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "CLEAR_COMMERCIAL_CLEAN",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Classic Holtkamp et al. 2006 public prior-art unmasked A120 tail; commercial_clean FTO-clear against segmented poly(A) patents. Propagate plasmid in Rec-deficient E. coli or amplify IVT template via linear PCR with 5'-reverse-primer tailing to prevent homopolymer contraction."
+      },
+      "provenance": {
+        "local_seed": "mrnax-v2/registry_seed/patent_fto_guard_v2.json",
+        "accessions": [],
+        "citations": [
+          {
+            "pmid": "16940422",
+            "pmcid": null,
+            "doi": "10.1182/blood-2006-04-015024"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-LIN-POLYA-SEG-A30L70-QUARANTINE",
+      "modality": "linear_mrna",
+      "scaffold_category": "poly_a_tail",
+      "name": "110-nt Segmented A30-GCAUAUGACU-A70 Poly(A) Tail (Reference Quarantine Only)",
+      "molecule_alphabet": "RNA",
+      "sequence_rna": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGCAUAUGACUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "downstream_type_iis_site_dna_sense": "GAAGAGCT",
+      "linearization_strategy": "BspQI / SapI",
+      "length_nt": 110,
+      "gc_content": 0.0364,
+      "sha256": "54cb1f8e5055ea1c6a4ce73588a46cc0666144aae53de21d7ddc1cda58d595ac",
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "quarantine_reference",
+        "code_license": "N/A (sequence scaffold)",
+        "weights_license": "N/A (sequence scaffold)",
+        "data_license": "Published peer-reviewed literature sequence",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "BLOCKED_IN_COMMERCIAL_CLEAN",
+        "commercial_clean_allowed": false,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [
+          "BNT_FAMILY_51220548_SEGMENTED_POLYA_GENUS",
+          "BNT_EXAMPLE_A30L70_LINKER_SEQ2"
+        ],
+        "notes": "HARD BLOCKED in commercial_clean by SequenceFTOGuard rules BNT_FAMILY_51220548_SEGMENTED_POLYA_GENUS (US10717982B2 Cl.1, US12054723B2 Cl.1, EP3167059B1 Cl.1) and BNT_EXAMPLE_A30L70_LINKER_SEQ2 (US10717982B2 SEQ ID NO: 2). Retained strictly for research_max benchmark comparison."
+      },
+      "provenance": {
+        "local_seed": "mrnax-v2/registry_seed/patent_fto_guard_v2.json",
+        "accessions": [],
+        "citations": [
+          {
+            "pmid": "30647100",
+            "pmcid": "PMC6426290",
+            "doi": "10.1261/rna.068809.118"
+          },
+          {
+            "pmid": "33524990",
+            "pmcid": "PMC7980142",
+            "doi": "10.1038/s41586-021-03275-y"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-CIRC-PIE-T4-TD-GROUP1",
+      "modality": "circrna",
+      "scaffold_category": "pie_group_i_intron",
+      "name": "Bacteriophage T4 Thymidylate Synthase (td) Permuted Intron-Exon (PIE) Catalytic Split Scaffold",
+      "molecule_alphabet": "RNA",
+      "upstream_arm_3prime_intron_plus_e2_rna": "GGGAAUUCUAGAGAAAAUUUCGUCUGGAUUAGUUACUUAUCGUGUAAAAUCUGAUAAAUGGAAUUGGUUCUACAUAAAUGCCUAACGACUAUCCCUUUGGGGAGUAGGGUCAAGUGACUCGAAACGAUAGACAACUUGCUUUAACAAGUUGGAGAUAUAGUCUGCUCUGCAUGGUGACAUGCAGCUGGAUAUAAUUCCGGGGUAAGAUUAACGACCUUAUCUGAACAUAACGCUACCGUUUAAUAUUGCGUCAUAU",
+      "downstream_arm_e1_plus_5prime_intron_rna": "CUCAGUAGAUGUUUUCUUGGGUUAAUUGAGGCCUGAGUAUAAGGUGACUUAUACUUGUAAUCUAUCUAAACGGGGAACCUCUCUAGUAGACAAUCCCGUGCUAAAUUGUAGGACUGCCCUUUAAUAAAUACUUCUAUAUUUAAAGAGGUAUUUAUGAAAAGCGGAAUUUAUCAGAUUAAAAAUACUUUCUCUAGAGUCGACCUGCAG",
+      "upstream_arm_length_nt": 256,
+      "downstream_arm_length_nt": 207,
+      "sha256_upstream_arm": "942d0c63cc263564b809e78523b20e9051c0cb0cfb25a05105b3b55b7b926e44",
+      "sha256_downstream_arm": "56d60aff8a43b5cf5ece87050291a47cb39e31b7bfee62d640177c78cb79d919",
+      "splicing_mechanism": "Two-step autocatalytic GTP + Mg2+ Group-I transesterification excising flanking intron halves and ligating E2-E1 into covalently closed circRNA.",
+      "chemistry_compatibility": [
+        "unmodified_u"
+      ],
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence scaffold)",
+        "weights_license": "N/A (sequence scaffold)",
+        "data_license": "CC-BY-4.0 (Chen et al. 2023 Nat Biotechnol MOESM3 + NCBI GenBank M12742.1 / NC_000866.4)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "COUNSEL_REVIEW_HOMOLOGY_SPACER_CLAIMS",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Core T4 td PIE ribozyme self-splicing is expired 1992-1994 public prior art (Puttaraju & Been 1992; Ford & Ares 1994). Review engineered external/internal homology-arm + spacer claims in Orna/MIT (US11447796B2 / WO2019236673A1) and Stanford (WO2022261490A1) before commercial deployment."
+      },
+      "provenance": {
+        "local_seed": "wave9/parquets/circrna_chen2023_engineering_v1.parquet",
+        "accessions": [
+          "M12742.1",
+          "NC_000866.4"
+        ],
+        "citations": [
+          {
+            "pmid": "8146166",
+            "pmcid": "PMC43528",
+            "doi": "10.1073/pnas.91.8.3117"
+          },
+          {
+            "pmid": "29980667",
+            "pmcid": "PMC6035260",
+            "doi": "10.1038/s41467-018-05096-6"
+          },
+          {
+            "pmid": "35851375",
+            "pmcid": "PMC9931579",
+            "doi": "10.1038/s41587-022-01393-0"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-CIRC-PIE-ANABAENA-TRNALEU-GROUP1",
+      "modality": "circrna",
+      "scaffold_category": "pie_group_i_intron",
+      "name": "Anabaena sp. PCC 7120 pre-tRNA-Leu(UAA) Permuted Intron-Exon (PIE) Group-I Scaffold Descriptor",
+      "molecule_alphabet": "RNA",
+      "native_locus_genbank_m38692_rna": "CGGACUUAAAUAAUUGAGCCUUAGAGAAGAAAUUCUUUAAGUGGAUGCUCUCAAACUCAGGGAAACCUAAAUCUAGCUAUAGACAAGGCAAUCCUGAGCCAAGCCGAAGUAGUAAUUAGUAAGUUAACAACAGAUAACUUACAGCUARACGGAAGGUGCAGAGACUCGACGGGAGCUACCCUAACGUCAAGACGAGGGUAAAGAGAGAGUCCAAUUCUCAAAGCCAAUAGGCAGUAGCGAAAGCUGCGGGAGAAUGAAAAUCCG",
+      "native_feature_coordinates_0based": {
+        "exon_1_5prime_half_tRNA": [
+          0,
+          7
+        ],
+        "group_i_catalytic_intron": [
+          7,
+          256
+        ],
+        "exon_2_3prime_half_tRNA": [
+          256,
+          264
+        ]
+      },
+      "verified_ligated_27nt_e2_e1_splicing_scar_rna": "AGACGCUACGGACUUAAAAUCCGUUGA",
+      "permuted_pie_split_rule": "Permute native Group-I intron at peripheral L6b loop (around nt 138-150 of M38692.1, where GenBank M38692.1 records IUPAC purine R at index 146) placing [5' homology arm + 3' intron half + E2] upstream of [5' spacer + IRES + CDS + 3' spacer] and [E1 + 5' intron half + 3' homology arm] downstream; autocatalytic splicing ligates E2+E1 into the verified 27-nt scar AGACGCUACGGACUUAAAAUCCGUUGA.",
+      "length_nt": 264,
+      "sha256_native_locus": "8476b5fe31652db55f30ccd26ed6d8380a3797b5122c3c93046cca11abc7f13d",
+      "sha256_splicing_scar": "7fe2ab3e0adb0b3e9ee2002e08066bd22f78d5d95f9e82c3a392417896aa21fd",
+      "chemistry_compatibility": [
+        "unmodified_u"
+      ],
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence scaffold)",
+        "weights_license": "N/A (sequence scaffold)",
+        "data_license": "NCBI GenBank M38692.1 + CC-BY-4.0 Huang et al. 2026 Cell Res MOESM2 (PMC13092624)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "COUNSEL_REVIEW_HOMOLOGY_SPACER_CLAIMS",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Puttaraju & Been 1992 Anabaena Group-I PIE self-splicing is expired prior art; engineered PIE external/internal homology-arm + polyAC spacer combinations require claim clearance against US11447796B2 / US11352641B2 (Orna/MIT)."
+      },
+      "provenance": {
+        "local_seed": "wave9/parquets/circrna_cellres2026_ires_cargo_v1.parquet",
+        "accessions": [
+          "M38692.1"
+        ],
+        "citations": [
+          {
+            "pmid": "2125703",
+            "pmcid": null,
+            "doi": "10.1126/science.2125703"
+          },
+          {
+            "pmid": "1279519",
+            "pmcid": "PMC334342",
+            "doi": "10.1093/nar/20.20.5357"
+          },
+          {
+            "pmid": "29980667",
+            "pmcid": "PMC6035260",
+            "doi": "10.1038/s41467-018-05096-6"
+          },
+          {
+            "pmid": "41748751",
+            "pmcid": "PMC13092624",
+            "doi": "10.1038/s41422-026-01233-9"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-CIRC-SPACER5-POLYAC-51NT",
+      "modality": "circrna",
+      "scaffold_category": "circrna_spacer_enhancer",
+      "spacer_position": "five_prime_spacer",
+      "name": "5' Unstructured Poly(A/C) PIE-to-IRES Insulating Spacer (51 nt)",
+      "molecule_alphabet": "RNA",
+      "sequence_rna": "AACAAAAAAAACAAAAAAAAAACCAAAAAAACAAAACACAUAAUUGACUAA",
+      "length_nt": 51,
+      "gc_content": 0.1765,
+      "sha256": "bea7f0a7d8beb8694a7fde8ec37748948db19a1af91adc6e0b6a8d54e22f9c7d",
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence scaffold)",
+        "weights_license": "N/A (sequence scaffold)",
+        "data_license": "CC-BY-4.0 (Chen et al. 2023 Nat Biotechnol MOESM3, PMC9931579)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "CLEAR_PUBLIC_LITERATURE_CHECK_PIE_CLAIMS",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Insulates PIE exon scar secondary structure from invading viral IRES domains; verify combination claims in WO2019236673A1 (polyAC spacers) and WO2022261490A1 (PABP/HBA1 circRNA enhancers) with patent counsel."
+      },
+      "provenance": {
+        "local_seed": "wave9/parquets/circrna_chen2023_engineering_v1.parquet",
+        "construct_name_in_source": "polyAC",
+        "accessions": [
+          "PMC9931579"
+        ],
+        "citations": [
+          {
+            "pmid": "35851375",
+            "pmcid": "PMC9931579",
+            "doi": "10.1038/s41587-022-01393-0"
+          },
+          {
+            "pmid": "29980667",
+            "pmcid": "PMC6035260",
+            "doi": "10.1038/s41467-018-05096-6"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-CIRC-SPACER5-PABPV3-50NT",
+      "modality": "circrna",
+      "scaffold_category": "circrna_spacer_enhancer",
+      "spacer_position": "five_prime_spacer_enhancer",
+      "name": "5' PABP-Recruiting A-Rich CircRNA Translation Enhancer Spacer (PABPv3, 50 nt)",
+      "molecule_alphabet": "RNA",
+      "sequence_rna": "AAAAAAAAAAAACCAAAAAAAAAAAACAAAAAAAAAAAAUAAUUGACUAA",
+      "length_nt": 50,
+      "gc_content": 0.1,
+      "sha256": "013f325eff8e12ea54ac4509c7180fc1e8a83bb0985765c2dd76c5b0f27fabe8",
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence scaffold)",
+        "weights_license": "N/A (sequence scaffold)",
+        "data_license": "CC-BY-4.0 (Chen et al. 2023 Nat Biotechnol MOESM3, PMC9931579)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "COUNSEL_REVIEW_STANFORD_WO2022261490A1",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Insulates PIE exon scar secondary structure from invading viral IRES domains; verify combination claims in WO2019236673A1 (polyAC spacers) and WO2022261490A1 (PABP/HBA1 circRNA enhancers) with patent counsel."
+      },
+      "provenance": {
+        "local_seed": "wave9/parquets/circrna_chen2023_engineering_v1.parquet",
+        "construct_name_in_source": "PABPv3",
+        "accessions": [
+          "PMC9931579"
+        ],
+        "citations": [
+          {
+            "pmid": "35851375",
+            "pmcid": "PMC9931579",
+            "doi": "10.1038/s41587-022-01393-0"
+          },
+          {
+            "pmid": "29980667",
+            "pmcid": "PMC6035260",
+            "doi": "10.1038/s41467-018-05096-6"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-CIRC-SPACER5-RANDOM50-50NT",
+      "modality": "circrna",
+      "scaffold_category": "circrna_spacer_enhancer",
+      "spacer_position": "five_prime_spacer",
+      "name": "5' Neutral Unstructured 50-nt Reference Spacer",
+      "molecule_alphabet": "RNA",
+      "sequence_rna": "GGAGUGCUAGAGGAUGACCUUAAAUCAGGGACGAUAUUAUAAUUGACUAA",
+      "length_nt": 50,
+      "gc_content": 0.38,
+      "sha256": "58a3530b8a5978beb7cfe9c0b0a7466e9a887de8f596d2a059c75d611dda6ad1",
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence scaffold)",
+        "weights_license": "N/A (sequence scaffold)",
+        "data_license": "CC-BY-4.0 (Chen et al. 2023 Nat Biotechnol MOESM3, PMC9931579)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "CLEAR_COMMERCIAL_CLEAN",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Insulates PIE exon scar secondary structure from invading viral IRES domains; verify combination claims in WO2019236673A1 (polyAC spacers) and WO2022261490A1 (PABP/HBA1 circRNA enhancers) with patent counsel."
+      },
+      "provenance": {
+        "local_seed": "wave9/parquets/circrna_chen2023_engineering_v1.parquet",
+        "construct_name_in_source": "Random 50bp",
+        "accessions": [
+          "PMC9931579"
+        ],
+        "citations": [
+          {
+            "pmid": "35851375",
+            "pmcid": "PMC9931579",
+            "doi": "10.1038/s41587-022-01393-0"
+          },
+          {
+            "pmid": "29980667",
+            "pmcid": "PMC6035260",
+            "doi": "10.1038/s41467-018-05096-6"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-CIRC-SPACER3-PABPV2-50NT",
+      "modality": "circrna",
+      "scaffold_category": "circrna_spacer_enhancer",
+      "spacer_position": "three_prime_spacer_enhancer",
+      "name": "3' PABP-Binding CircRNA Spacer Downstream of Stop Codon (PABPv2, 50 nt)",
+      "molecule_alphabet": "RNA",
+      "sequence_rna": "CACAAAAAAAACAAAAAAAAAAAACAAAAAAAAAAAAACAAAAAAAAAAA",
+      "length_nt": 50,
+      "gc_content": 0.1,
+      "sha256": "4b3a5a2cd52a970f3050cb69e5c5d54a351ac202fd4017942a71ea96acd21f2e",
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence scaffold)",
+        "weights_license": "N/A (sequence scaffold)",
+        "data_license": "CC-BY-4.0 (Chen et al. 2023 Nat Biotechnol MOESM3, PMC9931579)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "COUNSEL_REVIEW_STANFORD_WO2022261490A1",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Insulates PIE exon scar secondary structure from invading viral IRES domains; verify combination claims in WO2019236673A1 (polyAC spacers) and WO2022261490A1 (PABP/HBA1 circRNA enhancers) with patent counsel."
+      },
+      "provenance": {
+        "local_seed": "wave9/parquets/circrna_chen2023_engineering_v1.parquet",
+        "construct_name_in_source": "PABPv2",
+        "accessions": [
+          "PMC9931579"
+        ],
+        "citations": [
+          {
+            "pmid": "35851375",
+            "pmcid": "PMC9931579",
+            "doi": "10.1038/s41587-022-01393-0"
+          },
+          {
+            "pmid": "29980667",
+            "pmcid": "PMC6035260",
+            "doi": "10.1038/s41467-018-05096-6"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-CIRC-SPACER3-RANDOM50-50NT",
+      "modality": "circrna",
+      "scaffold_category": "circrna_spacer_enhancer",
+      "spacer_position": "three_prime_spacer",
+      "name": "3' Neutral Unstructured 50-nt Reference Spacer",
+      "molecule_alphabet": "RNA",
+      "sequence_rna": "AACGGAACGUAUAUUCAACGCAAUGAAGCCGGAGGAUUGGCGUGGGAAUC",
+      "length_nt": 50,
+      "gc_content": 0.5,
+      "sha256": "9805d7b773f723275e28ef66ded3d07def3d4950d46f807ad977dcddb40594bd",
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence scaffold)",
+        "weights_license": "N/A (sequence scaffold)",
+        "data_license": "CC-BY-4.0 (Chen et al. 2023 Nat Biotechnol MOESM3, PMC9931579)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "CLEAR_COMMERCIAL_CLEAN",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Insulates PIE exon scar secondary structure from invading viral IRES domains; verify combination claims in WO2019236673A1 (polyAC spacers) and WO2022261490A1 (PABP/HBA1 circRNA enhancers) with patent counsel."
+      },
+      "provenance": {
+        "local_seed": "wave9/parquets/circrna_chen2023_engineering_v1.parquet",
+        "construct_name_in_source": "Random 50bp",
+        "accessions": [
+          "PMC9931579"
+        ],
+        "citations": [
+          {
+            "pmid": "35851375",
+            "pmcid": "PMC9931579",
+            "doi": "10.1038/s41587-022-01393-0"
+          },
+          {
+            "pmid": "29980667",
+            "pmcid": "PMC6035260",
+            "doi": "10.1038/s41467-018-05096-6"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-CIRC-SPACER3-HBA1-101NT",
+      "modality": "circrna",
+      "scaffold_category": "circrna_spacer_enhancer",
+      "spacer_position": "three_prime_utr_like_spacer",
+      "name": "3' Human HBA1 101-nt CircRNA Translation-Stabilizing Element",
+      "molecule_alphabet": "RNA",
+      "sequence_rna": "GCUGGAGCCUCGGUGGCCAUGCUUCUUGCCCCUUGGGCCUCCCCCCAGCCCCUCCUCCCCUUCCUGCACCCGUACCCCCGUGGUCUUUGAAUAAAGUCUGA",
+      "length_nt": 101,
+      "gc_content": 0.6436,
+      "sha256": "90b873514ee692e4e68f42c431c030257d907ae957f3d311685674c416639166",
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence scaffold)",
+        "weights_license": "N/A (sequence scaffold)",
+        "data_license": "CC-BY-4.0 (Chen et al. 2023 Nat Biotechnol MOESM3, PMC9931579)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "COUNSEL_REVIEW_STANFORD_WO2022261490A1",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Insulates PIE exon scar secondary structure from invading viral IRES domains; verify combination claims in WO2019236673A1 (polyAC spacers) and WO2022261490A1 (PABP/HBA1 circRNA enhancers) with patent counsel."
+      },
+      "provenance": {
+        "local_seed": "wave9/parquets/circrna_chen2023_engineering_v1.parquet",
+        "construct_name_in_source": "HBA1 full 3' UTR",
+        "accessions": [
+          "PMC9931579"
+        ],
+        "citations": [
+          {
+            "pmid": "35851375",
+            "pmcid": "PMC9931579",
+            "doi": "10.1038/s41587-022-01393-0"
+          },
+          {
+            "pmid": "29980667",
+            "pmcid": "PMC6035260",
+            "doi": "10.1038/s41467-018-05096-6"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-CIRC-IRES-EVB107-WT",
+      "modality": "circrna",
+      "scaffold_category": "viral_ires",
+      "ires_short_id": "EV-B107",
+      "ires_structural_class": "Type I Picornaviral (Enterovirus B107)",
+      "translation_rank_order": 1,
+      "name": "EV-B107 Wild-Type Viral 5'UTR IRES (Type I Picornaviral (Enterovirus B107))",
+      "molecule_alphabet": "RNA",
+      "sequence_rna": "UUAAAACAGCCUGUGGGUUGUUCCCACCCGCAGGGCCCACUGGGCGCUAGCACACUGGUAUCCCGGUACCCUUGUGCGCCUGUUUUAUAUACCCUCCCCCUUAUGUAACUUAGAAGUAUGAUUCAAACGGUCGACAGGCGGCUCAGUGCACCAACUGAGUCAUGACCAAGCACUUCUGUUACCCCGGACUGAGUAUCAAUAAGCUGUUCACACGGCUGAAGGAGAAAACGUUCGUUACCCGGCCAAUUACUUCGAGAAACCUAGUACCACCAUGAAGGUUGCGCAGUGUUUCGCUCCACACAACCCCAGUGUAGAUCAGGUCGAUGAGUCACCGCAUUCCCCACGGGCGACCGUGGCGGUGGCUGCGUUGGCGGCCUGCCCAUGGGGCAACCCAUGGGACGCUUCAAUACUGACAUGGUGUGAAGAGUCUAUUGAGCUAAUUGGUAGUCCUCCGGCCCCUGAAUGCGGCUAAUCCCAACUGUGGAGCAGAUACUCACAAACCAGUGAGCGGUCUGUCGUAACGGGCAACUCCGCAGCGGAACCGACUACUUUGGGUGUCCGUGUUUCUUUUUAUUCUUACAUUGGCUGCUUAUGGUGACAAUUGACAAAUUGUUACCAUAUAGCUAUUGGAUUGGCCAUCCGGUGACAAACAGAGCUAUUGUUUACUUGUUUGUUGGUUUCAUACCAUUAAAUUACAAGGUCUUAGAAACUCUCAACUUUAUUUUGACACUCAAUACAGCAAA",
+      "length_nt": 743,
+      "gc_content": 0.4966,
+      "sha256": "26c76fb1b8000b9f64da2b0e60dba9d4cd4ca05472e0381f68d249814a3fb70b",
+      "quantitative_expression_ranking": {
+        "fold_vs_icvb3_by_cell_line": {
+          "HeLa": {
+            "mean_fold_vs_icvb3": 9.1985,
+            "sem": 2.7797,
+            "n_replicates": 3
+          },
+          "HepG2": {
+            "mean_fold_vs_icvb3": 20.9853,
+            "sem": 3.7733,
+            "n_replicates": 3
+          },
+          "HEK293T": {
+            "mean_fold_vs_icvb3": 22.559,
+            "sem": 4.214,
+            "n_replicates": 3
+          }
+        },
+        "cross_cell_geometric_mean_vs_icvb3": 16.3299
+      },
+      "chemistry_compatibility": [
+        "unmodified_u"
+      ],
+      "cargo_insulation_requirement": "Enforce zero >=12-nt antisense complementarity between GOI CDS codons and IRES domains IV-VI (synonymous uncoupling per RUL-V2-CIRCRNA-IRES-CARGO-INSULATION-027).",
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence scaffold)",
+        "weights_license": "N/A (sequence scaffold)",
+        "data_license": "Public NCBI GenBank/RefSeq viral genome + CC-BY-4.0 benchmark data (PMC9931579, PMC13092624)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "COUNSEL_REVIEW_CIRCRNA_IRES_CLAIMS",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Wild-type viral 5'UTR sequence (GenBank AB426609.1); #1 wild-type viral IRES across human lines in Chen et al. 2023 Fig 5a (9.20x HeLa, 20.99x HepG2, 22.56x HEK293T vs iCVB3). Check Stanford WO2022261490A1 / Orna IRES-circRNA composition claims."
+      },
+      "provenance": {
+        "local_seed": "wave9/parquets/circrna_chen2023_engineering_v1.parquet",
+        "accessions": [
+          "AB426609.1"
+        ],
+        "citations": [
+          {
+            "pmid": "35851375",
+            "pmcid": "PMC9931579",
+            "doi": "10.1038/s41587-022-01393-0"
+          },
+          {
+            "pmid": "41748751",
+            "pmcid": "PMC13092624",
+            "doi": "10.1038/s41422-026-01233-9"
+          },
+          {
+            "pmid": "29980667",
+            "pmcid": "PMC6035260",
+            "doi": "10.1038/s41467-018-05096-6"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-CIRC-IRES-HRVB3-WT",
+      "modality": "circrna",
+      "scaffold_category": "viral_ires",
+      "ires_short_id": "HRV-B3",
+      "ires_structural_class": "Type I Picornaviral (Human Rhinovirus B3)",
+      "translation_rank_order": 2,
+      "name": "HRV-B3 Wild-Type Viral 5'UTR IRES (Type I Picornaviral (Human Rhinovirus B3))",
+      "molecule_alphabet": "RNA",
+      "sequence_rna": "UUAAAACAGCGGAUGGGUACCCCACCAUCCGACCCACUGGGUGUAGUACUCUGGUACUUCGUACCUUUGUACGCCUGUUCUUCCCAUUGUACCCUUCCUGAACUUCCAACCCAAGUAACGUUAGAAGCUCAACAUUUAGUACAACAGGAAGCACCACAUCCAGUGGUGUUUAGUACAAGCACUUCUGUUUCCCCGGAGCGAGGUAUAGGCUGUACCCACUGCCAAAAACCUUUAACCGUUAUCCGCCAACCAACUACGUAAAAGCUAGUAGUAUUAUGUUUUUAACUAGGCGUUCGAUCAGGUGGAUUUCCCCUCCACUAGUUUGGUCGAUGAGGCUAGGAAUUCCCCACGGGUGACCGUGUCCUAGCCUGCGUGGCGGCCAACCCAGCUUAUGCUGGGACGCCUUUUUAUAGACAUGGUGUGAAGACUCGCAUGUGCUUGGUUGUGAUUCCUCCGGCCCCUGAAUGCGGCUAACCUUAACCCUGGAGCCUUGUGUCACAAACCAGUGAUGAUAAGGUCGUAAUGAGCAAUUCCGGGACGGGACCGACUACUUUGGGUGUCCGUGUUUCUUAUUUUUCUUAUUAUUGUCUUAUGGUCACAGCAUAUAUAUAACAUAUACUGUGAUC",
+      "length_nt": 626,
+      "gc_content": 0.4792,
+      "sha256": "a674a3d249d536e0a32e4ac99d0516fcbe71e1727a34e5181cc258423d793be9",
+      "quantitative_expression_ranking": {
+        "fold_vs_icvb3_by_cell_line": {
+          "HeLa": {
+            "mean_fold_vs_icvb3": 6.2354,
+            "sem": 0.512,
+            "n_replicates": 3
+          },
+          "HepG2": {
+            "mean_fold_vs_icvb3": 11.6334,
+            "sem": 4.2469,
+            "n_replicates": 3
+          },
+          "HEK293T": {
+            "mean_fold_vs_icvb3": 19.7709,
+            "sem": 3.2838,
+            "n_replicates": 3
+          }
+        },
+        "cross_cell_geometric_mean_vs_icvb3": 11.2771
+      },
+      "chemistry_compatibility": [
+        "unmodified_u"
+      ],
+      "cargo_insulation_requirement": "Enforce zero >=12-nt antisense complementarity between GOI CDS codons and IRES domains IV-VI (synonymous uncoupling per RUL-V2-CIRCRNA-IRES-CARGO-INSULATION-027).",
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence scaffold)",
+        "weights_license": "N/A (sequence scaffold)",
+        "data_license": "Public NCBI GenBank/RefSeq viral genome + CC-BY-4.0 benchmark data (PMC9931579, PMC13092624)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "COUNSEL_REVIEW_CIRCRNA_IRES_CLAIMS",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Exact 626-nt wild-type 5'UTR of Rhinovirus B3 (GenBank DQ473485.1 nt 1..626); #1 among canonical 4 IRESs (6.24x HeLa, 11.63x HepG2, 19.77x HEK293T vs iCVB3). Unmodified wild-type viral sequence; Apt-eIF4G insertion variants are excluded from commercial_clean due to Stanford WO2022261490A1."
+      },
+      "provenance": {
+        "local_seed": "wave9/parquets/circrna_chen2023_engineering_v1.parquet",
+        "accessions": [
+          "DQ473485.1"
+        ],
+        "citations": [
+          {
+            "pmid": "35851375",
+            "pmcid": "PMC9931579",
+            "doi": "10.1038/s41587-022-01393-0"
+          },
+          {
+            "pmid": "41748751",
+            "pmcid": "PMC13092624",
+            "doi": "10.1038/s41422-026-01233-9"
+          },
+          {
+            "pmid": "29980667",
+            "pmcid": "PMC6035260",
+            "doi": "10.1038/s41467-018-05096-6"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-CIRC-IRES-EVA71-WT",
+      "modality": "circrna",
+      "scaffold_category": "viral_ires",
+      "ires_short_id": "EV-A71",
+      "ires_structural_class": "Type I Picornaviral (Enterovirus A71)",
+      "translation_rank_order": 3,
+      "name": "EV-A71 Wild-Type Viral 5'UTR IRES (Type I Picornaviral (Enterovirus A71))",
+      "molecule_alphabet": "RNA",
+      "sequence_rna": "UUAAAACAGCCUGUGGGUUGCACCCACUCACAGGGCCCACUGGGCGCAAGCACUCUGGUACCUCGGUACCUUUGUGCGCCUGUUUUACACCCCCCCCCCAGUGAAACUUAGAAGCAGCAAACCACGAUCAAUAGCGGGCAUAACGCUCCAGUUAUGUCUUGAUCAAGCACUUCUGUUUCCCCGGACUGAGUAUCAAUAGACUGCUCGCGCGGUUGAAGGAGAAAACGUUCGUUAUCCGGCUAGCUACUUCGGGAAACCUAGUAACACCAUGAAAGUUGCGGAGAGCUUCGUUCAGCACUCCCCCAGUGUAGAUCAGGUCGAUGAGUCACCGCAUUCCCCACGGGCGACCGUGGCGGUGGCUGCGUUGGCGGCCUGCCCAUGGGGUAACCCAUGGGGCGCUCUAAUACGGACAUGGUGUGAAGAGUCUACUGAGCUAGUUAGUAGUCCUCCGGCCCCUGAAUGCGGCUAAUCCCAACUGCGGAGCACACGCCCACAAGCCAGCGGGUAGCGUGUCGUAACGGGUAACUCUGCAGCGGAACCGACUACUUUGGGUGUCCGUGUUUCUUUUUAUCUUUAUACUGGCUGCUUAUGGUGACAAUUAAAGAAUUGUUACCAUAUAGCUAUUGGAUUGGCCAUCCGGUGUGCAACAGAGCAAUUGUUUACCUAUUCAUUGGUUUCGUACCAUUAACCUUGAAGUCUGUGACCACCCUUAACUACAUCUUGACCCUUAACACAGCUAAAC",
+      "length_nt": 742,
+      "gc_content": 0.5189,
+      "sha256": "7d158b803919268211c9b1822d8945a599ff225fa9d7af0993b57d37b1213554",
+      "quantitative_expression_ranking": {
+        "fold_vs_icvb3_by_cell_line": {
+          "HeLa": {
+            "mean_fold_vs_icvb3": 4.4616,
+            "sem": 0.4575,
+            "n_replicates": 3
+          },
+          "HepG2": {
+            "mean_fold_vs_icvb3": 2.9207,
+            "sem": 0.5836,
+            "n_replicates": 3
+          },
+          "HEK293T": {
+            "mean_fold_vs_icvb3": 2.4382,
+            "sem": 0.6368,
+            "n_replicates": 3
+          }
+        },
+        "cross_cell_geometric_mean_vs_icvb3": 3.1672
+      },
+      "chemistry_compatibility": [
+        "unmodified_u"
+      ],
+      "cargo_insulation_requirement": "Enforce zero >=12-nt antisense complementarity between GOI CDS codons and IRES domains IV-VI (synonymous uncoupling per RUL-V2-CIRCRNA-IRES-CARGO-INSULATION-027).",
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence scaffold)",
+        "weights_license": "N/A (sequence scaffold)",
+        "data_license": "Public NCBI GenBank/RefSeq viral genome + CC-BY-4.0 benchmark data (PMC9931579, PMC13092624)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "CLEAR_WILDTYPE_VIRAL_PRIOR_ART_CHECK_METHOD",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Wild-type Enterovirus A71 5'UTR IRES (742 nt in Chen 2023 MOESM3; 741 nt in CellRes 2026 MN747117.1); consistently outperforms iCVB3 (4.46x HeLa, 2.92x HepG2, 2.44x HEK293T)."
+      },
+      "provenance": {
+        "local_seed": "wave9/parquets/circrna_chen2023_engineering_v1.parquet",
+        "accessions": [
+          "U22521.1",
+          "MN747117.1"
+        ],
+        "citations": [
+          {
+            "pmid": "35851375",
+            "pmcid": "PMC9931579",
+            "doi": "10.1038/s41587-022-01393-0"
+          },
+          {
+            "pmid": "41748751",
+            "pmcid": "PMC13092624",
+            "doi": "10.1038/s41422-026-01233-9"
+          },
+          {
+            "pmid": "29980667",
+            "pmcid": "PMC6035260",
+            "doi": "10.1038/s41467-018-05096-6"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-CIRC-IRES-CVB3-WT",
+      "modality": "circrna",
+      "scaffold_category": "viral_ires",
+      "ires_short_id": "CVB3",
+      "ires_structural_class": "Type I Picornaviral (Coxsackievirus B3)",
+      "translation_rank_order": 4,
+      "name": "CVB3 Wild-Type Viral 5'UTR IRES (Type I Picornaviral (Coxsackievirus B3))",
+      "molecule_alphabet": "RNA",
+      "sequence_rna": "UUAAAACAGCCUGUGGGUUGAUCCCACCCACAGGCCCAUUGGGCGCUAGCACUCUGGUAUCACGGUACCUUUGUGCGCCUGUUUUAUACCCCCUCCCCCAACUGUAACUUAGAAGUAACACACACCGAUCAACAGUCAGCGUGGCACACCAGCCACGUUUUGAUCAAGCACUUCUGUUACCCCGGACUGAGUAUCAAUAGACUGCUCACGCGGUUGAAGGAGAAAGCGUUCGUUAUCCGGCCAACUACUUCGAAAAACCUAGUAACACCGUGGAAGUUGCAGAGUGUUUCGCUCAGCACUACCCCAGUGUAGAUCAGGUCGAUGAGUCACCGCAUUCCCCACGGGCGACCGUGGCGGUGGCUGCGUUGGCGGCCUGCCCAUGGGGAAACCCAUGGGACGCUCUAAUACAGACAUGGUGCGAAGAGUCUAUUGAGCUAGUUGGUAGUCCUCCGGCCCCUGAAUGCGGCUAAUCCUAACUGCGGAGCACACACCCUCAAGCCAGAGGGCAGUGUGUCGUAACGGGCAACUCUGCAGCGGAACCGACUACUUUGGGUGUCGUGUUUCAUUUUAUUCCUAUACUGGCUGCUUAUGGUGACAAUUGAGAGAUCGUUACCAUAUAGCUAUUGGAUUGGCCAUCCGGUGACUAAUAGAGCUAUUAUAUAUCCCUUUGUUGGGUUUAUACCACUUAGCUUGAAAGAGGUUAAAACAUUACAAUUCAUUGUUAAGUUGAAUACAGCAAA",
+      "length_nt": 740,
+      "gc_content": 0.5,
+      "sha256": "5aa49adb3006c26f141decee87fac147044eeb159e13c18d3454df8b96caeb77",
+      "quantitative_expression_ranking": {
+        "fold_vs_icvb3_by_cell_line": {
+          "HeLa": {
+            "mean_fold_vs_icvb3": 1.0,
+            "sem": 0.1833,
+            "n_replicates": 3
+          },
+          "HepG2": {
+            "mean_fold_vs_icvb3": 1.0,
+            "sem": 0.3453,
+            "n_replicates": 3
+          },
+          "HEK293T": {
+            "mean_fold_vs_icvb3": 1.0,
+            "sem": 0.0539,
+            "n_replicates": 3
+          }
+        },
+        "cross_cell_geometric_mean_vs_icvb3": 1.0
+      },
+      "chemistry_compatibility": [
+        "unmodified_u"
+      ],
+      "cargo_insulation_requirement": "Enforce zero >=12-nt antisense complementarity between GOI CDS codons and IRES domains IV-VI (synonymous uncoupling per RUL-V2-CIRCRNA-IRES-CARGO-INSULATION-027).",
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence scaffold)",
+        "weights_license": "N/A (sequence scaffold)",
+        "data_license": "Public NCBI GenBank/RefSeq viral genome + CC-BY-4.0 benchmark data (PMC9931579, PMC13092624)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "CLEAR_CLASSICAL_CIRCRNA_BENCHMARK_PRIOR_ART",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Wild-type Coxsackievirus B3 5'UTR IRES (740 nt in Chen 2023 MOESM3; 741 nt in CellRes 2026 M33854.1); gold-standard normalization baseline (1.00x across HeLa/HepG2/HEK293T) introduced in Wesselhoeft et al. 2018."
+      },
+      "provenance": {
+        "local_seed": "wave9/parquets/circrna_chen2023_engineering_v1.parquet",
+        "accessions": [
+          "M33854.1"
+        ],
+        "citations": [
+          {
+            "pmid": "35851375",
+            "pmcid": "PMC9931579",
+            "doi": "10.1038/s41587-022-01393-0"
+          },
+          {
+            "pmid": "41748751",
+            "pmcid": "PMC13092624",
+            "doi": "10.1038/s41422-026-01233-9"
+          },
+          {
+            "pmid": "29980667",
+            "pmcid": "PMC6035260",
+            "doi": "10.1038/s41467-018-05096-6"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-CIRC-IRES-EMCV-WT",
+      "modality": "circrna",
+      "scaffold_category": "viral_ires",
+      "ires_short_id": "EMCV",
+      "ires_structural_class": "Type II Picornaviral (Encephalomyocarditis Virus)",
+      "translation_rank_order": 5,
+      "name": "EMCV Wild-Type Viral 5'UTR IRES (Type II Picornaviral (Encephalomyocarditis Virus))",
+      "molecule_alphabet": "RNA",
+      "sequence_rna": "CCCCUCUCCCUCCCCCCCCCCUAACGUUACUGGCCGAAGCCGCUUGGAAUAAGGCCGGUGUGCGUUUGUCUAUAUGUUAUUUUCCACCAUAUUGCCGUCUUUUGGCAAUGUGAGGGCCCGGAAACCUGGCCCUGUCUUCUUGACGAGCAUUCCUAGGGGUCUUUCCCCUCUCGCCAAAGGAAUGCAAGGUCUGUUGAAUGUCGUGAAGGAAGCAGUUCCUCUGGAAGCUUCUUGAAGACAAACAACGUCUGUAGCGACCCUUUGCAGGCAGCGGAACCCCCCACCUGGCGACAGGUGCCUCUGCGGCCAAAAGCCACGUGUAUAAGAUACACCUGCAAAGGCGGCACAACCCCAGUGCCACGUUGUGAGUUGGAUAGUUGUGGAAAGAGUCAAAUGGCUCUCCUCAAGCGUAUUCAACAAGGGGCUGAAGGAUGCCCAGAAGGUACCCCAUUGUAUGGGAUCUGAUCUGGGGCCUCGGUACACAUGCUUUACAUGUGUUUAGUCGAGGUUAAAAAAACGUCUAGGCCCCCCGAACCACGGGGACGUGGUUUUCCUUUGAAAAACACGAUGAUAAUAUGGCCACAACC",
+      "length_nt": 587,
+      "gc_content": 0.5281,
+      "sha256": "7801b2f95d35aac009bf5e18b976e0ae2e2f5e07f7dd89ee13a32626cdb772e8",
+      "quantitative_expression_ranking": {
+        "fold_vs_icvb3_by_cell_line": {
+          "HeLa": {
+            "mean_fold_vs_icvb3": 0.0812,
+            "sem": 0.0048,
+            "n_replicates": 3
+          },
+          "HepG2": {
+            "mean_fold_vs_icvb3": 1.0062,
+            "sem": 0.1088,
+            "n_replicates": 3
+          },
+          "HEK293T": {
+            "mean_fold_vs_icvb3": 0.3507,
+            "sem": 0.0406,
+            "n_replicates": 3
+          }
+        },
+        "cross_cell_geometric_mean_vs_icvb3": 0.306
+      },
+      "chemistry_compatibility": [
+        "unmodified_u"
+      ],
+      "cargo_insulation_requirement": "Enforce zero >=12-nt antisense complementarity between GOI CDS codons and IRES domains IV-VI (synonymous uncoupling per RUL-V2-CIRCRNA-IRES-CARGO-INSULATION-027).",
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence scaffold)",
+        "weights_license": "N/A (sequence scaffold)",
+        "data_license": "Public NCBI GenBank/RefSeq viral genome + CC-BY-4.0 benchmark data (PMC9931579, PMC13092624)",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "CLEAR_LOW_ACTIVITY_LEGACY_CONTROL",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Legacy plasmid bicistronic Type-II IRES (587 nt in Chen 2023; 574 nt in CellRes 2026 NC_001479.1); public prior art since 1988, NOT recommended as primary therapeutic circRNA driver due to weak HeLa (0.081x) and HEK293T (0.351x) output."
+      },
+      "provenance": {
+        "local_seed": "wave9/parquets/circrna_chen2023_engineering_v1.parquet",
+        "accessions": [
+          "NC_001479.1"
+        ],
+        "citations": [
+          {
+            "pmid": "35851375",
+            "pmcid": "PMC9931579",
+            "doi": "10.1038/s41587-022-01393-0"
+          },
+          {
+            "pmid": "41748751",
+            "pmcid": "PMC13092624",
+            "doi": "10.1038/s41422-026-01233-9"
+          },
+          {
+            "pmid": "29980667",
+            "pmcid": "PMC6035260",
+            "doi": "10.1038/s41467-018-05096-6"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-SARNA-VEEV-TC83-CIS-REPLICON",
+      "modality": "sarna",
+      "scaffold_category": "alphavirus_replicon_topology",
+      "name": "Venezuelan Equine Encephalitis Virus Attenuated TC-83 Strain cis-Replicon Topology Descriptor (GenBank L01443.1)",
+      "backbone_species_strain": "VEEV strain TC-83 (attenuated G3A 5'UTR stem-loop variant)",
+      "molecule_alphabet": "TOPOLOGY_DESCRIPTOR_WITH_RNA_CIS_ELEMENTS",
+      "cis_elements_rna": {
+        "five_prime_utr_leader_rna": "AUAGGCGGCGCAUGAGAGAAGCCCAGACCAAUUACCUACCCAAA",
+        "nsp1_51nt_cse_rna": "CAGGUCACUGAUAAUGACCAUGCUAAUGCCAGAGCGUUUUCGCAUCUGGCU",
+        "subgenomic_26s_promoter_junction_rna": "GCCCCUAUAACUCUCUACGGCUAACCUGAAUGGACUACGACAUAGUCUAGUCCGCCAAG",
+        "three_prime_utr_full_rna": "AUACAGCAGCAAUUGGCAAGCUGCUUACAUAGAACUCGCGGCGAUUGGCAUGCCGCCUUAAAAUUUUUAUUUUAUUUUUCUUUUCUUUUCCGAAUCGGAUUUUGUUUUUAAUAUUUC",
+        "three_prime_19nt_cse_rna": "AUUUUGUUUUUAAUAUUUC"
+      },
+      "reference_coordinates_0based": {
+        "five_prime_utr": [
+          0,
+          44
+        ],
+        "nsp1_51nt_cse": [
+          134,
+          185
+        ],
+        "nsp1_4_nonstructural_polyprotein_cds": [
+          44,
+          7526
+        ],
+        "subgenomic_26s_promoter_window": [
+          7502,
+          7561
+        ],
+        "native_structural_cds_replaced_by_goi": [
+          7561,
+          11329
+        ],
+        "three_prime_utr_incl_19nt_cse": [
+          11329,
+          11446
+        ]
+      },
+      "nsp1_4_replicase_region_descriptor": {
+        "reference_span_0based": [
+          44,
+          7526
+        ],
+        "length_nt_incl_stop": 7482,
+        "polyprotein_aa_length": 2493,
+        "reference_cds_sha256": "a87d11f5d6e9bf910f33e7942f6f36e2d57fdc5b72911f89246a3b85d5eb2d08",
+        "immutable_lock_policy": "LOCK nucleotides 1..200 (5'-AU stem-loop + nsP1 51-nt CSE) and 3'-terminal nsP4 subgenomic promoter overlap; forbid global synonymous codon rewrite across nsP1 CSE."
+      },
+      "goi_cassette_placement_rules": {
+        "insertion_site": "Replace native structural polyprotein ORF [7561..11329) immediately downstream of the 26S subgenomic promoter junction and Kozak leader (e.g., ...ACAUAGUCUAGUCCGCCAAGGCCGCCACC + AUG_GOI).",
+        "chemistry_gate": "Enforce unmodified_u (or 5mC evaluation track); HARD FORBID 100% m1Psi/Psi substitution on cis-replicating RNA (inactivates nsP4 RdRp subgenomic amplification).",
+        "cap_and_3prime_runoff": "Co-transcriptional CleanCap AU (m7GpppAmU) initiating on authentic 5'-AU + scarless outward Type IIS linearization immediately 3' of >=70-117 nt poly(A) tail."
+      },
+      "reference_genome_length_nt": 11446,
+      "sha256": "03e7f2d9cf534018f899f89bd128fc7141d9322b5237a5f3ba37631301ed03b7",
+      "license": {
+        "spdx": "CC0-1.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence/topology descriptor)",
+        "weights_license": "N/A (sequence/topology descriptor)",
+        "data_license": "Public Domain NCBI GenBank/RefSeq (L01443.1) + CC-BY-4.0 literature metadata",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "PUBLIC_TC83_BACKBONE_CHECK_ENGINEERED_VARIANTS",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Wild-type attenuated VEEV TC-83 genome (GenBank L01443.1, Kinney et al. 1989 US Gov work) is public prior art; proprietary point-mutated nsP2/nsP3 replicons (e.g. Arcturus zapomeran / Imperial / Gritstone / Janssen SMARRT) carry composition/mutation claims and must be screened separately."
+      },
+      "provenance": {
+        "local_seed": "rules_scientific_v2.json#RUL-V2-SARNA-CSE-SGP-IMMUTABLE-030",
+        "accessions": [
+          "L01443.1"
+        ],
+        "citations": [
+          {
+            "pmid": "29275847",
+            "pmcid": "PMC5835025",
+            "doi": "10.1016/j.ymthe.2017.11.017"
+          },
+          {
+            "pmid": "39543172",
+            "pmcid": "PMC11564874",
+            "doi": "10.1038/s41467-024-54289-9"
+          },
+          {
+            "pmid": "24482479",
+            "pmcid": "PMC3998667",
+            "doi": "10.1126/science.1248743"
+          },
+          {
+            "pmid": "33525396",
+            "pmcid": "PMC7911542",
+            "doi": "10.3390/vaccines9020097"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-SARNA-VEEV-WT-REFSEQ-DESCRIPTOR",
+      "modality": "sarna",
+      "scaffold_category": "alphavirus_replicon_topology",
+      "name": "Venezuelan Equine Encephalitis Virus RefSeq Reference cis-Element Descriptor (NCBI NC_001449.1)",
+      "backbone_species_strain": "VEEV RefSeq reference genome (5'-AUGG stem-loop)",
+      "molecule_alphabet": "TOPOLOGY_DESCRIPTOR_WITH_RNA_CIS_ELEMENTS",
+      "cis_elements_rna": {
+        "five_prime_utr_leader_rna": "AUGGGCGGCGCAAGAGAGAAGCCCAAACCAAUUACCUACCCAAA",
+        "nsp1_51nt_cse_rna": "CAGGUCACUGAUAAUGACCAUGCUAAUGCCAGAGCGUUUUCGCAUCUGGCU",
+        "subgenomic_26s_promoter_junction_rna": "GCCCCUAUAACUCUCUACGGCUAACCUGAAUGGACUACGACAUAGUCUAGUCCGCCAAG",
+        "three_prime_utr_full_rna": "UGAACAUAGCAGCAAUUGGCAAGCUGCUUAUAUAGAACUUGCGGCGAUUGGCAUGCCGCUUUAAAAUUUUAUUUUAUUUUCUUUUCUUUUCCGAAUCGGAUUUUGUUUUUAAUAUUUC",
+        "three_prime_19nt_cse_rna": "AUUUUGUUUUUAAUAUUUC"
+      },
+      "reference_coordinates_0based": {
+        "five_prime_utr": [
+          0,
+          44
+        ],
+        "nsp1_51nt_cse": [
+          134,
+          185
+        ],
+        "nsp1_4_nonstructural_polyprotein_cds": [
+          44,
+          7526
+        ],
+        "subgenomic_26s_promoter_window": [
+          7502,
+          7561
+        ],
+        "native_structural_cds_replaced_by_goi": [
+          7561,
+          11329
+        ],
+        "three_prime_utr_incl_19nt_cse": [
+          11326,
+          11444
+        ]
+      },
+      "nsp1_4_replicase_region_descriptor": {
+        "reference_span_0based": [
+          44,
+          7526
+        ],
+        "length_nt_incl_stop": 7482,
+        "polyprotein_aa_length": 2493,
+        "reference_cds_sha256": "2e7ed803a2bdbaff6594db0c36c1a801fa01464cf1d9e9f639c566bb86052e02",
+        "immutable_lock_policy": "Note G3 difference vs attenuated TC-83 (5'-AUGG in NC_001449.1 increases IFIT1 resistance relative to TC-83 5'-AUAG per Hyde et al. 2014 Science); use non-propagating structural-gene-deleted replicon architecture ONLY."
+      },
+      "goi_cassette_placement_rules": {
+        "insertion_site": "Subgenomic cassette downstream of 26S SGP [7502..7561) with complete deletion of capsid-E3-E2-6K-E1 structural genes.",
+        "chemistry_gate": "unmodified_u required for cis-RdRp replication.",
+        "cap_and_3prime_runoff": "Cap-1 5'-AU + conserved 19-nt 3' CSE (AUUUUGUUUUUAAUAUUUC) directly abutting scarless poly(A)."
+      },
+      "reference_genome_length_nt": 11444,
+      "sha256": "2c9d27e29cdf17de21a32d8f27e44b142d0957ce1f22ca243523352f659f31bf",
+      "license": {
+        "spdx": "CC0-1.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence/topology descriptor)",
+        "weights_license": "N/A (sequence/topology descriptor)",
+        "data_license": "Public Domain NCBI GenBank/RefSeq (NC_001449.1) + CC-BY-4.0 literature metadata",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "PUBLIC_REFSEQ_REFERENCE_CHECK_MODIFIED_REPLICONS",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "NCBI RefSeq NC_001449.1 reference coordinates; screen any engineered adaptive nsP2/nsP3 mutations against active commercial saRNA patents."
+      },
+      "provenance": {
+        "local_seed": "rules_scientific_v2.json#RUL-V2-SARNA-CSE-SGP-IMMUTABLE-030",
+        "accessions": [
+          "NC_001449.1"
+        ],
+        "citations": [
+          {
+            "pmid": "24482479",
+            "pmcid": "PMC3998667",
+            "doi": "10.1126/science.1248743"
+          },
+          {
+            "pmid": "11720292",
+            "pmcid": "PMC1370205",
+            "doi": "10.1017/S135583820101321X"
+          },
+          {
+            "pmid": "33525396",
+            "pmcid": "PMC7911542",
+            "doi": "10.3390/vaccines9020097"
+          }
+        ]
+      }
+    },
+    {
+      "scaffold_id": "SCAF-SARNA-SINV-REFSEQ-CIS-REPLICON",
+      "modality": "sarna",
+      "scaffold_category": "alphavirus_replicon_topology",
+      "name": "Sindbis Virus (SINV) Alphavirus Replicon Topology & HuR-3'UTR Descriptor (NCBI NC_001547.1)",
+      "backbone_species_strain": "Sindbis virus RefSeq reference genome",
+      "molecule_alphabet": "TOPOLOGY_DESCRIPTOR_WITH_RNA_CIS_ELEMENTS",
+      "cis_elements_rna": {
+        "five_prime_utr_leader_rna": "AUUGACGGCGUAGUACACACUAUUGAAUCAAACAGCCGACCAAUUGCACUACCAUCACA",
+        "nsp1_51nt_cse_rna": "GCACAGCAGGUCACUCCAAAUGACCAUGCUAAUGCCAGAGCAUUUUCGCAU",
+        "subgenomic_26s_promoter_junction_rna": "CUACGGUGGUCCUAAAUAGUCAGCAUAGUACAUUUCAUCUGACUAAUACUACAACACCACCACC",
+        "three_prime_utr_full_rna": "CCGCUACGCCCCAAUGAUCCGACCAGCAAAACUCGAUGUACUUCCGAGGAACUGAUGUGCAUAAUGCAUCAGGCUGGUACAUUAGAUCCCCGCUUACCGCGGGCAAUAUAGCAACACUAAAAACUCGAUGUACUUCCGAGGAAGCGCAGUGCAUAAUGCUGCGCAGUGUUGCCACAUAACCACUAUAUUAACCAUUUAUCUAGCGGACGCCAAAAACUCAAUGUAUUUCUGAGGAAGCGUGGUGCAUAAUGCCACGCAGCGUCUGCAUAACUUUUAUUAUUUCUUUUAUUAAUCAACAAAAUUUUGUUUUUAACAUUUC",
+        "three_prime_19nt_cse_rna": "AUUUUGUUUUUAACAUUUC"
+      },
+      "reference_coordinates_0based": {
+        "five_prime_utr": [
+          0,
+          59
+        ],
+        "nsp1_51nt_cse": [
+          149,
+          200
+        ],
+        "nsp1_4_nonstructural_polyprotein_cds": [
+          59,
+          7601
+        ],
+        "subgenomic_26s_promoter_window": [
+          7582,
+          7646
+        ],
+        "native_structural_cds_replaced_by_goi": [
+          7646,
+          11384
+        ],
+        "three_prime_utr_incl_hur_and_19nt_cse": [
+          11384,
+          11703
+        ]
+      },
+      "nsp1_4_replicase_region_descriptor": {
+        "reference_span_0based": [
+          59,
+          7601
+        ],
+        "length_nt_incl_stop": 7542,
+        "polyprotein_aa_length": 2513,
+        "reference_cds_sha256": "19506754d07cdd48d6413008d6cf4f6aa83e5ee3822b27e4aecba15d1e6e6df4",
+        "immutable_lock_policy": "Preserve 59-nt 5'UTR (5'-AUUG...), nsP1 51-nt CSE [149..200), 26S SGP (-19..+5 core inside [7582..7646)), and 3' U-rich HuR-recruiting stability element + terminal 19-nt 3' CSE (AUUUUGUUUUUAACAUUUC)."
+      },
+      "goi_cassette_placement_rules": {
+        "insertion_site": "Replace structural polyprotein [7646..11384) downstream of 26S SGP junction while retaining native 319-nt 3'UTR (contains U-rich HuR binding region preventing deadenylation + 19-nt 3' CSE).",
+        "chemistry_gate": "unmodified_u for cis-saRNA; in trans-amplifying RNA (taRNA, Beissert et al. 2020), replicase mRNA can use m1Psi while short trans-replicon GOI RNA uses unmodified_u/5mC.",
+        "cap_and_3prime_runoff": "Cap-1 5'-AU + scarless poly(A) >=70-100 nt immediately following 3' CSE."
+      },
+      "reference_genome_length_nt": 11703,
+      "sha256": "9d22ba00cba5bfdb219f5c54cbf5023b16b91b569754ec144173a40976f02ec9",
+      "license": {
+        "spdx": "CC0-1.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (sequence/topology descriptor)",
+        "weights_license": "N/A (sequence/topology descriptor)",
+        "data_license": "Public Domain NCBI GenBank/RefSeq (NC_001547.1) + CC-BY-4.0 literature metadata",
+        "external_redistribution_allowed": true
+      },
+      "patent_fto_tag": {
+        "status": "PUBLIC_SINV_CIS_PRIOR_ART_COUNSEL_FOR_TARNA",
+        "commercial_clean_allowed": true,
+        "screened_against_registry": "patent_fto_guard_v2@2.1.0",
+        "triggered_rules": [],
+        "notes": "Classical SINV cis-replicon vector (Xiong et al. 1989 Science) is expired prior art; bipartite trans-amplifying RNA (taRNA) architectures require FTO review against BioNTech/TRON US11560568B2 / EP3430139B1."
+      },
+      "provenance": {
+        "local_seed": "rules_scientific_v2.json#RUL-V2-SARNA-CSE-SGP-IMMUTABLE-030",
+        "accessions": [
+          "NC_001547.1"
+        ],
+        "citations": [
+          {
+            "pmid": "2536950",
+            "pmcid": null,
+            "doi": "10.1126/science.2536950"
+          },
+          {
+            "pmid": "31624015",
+            "pmcid": "PMC6953774",
+            "doi": "10.1016/j.ymthe.2019.09.009"
+          },
+          {
+            "pmid": "11720292",
+            "pmcid": "PMC1370205",
+            "doi": "10.1017/S135583820101321X"
+          }
+        ]
+      }
+    }
+  ]
+}

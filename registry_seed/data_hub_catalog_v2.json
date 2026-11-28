@@ -1,0 +1,3616 @@
+{
+  "schema_version": "2.0.0",
+  "catalog_id": "mRNAx_Data_Hub_Catalog_v2",
+  "generated_at_utc": "2026-11-27T17:51:52Z",
+  "drive_hub_root": {
+    "name": "mRNAx-Data-Hub-20261126",
+    "drive_folder_id": "12HDihif0-x4-xn7P6laot6H-hCIJRri0",
+    "url": "https://drive.google.com/drive/folders/12HDihif0-x4-xn7P6laot6H-hCIJRri0"
+  },
+  "summary_counts": {
+    "datasets_count": 34,
+    "external_apis_count": 20,
+    "engines_and_models_count": 11,
+    "master_catalog_v12_rows_unified": 114,
+    "moderna_platform_pdfs_indexed": 17,
+    "commercial_clean_datasets": 26,
+    "pending_or_quarantined_datasets": 8
+  },
+  "datasets": [
+    {
+      "dataset_id": "GSE232927_CastilloHair2024_5UTR_MRL",
+      "title": "Castillo-Hair et al. 2024 HEK293T Synthetic 5'UTR Polysome MRL MPRA",
+      "category": "wetlab_benchmark",
+      "modality": "linear_mrna",
+      "region_focus": "5'UTR",
+      "chemistry": [
+        "unmodified_u"
+      ],
+      "sample_count": 25000,
+      "sample_unit": "paired_50nt_5utr_constructs",
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (data-only asset)",
+        "weights_license": "N/A (data-only asset)",
+        "data_license": "CC-BY-4.0 (Nat Commun 2024 + public NCBI GEO GSE232927)",
+        "external_redistribution_allowed": true
+      },
+      "drive_id": "1ORULrQfMmE64o478k5WrDJI2xOqv-Q4Z",
+      "raw_drive_ids": [
+        "1cCQ16fu04-KAgcxs2XQhpZH7nkk6rhzv",
+        "1LPvzVtMLQT13DcPSa1nMHDnenr0I7gsA"
+      ],
+      "local_path": "cloud_only:curated_benchmarks_v1/gse232927_5utr_mrl_paired.parquet",
+      "parquet_sha256": "d2da1725c9a2f26c49859f66183dd30dd423428f8f27c1cfd7fb51812215adce",
+      "primary_readout": "Mean Ribosome Load (MRL, polysome profiling in HEK293T)",
+      "citations": [
+        {
+          "pmid": "38902240",
+          "pmcid": "PMC11189900",
+          "doi": "10.1038/s41467-024-49508-2"
+        }
+      ],
+      "catalog_row_ids": [
+        "B1-09",
+        "B1-10",
+        "B1-22",
+        "W3-04"
+      ]
+    },
+    {
+      "dataset_id": "GSE176581_Cao2021_5UTR_MPRA",
+      "title": "Cao et al. 2021 High-Throughput Human/Synthetic 5'UTR GFP Translation MPRA",
+      "category": "wetlab_benchmark",
+      "modality": "linear_mrna",
+      "region_focus": "5'UTR",
+      "chemistry": [
+        "unmodified_u"
+      ],
+      "sample_count": 16288,
+      "sample_unit": "5utr_constructs_incl_4000_top_bin_screen",
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (data-only asset)",
+        "weights_license": "N/A (data-only asset)",
+        "data_license": "CC-BY-4.0 (Nat Commun 2021 + GEO GSE176581)",
+        "external_redistribution_allowed": true
+      },
+      "drive_id": "1ORULrQfMmE64o478k5WrDJI2xOqv-Q4Z",
+      "raw_drive_ids": [
+        "184zZJfOcoeVDnkBiQqbdLigKz-5XceiW",
+        "1QR6qK8VzS4sCBWgO-xsoMu0C1C2-LEwX",
+        "13kBaRcGsZQ8uj_R2zREf-L3By8KVKz-3",
+        "1BlY9iJ4RCgIkWjKsRnnyQTW5hrIq2aV8",
+        "1Krj0yak2Ai3lh_kVR-kGlNS04h8BhzUE",
+        "1Fazb140x-1RhziXI8dzIwxcQjmUUFZCa"
+      ],
+      "local_path": "cloud_only:curated_benchmarks_v1/cao2021_5utr_mpra.parquet",
+      "parquet_sha256": "274487f1a50f214092d38d9aa5facb8ef177a2b268af2519df82399107a5e704",
+      "primary_readout": "FACS Top-2.5% GFP Bin Enrichment & Ribosome Profiling TE in HEK293T",
+      "citations": [
+        {
+          "pmid": "34230498",
+          "pmcid": "PMC8260622",
+          "doi": "10.1038/s41467-021-24436-7"
+        }
+      ],
+      "catalog_row_ids": [
+        "B2S-01",
+        "B2S-02",
+        "B2S-03",
+        "B2S-04",
+        "B2S-05",
+        "B2S-06",
+        "B2S-13",
+        "W3-04"
+      ]
+    },
+    {
+      "dataset_id": "GSE114002_Sample2019_Optimus5Prime_MPRA",
+      "title": "Sample et al. 2019 280k 5'UTR Polysome MRL MPRA Across U, Psi, and m1Psi Chemistries",
+      "category": "wetlab_benchmark",
+      "modality": "linear_mrna",
+      "region_focus": "5'UTR",
+      "chemistry": [
+        "unmodified_u",
+        "pseudouridine",
+        "m1psi"
+      ],
+      "sample_count": 553936,
+      "sample_unit": "high_read_50nt_5utr_unmodified_plus_paired_psi_m1psi_libraries",
+      "license": {
+        "spdx": "GEO_Public_No_Explicit_Commercial_Clause",
+        "license_track": "commercial_clearance_pending",
+        "code_license": "N/A (data-only asset)",
+        "weights_license": "N/A (data-only asset)",
+        "data_license": "Public NCBI GEO GSE114002 / PRJNA454863; paper Nat Biotechnol 2019 is non-OA -> held in 02b_commercial_clearance_pending per C-B2",
+        "external_redistribution_allowed": false
+      },
+      "drive_id": "1oAqg0lh1UTymhe3eoYjzNSAuHpnSG8Tu",
+      "raw_drive_ids": [
+        "1xgjksB-33YMljI86ZBUV5Qtgm1sAKuJl",
+        "1glafyhJ0KT4CForWeQqQT0Jffc_2OJNH",
+        "1jILxMbrYmBbyH-uoH4PpOYyQPJdSfVzu",
+        "1OTYCPtXFKWZN2oMmwh0UYPMLIV81U7Ql",
+        "1OT6zG-ew0LmUlOoUYq05KzdCvY-BW6m8",
+        "1_Xj9XNSdEps_wGXkGuJLORc0FAKrCJX5",
+        "14gIrJEsY6_33kwzQFCoQKKBLyqw-XRmq",
+        "1222fHDErB929jU6PqAcTVPuqRxYS43Pw",
+        "1JQgnnsYXuZ5BRre2t1WxWbBQqjJSZETS",
+        "18xhmewFc2Ct1A_ky5ogds_zulDhOOYE6"
+      ],
+      "local_path": "cloud_only:02b_commercial_clearance_pending/curated_pending_v1/gse114002_chem_mrl_pending.parquet",
+      "primary_readout": "Mean Ribosome Load (MRL) on eGFP/mCherry IVT mRNA across unmodified U, Psi, and m1Psi in HEK293T",
+      "citations": [
+        {
+          "pmid": "31267113",
+          "pmcid": "PMC7100133",
+          "doi": "10.1038/s41587-019-0164-5"
+        }
+      ],
+      "catalog_row_ids": [
+        "P01",
+        "P02",
+        "P03",
+        "C01",
+        "C02",
+        "B1-11",
+        "B1-12",
+        "B1-13",
+        "B1-14",
+        "B1-15",
+        "B1-16",
+        "B1-17",
+        "B1-18",
+        "B1-23",
+        "W4-04"
+      ]
+    },
+    {
+      "dataset_id": "eLife45396_Wu2019_Human_Codon_Stability",
+      "title": "Wu et al. 2019 Human Endogenous Codon Stability (HEK293T ActD, K562 SLAM-seq, HeLa, RPE)",
+      "category": "wetlab_benchmark",
+      "modality": "linear_mrna",
+      "region_focus": "CDS",
+      "chemistry": [
+        "unmodified_u"
+      ],
+      "sample_count": 13568,
+      "sample_unit": "human_protein_coding_genes_across_4_cell_lines",
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (data-only asset)",
+        "weights_license": "N/A (data-only asset)",
+        "data_license": "CC-BY-4.0 (eLife 45396 Fig 1 Source Data 1 + GENCODE v49)",
+        "external_redistribution_allowed": true
+      },
+      "drive_id": "1X0K2_qXEOzUHnu7kquO43UnXkavUXvH2",
+      "local_path": "cloud_only:curated_benchmarks_v1/wu2019_human_codon_stability.parquet",
+      "parquet_sha256": "4821f7d6f13e5309bb36c7f49e32434ba546868f84aca2e9e1e5d0c84137a899",
+      "primary_readout": "Endogenous mRNA decay rate / Codon Stabilization Coefficient (CSC) across HEK293T, K562, HeLa, RPE1",
+      "citations": [
+        {
+          "pmid": "31012849",
+          "pmcid": "PMC6529216",
+          "doi": "10.7554/elife.45396"
+        }
+      ],
+      "catalog_row_ids": [
+        "B2S-07",
+        "B2S-14",
+        "W3-04"
+      ]
+    },
+    {
+      "dataset_id": "GSE173083_Leppek2022_PERSIST233_and_CDS24",
+      "title": "Leppek et al. 2022 PERSIST-seq (233 Pooled mRNAs + 24 CDS Designs: In-Solution Hydrolysis vs Cellular Stability & Polysomes)",
+      "category": "wetlab_benchmark",
+      "modality": "linear_mrna",
+      "region_focus": "CDS",
+      "chemistry": [
+        "unmodified_u",
+        "pseudouridine",
+        "m1psi"
+      ],
+      "sample_count": 257,
+      "sample_unit": "233_persist_seq_constructs_plus_24_cds_designs",
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (data-only asset)",
+        "weights_license": "N/A (data-only asset)",
+        "data_license": "CC-BY-4.0 (Nat Commun 2022 + GEO GSE173083 Tables S1/S3/S4/S5)",
+        "external_redistribution_allowed": true
+      },
+      "drive_id": "1ORULrQfMmE64o478k5WrDJI2xOqv-Q4Z",
+      "raw_drive_ids": [
+        "1yv_0-tbmbHB1NRgD-pmSPh1yPr0lnMPj",
+        "13oPV5AQ3sWa244wq8R45854_-cgEDvYt",
+        "1xu4dfz-NIA4sQ-rkuGigYLqbKV77isKY",
+        "1d9SuzYx_uHwmV1e501PV0C3hNSMmqsN-"
+      ],
+      "local_path": "cloud_only:curated_benchmarks_v1/leppek2022_persist_233.parquet;leppek2022_cds24_kinetics.parquet",
+      "parquet_sha256": "4e4055955f71045dbee82848e4a9299cae48695499d24ce5dd365ca321165fe5",
+      "secondary_parquet_sha256": "a23fffcd5fa45c2a46687b0d4211e4d7e3495ded612571220083de4a0b3c29d6",
+      "primary_readout": "In-solution hydrolysis half-life (h), in-cell half-life (PERSIST-seq), polysome load, and 6h/24h luminescence",
+      "citations": [
+        {
+          "pmid": "35318324",
+          "pmcid": "PMC8940940",
+          "doi": "10.1038/s41467-022-28776-w"
+        }
+      ],
+      "catalog_row_ids": [
+        "B2S-08",
+        "B2S-09",
+        "B2S-10",
+        "B2S-11",
+        "B2S-15",
+        "W3-04"
+      ]
+    },
+    {
+      "dataset_id": "GSE139176_Mauger2019_Moderna_SHAPEMaP",
+      "title": "Mauger et al. 2019 Moderna Synonymous fLuc SHAPE-MaP Across U, 5moU, and m1Psi Chemistries",
+      "category": "wetlab_benchmark",
+      "modality": "linear_mrna",
+      "region_focus": "CDS",
+      "chemistry": [
+        "unmodified_u",
+        "5mou",
+        "m1psi"
+      ],
+      "sample_count": 117,
+      "sample_unit": "39_synonymous_fluc_constructs_x_3_chemistries_68531_nt_per_chem",
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (data-only asset)",
+        "weights_license": "N/A (data-only asset)",
+        "data_license": "CC-BY-4.0 (PNAS 2019 + GEO GSE139176)",
+        "external_redistribution_allowed": true
+      },
+      "drive_id": "1UvyZb6K0QlmaCqbWSI3TnzkETomJz0h1",
+      "local_path": "cloud_only:curated_benchmarks_v1/mauger2019_moderna_shapemap_summary.parquet",
+      "parquet_sha256": "06ae8b694a49d4c20a15a8c907b21267431419d8f065bbce4e8a37bdbb0bfe9e",
+      "primary_readout": "Per-nucleotide SHAPE-MaP reactivity & functional mRNA half-life across U, 5moU, and m1Psi",
+      "citations": [
+        {
+          "pmid": "31712433",
+          "pmcid": "PMC6883848",
+          "doi": "10.1073/pnas.1908052116"
+        }
+      ],
+      "catalog_row_ids": [
+        "B2S-12",
+        "B2S-16",
+        "W3-04"
+      ]
+    },
+    {
+      "dataset_id": "Siegel2022_fastUTR_3UTR_MPRA",
+      "title": "Siegel et al. 2022 fastUTR Human 3'UTR Stability & Causal ARE-Deletion MPRA (BEAS-2B & Jurkat)",
+      "category": "wetlab_benchmark",
+      "modality": "linear_mrna",
+      "region_focus": "3'UTR",
+      "chemistry": [
+        "unmodified_u"
+      ],
+      "sample_count": 37866,
+      "sample_unit": "7613_beas2b_plus_30253_jurkat_160nt_3utr_segments",
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A (data-only asset)",
+        "weights_license": "N/A (data-only asset)",
+        "data_license": "CC-BY-4.0 (G3 2022 PMC8728028 + upstream GitHub david-a-siegel/AU-Rich-Elements)",
+        "external_redistribution_allowed": true
+      },
+      "drive_id": "1ICku86OFCmyBvw6z_hhIYdE5Cc3navbZ",
+      "local_path": "cloud_only:curated_benchmarks_v1/fastutr_3utr_mpra_beas2b_jurkat_v1.parquet",
+      "parquet_sha256": "796e9900a79acb0b92c7dd52f9852314c43caf54a34a638b8611facf9f96db25",
+      "primary_readout": "T4/T0 GC-residualized mRNA stability & causal single-ARE deletion delta in BEAS-2B and Jurkat",
+      "citations": [
+        {
+          "pmid": "34849835",
+          "pmcid": "PMC8728028",
+          "doi": "10.1093/g3journal/jkab404"
+        }
+      ],
+      "catalog_row_ids": [
+        "W5-01",
+        "W7-04"
+      ]
+    },
+    {
+      "dataset_id": "AgarwalKelley2022_Saluki_Mammalian_HalfLife",
+      "title": "Agarwal & Kelley 2022 Saluki Consensus mRNA Half-Life (13,642 Human Genes + 14,463 Mouse Genes + 10,955 Orthologs)",
+      "category": "wetlab_benchmark",
+      "modality": "linear_mrna",
+      "region_focus": "full_transcript",
+      "chemistry": [
+        "unmodified_u"
+      ],
+      "sample_count": 13642,
+      "sample_unit": "human_genes_39_study_pc1_plus_14463_mouse_genes_27_study_pc1",
+      "license": {
+        "spdx": "CC-BY-4.0 AND Apache-2.0",
+        "license_track": "commercial_clean",
+        "code_license": "Apache-2.0 (vagarwal87/saluki_paper)",
+        "weights_license": "N/A (data-only asset)",
+        "data_license": "CC-BY-4.0 (Genome Biology 2022 / Zenodo 6326409)",
+        "external_redistribution_allowed": true
+      },
+      "drive_id": "14S7dqGYMn-c0-D3ofV9NzxpTq6_PkasL",
+      "secondary_drive_id": "1y-HaW0-b3mjwwcMHQrrQN9byDY41mvE3",
+      "local_path": "cloud_only:curated_benchmarks_v1/saluki_human_consensus_halflife_v1.parquet",
+      "parquet_sha256": "886522dc1e61ad70a85147091063414ce7c2a16a6a27e9ee0d1b1324c256bf18",
+      "primary_readout": "Cross-study consensus PC1 mRNA half-life (human 39-study & mouse 27-study)",
+      "citations": [
+        {
+          "pmid": "36419176",
+          "pmcid": "PMC9684954",
+          "doi": "10.1186/s13059-022-02811-x"
+        }
+      ],
+      "catalog_row_ids": [
+        "B2-01",
+        "W4-01",
+        "W5-03"
+      ]
+    },
+    {
+      "dataset_id": "Griesemer2021_3UTR_Variant_MPRA",
+      "title": "Griesemer et al. 2021 Multi-Cell Human 3'UTR Variant MPRA (Sabeti Lab)",
+      "category": "wetlab_benchmark",
+      "modality": "linear_mrna",
+      "region_focus": "3'UTR",
+      "chemistry": [
+        "unmodified_u"
+      ],
+      "sample_count": 14497,
+      "sample_unit": "3utr_variant_pairs_across_6_human_cell_lines",
+      "license": {
+        "spdx": "Non-OA_Cell_Press",
+        "license_track": "commercial_clearance_pending",
+        "code_license": "N/A (data-only asset)",
+        "weights_license": "N/A (data-only asset)",
+        "data_license": "Non-OA Cell Press article -> quarantined to 02b_commercial_clearance_pending per C-W6",
+        "external_redistribution_allowed": false
+      },
+      "drive_id": "1DHHskWEVKtSB3f3qZxY3t7r8uQgmh_i_",
+      "local_path": "cloud_only:02b_commercial_clearance_pending/curated_pending_v1/griesemer2021_3utr_variant_mpra_v1.parquet",
+      "parquet_sha256": "4d0e982e638e976e0410d9a00d1d883bff5f75586683449b576da17fc249096f",
+      "primary_readout": "3'UTR variant steady-state RNA abundance skew across 6 human cell types",
+      "citations": [
+        {
+          "pmid": "34496228",
+          "pmcid": "PMC8525964",
+          "doi": "10.1016/j.cell.2021.08.025"
+        }
+      ],
+      "catalog_row_ids": [
+        "W5-02"
+      ]
+    },
+    {
+      "dataset_id": "Kaggle_Ribonanza_OpenVaccine_Quarantine",
+      "title": "Stanford Ribonanza / OpenVaccine Chemical Mapping & In-Line Degradation Benchmark",
+      "category": "wetlab_benchmark",
+      "modality": "linear_mrna",
+      "region_focus": "full_transcript",
+      "chemistry": [
+        "unmodified_u"
+      ],
+      "sample_count": 1118513,
+      "sample_unit": "synthetic_rna_chemical_mapping_profiles_train_split",
+      "license": {
+        "spdx": "CC-BY-4.0_with_Kaggle_NoRedistrib_and_NC_RibonanzaPlus",
+        "license_track": "research_only",
+        "code_license": "N/A (data-only asset)",
+        "weights_license": "N/A (data-only asset)",
+        "data_license": "Competition train_data.csv CC-BY-4.0 gated by Kaggle redistribution terms; Ribonanza+ explicit NC -> strictly research_only",
+        "external_redistribution_allowed": false
+      },
+      "drive_id": null,
+      "local_path": "cloud_queued_quarantine:03_research_only",
+      "primary_readout": "DMS & 2A3 chemical modification reactivity and Mg2+/pH10 degradation rates",
+      "citations": [
+        {
+          "pmcid": "PMC10925082",
+          "doi": "10.1101/2024.02.24.581671"
+        }
+      ],
+      "catalog_row_ids": [
+        "B2-03"
+      ]
+    },
+    {
+      "dataset_id": "pmc12355064_utr_pair_factorial",
+      "title": "pmc12355064_utr_pair_factorial_v1.parquet",
+      "category": "wetlab_benchmark",
+      "modality": "linear_mrna",
+      "region_focus": "5'UTR_x_3'UTR",
+      "chemistry": [
+        "m1psi"
+      ],
+      "sample_count": 9,
+      "sample_unit": "parquet_rows",
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "governance_scope": "commercial_clean_benchmark",
+        "code_license": "N/A (data-only asset)",
+        "weights_license": "N/A (data-only asset)",
+        "data_license": "CC-BY-4.0",
+        "external_redistribution_allowed": true
+      },
+      "drive_id": "1VlPA_9TKUWPFy_FiyR6_0b1qZlLKzK_k",
+      "local_path": "/Users/alex/.gemini/antigravity/brain/7f2d42f9-a0bb-4eda-ae58-37a783141565/scratch/wave9/parquets/pmc12355064_utr_pair_factorial_v1.parquet",
+      "size_bytes": 38997,
+      "parquet_sha256": "16544b1ab0386965e113b97e234ff80116d2f26e4bf81b84da4defda98eeadee",
+      "primary_readout": "Full-factorial 3x3 5'UTR x 3'UTR expression (HeLa/C2C12/DC2.4/AB1079/moDCs/in-vivo BALB/c) & dsRNA%",
+      "governance_note": "Exact 3x3=9 full-factorial 5'UTR (hAg/UTR3/UTR4) x 3'UTR (AES/VP6/SOD) benchmark. No numerical CSV/XLSX source table was published for Fig 4 bars; all numerical values are verbatim from Table S2 (mmc1.pdf p.2 dsRNA %) and Results text (SRCD Tm, relative expression bounds), and all ANOVA significance calls are directly verified from gr4.jpg, gr5.jpg, gr6.jpg. Zero digitized/fabricated decimals. Article discloses CNRS patent WO2024231621 (CC-BY-4.0 measurement reuse is distinct from practicing patented UTR/polyA compositions).",
+      "citations": [
+        {
+          "pmid": "40822034",
+          "pmcid": "PMC12355064",
+          "doi": "10.1016/j.omtn.2025.102648"
+        }
+      ],
+      "catalog_row_ids": [
+        "W9-02"
+      ]
+    },
+    {
+      "dataset_id": "su2025_elife97682",
+      "title": "su2025_elife97682_utr_variants_v1.parquet",
+      "category": "wetlab_benchmark",
+      "modality": "linear_mrna",
+      "region_focus": "5'UTR_and_3'UTR",
+      "chemistry": [
+        "unmodified_u"
+      ],
+      "sample_count": 5072,
+      "sample_unit": "parquet_rows",
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "commercial_clearance_pending",
+        "governance_scope": "internal_evaluation_only",
+        "code_license": "N/A (data-only asset)",
+        "weights_license": "N/A (data-only asset)",
+        "data_license": "CC-BY-4.0",
+        "external_redistribution_allowed": false
+      },
+      "drive_id": "1voPZCmc6itFY6WdczeCMlZXMtxTe3wYe",
+      "local_path": "/Users/alex/.gemini/antigravity/brain/7f2d42f9-a0bb-4eda-ae58-37a783141565/scratch/wave9/parquets/su2025_elife97682_utr_variants_v1.parquet",
+      "size_bytes": 523597,
+      "parquet_sha256": "4c956ac99399c86e554e4f6e351d9f313b16b787397de7d00a1a04cd018dea95",
+      "primary_readout": "UTR reference-vs-variant mRNA half-life log2FC in HEK293T & SH-SY5Y (internal eval only)",
+      "governance_note": "A-W11 C3 caveat: While the third-party variant_name column and all HGMD strings were stripped (verified 0/5,072 HGMD occurrences), Su et al. originally assembled the variant coordinate list from HGMD and ClinVar. Restrict this Parquet to internal evaluation only and DO NOT redistribute raw coordinates externally unless independent non-HGMD sourcing/rights are documented; the authors' CC-BY-4.0 experimental half-life measurements and bibliographic publication metadata remain distinct rights layers.",
+      "citations": [
+        {
+          "pmid": "39964837",
+          "pmcid": "PMC11835390",
+          "doi": "10.7554/elife.97682"
+        }
+      ],
+      "catalog_row_ids": [
+        "W9-02"
+      ]
+    },
+    {
+      "dataset_id": "ETERNA_R69_0000",
+      "title": "rmdb_eterna_r69_1m7_cc0_v1.parquet",
+      "category": "wetlab_benchmark",
+      "modality": "linear_mrna",
+      "region_focus": "full_transcript",
+      "chemistry": [
+        "unmodified_u"
+      ],
+      "sample_count": 1600,
+      "sample_unit": "parquet_rows",
+      "license": {
+        "spdx": "CC0-1.0",
+        "license_track": "commercial_clean",
+        "governance_scope": "commercial_clean_benchmark",
+        "code_license": "N/A (data-only asset)",
+        "weights_license": "N/A (data-only asset)",
+        "data_license": "CC0-1.0",
+        "external_redistribution_allowed": true
+      },
+      "drive_id": "1lJ3VxC3BO_4ruruiAreHca-KY8wLS_S_",
+      "local_path": "/Users/alex/.gemini/antigravity/brain/7f2d42f9-a0bb-4eda-ae58-37a783141565/scratch/wave9/parquets/rmdb_eterna_r69_1m7_cc0_v1.parquet",
+      "size_bytes": 586451,
+      "parquet_sha256": "77536499c5373693ba4e42a421ba2c2f69320f94c032dafee00048f1535d78cc",
+      "primary_readout": "Per-nucleotide 1M7 SHAPE reactivity across 1,600 Cloud Lab constructs (126,400 nt positions)",
+      "governance_note": "1,600 RNA constructs x 79 measured nucleotide positions = 126,400 1M7 reactivity + error measurements across 20 Cloud Lab projects. Stored with per-construct metadata and 1:1 aligned list columns (seqpos_1based, reactivity, error) for fast direct or exploded access.",
+      "citations": [
+        {
+          "pmid": "35941238",
+          "doi": "10.1038/s41592-022-01605-0"
+        }
+      ],
+      "catalog_row_ids": [
+        "W9-02"
+      ]
+    },
+    {
+      "dataset_id": "OK7BLIB_2A3_0000",
+      "title": "rmdb_ok7blib_2a3_cc0_v1.parquet",
+      "category": "wetlab_benchmark",
+      "modality": "linear_mrna",
+      "region_focus": "full_transcript",
+      "chemistry": [
+        "unmodified_u"
+      ],
+      "sample_count": 4932,
+      "sample_unit": "parquet_rows",
+      "license": {
+        "spdx": "CC0-1.0",
+        "license_track": "commercial_clean",
+        "governance_scope": "commercial_clean_benchmark",
+        "code_license": "N/A (data-only asset)",
+        "weights_license": "N/A (data-only asset)",
+        "data_license": "CC0-1.0",
+        "external_redistribution_allowed": true
+      },
+      "drive_id": "11X7C3qcm4F8dcM9SRTBbphS-enLE1x_3",
+      "local_path": "/Users/alex/.gemini/antigravity/brain/7f2d42f9-a0bb-4eda-ae58-37a783141565/scratch/wave9/parquets/rmdb_ok7blib_2a3_cc0_v1.parquet",
+      "size_bytes": 4990834,
+      "parquet_sha256": "62eed84fcd79a2b90ab52dcfe43309f7296f87024b9d98361e6578517b181952",
+      "primary_readout": "Per-nucleotide 2A3 SHAPE reactivity across 4,932 OpenKnot constructs (1,178,519 valid nt positions)",
+      "governance_note": "Exact verified count in OK7BLIB_2A3_0000.rdat is 4,932 RNA constructs x 240 measured positions (27..266) = 1,183,680 2A3 reactivity + error positions (1,178,519 finite valid values) across 3,701 derived target-family group_keys. Group by target family + sequence similarity in OOD evaluation.",
+      "citations": [
+        {
+          "pmid": "42239184"
+        }
+      ],
+      "catalog_row_ids": [
+        "W9-02"
+      ]
+    },
+    {
+      "dataset_id": "floor_doudna_elife10921",
+      "title": "floor_doudna_elife10921_tripseq_isoforms_v1.parquet",
+      "category": "wetlab_benchmark",
+      "modality": "linear_mrna",
+      "region_focus": "5'UTR_and_3'UTR_isoforms",
+      "chemistry": [
+        "unmodified_u"
+      ],
+      "sample_count": 214280,
+      "sample_unit": "parquet_rows",
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "governance_scope": "commercial_clean_benchmark",
+        "code_license": "N/A (data-only asset)",
+        "weights_license": "N/A (data-only asset)",
+        "data_license": "CC-BY-4.0",
+        "external_redistribution_allowed": true
+      },
+      "drive_id": "17v1Nk_Mb_oR8t5-n7uGbX1G8hJaALOzP",
+      "local_path": "/Users/alex/.gemini/antigravity/brain/7f2d42f9-a0bb-4eda-ae58-37a783141565/scratch/wave9/parquets/floor_doudna_elife10921_tripseq_isoforms_v1.parquet",
+      "size_bytes": 15215995,
+      "parquet_sha256": "2590b50dad0dcfd1764a864f4c0a8800d8f165fbf58b0c82e4bf0719baef2db6",
+      "primary_readout": "Endogenous HEK293T TrIP-seq polysome fraction distribution across 214,280 transcript isoforms",
+      "governance_note": "Author primary Fig. 1 Source Data 2 (NOT GEO bulk export). 214,280 transcript isoforms across 63,656 genes (59,921 expressed protein-coding isoforms across 12,373 multi-isoform genes) in HEK293T cytoplasmic + 8 polysome fractions x 2 biological replicates (18 samples). Always hold out by gene_id for leakage-free OOD eval; note overlap with RiboNN external evaluation.",
+      "citations": [
+        {
+          "pmid": "26735365",
+          "pmcid": "PMC4764583",
+          "doi": "10.7554/elife.10921"
+        }
+      ],
+      "catalog_row_ids": [
+        "W9-02"
+      ]
+    },
+    {
+      "dataset_id": "circrna_cellres2026_ires_cargo",
+      "title": "circrna_cellres2026_ires_cargo_v1.parquet",
+      "category": "wetlab_benchmark",
+      "modality": "circrna",
+      "region_focus": "IRES_and_CDS_junction",
+      "chemistry": [
+        "unmodified_u"
+      ],
+      "sample_count": 70,
+      "sample_unit": "parquet_rows",
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "governance_scope": "commercial_clean_benchmark",
+        "code_license": "N/A (data-only asset)",
+        "weights_license": "N/A (data-only asset)",
+        "data_license": "CC-BY-4.0",
+        "external_redistribution_allowed": true
+      },
+      "drive_id": "10_VU0p5HAEHKTGKAuGQA_eKGYu0Obi2F",
+      "local_path": "/Users/alex/.gemini/antigravity/brain/7f2d42f9-a0bb-4eda-ae58-37a783141565/scratch/wave9/parquets/circrna_cellres2026_ires_cargo_v1.parquet",
+      "size_bytes": 97408,
+      "parquet_sha256": "3ec2f6d9e23082963b2388afb5edecf6280b2ed997333c412cfdb19b5f79c12b",
+      "primary_readout": "circRNA SV-A IRES per-nt SHAPE reactivity across cargos + 49 viral IRES library + splicing scars",
+      "governance_note": "circRNA 3-lab pack #1 (Ling-Ling Chen Lab). 70 rows: 9 full per-nucleotide SHAPE reactivity profiles (674-675 nt each, 6,073 nt total) measuring SV-A IRES structure coupling across cargos/mutants (MOESM4) + 49 viral IRES library sequences + 12 ivcRNA cargo/splicing-scar sequences (MOESM2).",
+      "citations": [
+        {
+          "pmid": "41748751",
+          "pmcid": "PMC13092624",
+          "doi": "10.1038/s41422-026-01233-9"
+        }
+      ],
+      "catalog_row_ids": [
+        "W9-03"
+      ]
+    },
+    {
+      "dataset_id": "circrna_nsmb2026_rbp_tethering",
+      "title": "circrna_nsmb2026_rbp_tethering_v1.parquet",
+      "category": "wetlab_benchmark",
+      "modality": "circrna",
+      "region_focus": "full_transcript_RBP",
+      "chemistry": [
+        "unmodified_u"
+      ],
+      "sample_count": 846,
+      "sample_unit": "parquet_rows",
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "governance_scope": "commercial_clean_benchmark",
+        "code_license": "N/A (data-only asset)",
+        "weights_license": "N/A (data-only asset)",
+        "data_license": "CC-BY-4.0",
+        "external_redistribution_allowed": true
+      },
+      "drive_id": "1ViN9xuJzx6hLBRWxSqGpGDa8eP0QzAeJ",
+      "local_path": "/Users/alex/.gemini/antigravity/brain/7f2d42f9-a0bb-4eda-ae58-37a783141565/scratch/wave9/parquets/circrna_nsmb2026_rbp_tethering_v1.parquet",
+      "size_bytes": 444747,
+      "parquet_sha256": "0d3f01b50af2b626579006765f2cd82a0af780d181bd95d31880c6c6a65f4c03",
+      "primary_readout": "Arrayed RBP tethering luciferase log2FC on circRNA vs linear mRNA across 846 RBP isoforms",
+      "governance_note": "circRNA 3-lab pack #2 (Gene Yeo Lab). 846 RBP isoform constructs across 734 unique gene symbols (triplicate HeLa circRNA tethering luciferase screen in MOESM3) joined with RBP ORF DNA sequences, Luo et al. linear-mRNA screen comparison (circ_minus_linear_log2fc), secondary HeLa/HEK293T + qPCR abundance/localization screen (MOESM4, n=77), exocircFirefly validation (MOESM4, n=48), and RBM15 IP-MS (MOESM6). External GEO GSE314435 excluded.",
+      "citations": [
+        {
+          "pmid": "42983073",
+          "pmcid": "PMC13759317",
+          "doi": "10.1038/s41594-026-01911-7"
+        }
+      ],
+      "catalog_row_ids": [
+        "W9-03"
+      ]
+    },
+    {
+      "dataset_id": "circrna_chen2023_engineering",
+      "title": "circrna_chen2023_engineering_v1.parquet",
+      "category": "wetlab_benchmark",
+      "modality": "circrna",
+      "region_focus": "IRES_PIE_spacers",
+      "chemistry": [
+        "unmodified_u"
+      ],
+      "sample_count": 536,
+      "sample_unit": "parquet_rows",
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "governance_scope": "commercial_clean_benchmark",
+        "code_license": "N/A (data-only asset)",
+        "weights_license": "N/A (data-only asset)",
+        "data_license": "CC-BY-4.0",
+        "external_redistribution_allowed": true
+      },
+      "drive_id": "1f1jEffdHWjGkTSl3fKVwGm8D2u7hhRUP",
+      "local_path": "/Users/alex/.gemini/antigravity/brain/7f2d42f9-a0bb-4eda-ae58-37a783141565/scratch/wave9/parquets/circrna_chen2023_engineering_v1.parquet",
+      "size_bytes": 66961,
+      "parquet_sha256": "240e36e072d158e43f7db0c52860860f539b1b395308c87d0232b9c3df3cc8e7",
+      "primary_readout": "Quantitative circRNA IRES, 5'/3' spacer, Apt-eIF4G & PIE engineering assays (HeLa/HepG2/HEK293T/mouse) + 155-element sequence catalog",
+      "governance_note": "circRNA 3-lab pack #3 (Howard Chang Lab). 536 rows: 381 quantitative circRNA engineering measurements across Figs 2-6 (including 40 IRESs x 3 cell lines HeLa/HepG2/HEK293T in Fig 5a, iCVB3 domain deletions & Apt-eIF4G in Figs 3-4, iHRV-B3 variants in Fig 5c, in vivo mouse kinetics in Fig 6; 161 assay rows directly sequence-joined from MOESM3) + 155 curated element catalog sequences (MOESM3). Note: upstream GSE178718 overlaps structRFM IRES source per A-W8; track independence explicitly in Rules Tribunal.",
+      "citations": [
+        {
+          "pmid": "35851375",
+          "pmcid": "PMC9931579",
+          "doi": "10.1038/s41587-022-01393-0"
+        }
+      ],
+      "catalog_row_ids": [
+        "W9-03"
+      ]
+    },
+    {
+      "dataset_id": "polya_ninetails2025_ivt_mrna1273",
+      "title": "polya_ninetails2025_ivt_and_mrna1273_ccby4_v1.parquet",
+      "category": "wetlab_benchmark",
+      "modality": "linear_mrna",
+      "region_focus": "Poly(A)",
+      "chemistry": [
+        "unmodified_u",
+        "m1psi"
+      ],
+      "sample_count": 101138,
+      "sample_unit": "parquet_rows",
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "governance_scope": "commercial_clean_benchmark",
+        "code_license": "EXCLUDED (UNVERIFIED — Ninetails R/Python software NOT ingested)",
+        "weights_license": "EXCLUDED (UNVERIFIED — Ninetails CNN weights NOT ingested)",
+        "data_license": "CC-BY-4.0",
+        "external_redistribution_allowed": true
+      },
+      "drive_id": "1NRacT2TUPj8IowbEAeyqxNAAEccAkX57",
+      "local_path": "/Users/alex/.gemini/antigravity/brain/7f2d42f9-a0bb-4eda-ae58-37a783141565/scratch/wave11/parquets/polya_ninetails2025_ivt_and_mrna1273_ccby4_v1.parquet",
+      "size_bytes": 2300426,
+      "parquet_sha256": "21a6ef0991b662f8284f67d5780f6bd955035cd786e9f294e1a880f0e3229efa",
+      "primary_readout": "Single-read nanopore poly(A) tail length & non-adenosine (G/C/U) composition across IVT protocols & mRNA-1273 in BMDM",
+      "governance_note": "DATA LAYER ONLY (Ninetails software & CNN weights UNVERIFIED -> excluded). Parsed <10MB SD3 (14.8 KB IVT synthesis protocol purity) + SD4 (8.1 MB, 101,072 single-read nanopore measurements of therapeutic mRNA-1273 in MURINE bone-marrow-derived macrophages [BMDM] over 0-72h; non_a_pct counts fraction of reads classified as carrying >=1 non-A decoration). Skipped >10MB SD2/SD5/SD6 and 693MB raw zip.",
+      "citations": [
+        {
+          "pmid": "40102414",
+          "pmcid": "PMC11920217",
+          "doi": "10.1038/s41467-025-57787-6"
+        }
+      ],
+      "catalog_row_ids": [
+        "W11-02"
+      ]
+    },
+    {
+      "dataset_id": "polya_fuhrmann2026_plospath_human",
+      "title": "polya_fuhrmann2026_plospath_human_tails_ccby4_v1.parquet",
+      "category": "wetlab_benchmark",
+      "modality": "linear_mrna",
+      "region_focus": "Poly(A)",
+      "chemistry": [
+        "unmodified_u"
+      ],
+      "sample_count": 4336,
+      "sample_unit": "parquet_rows",
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "governance_scope": "commercial_clean_benchmark",
+        "code_license": "N/A (data-only asset)",
+        "weights_license": "N/A (data-only asset)",
+        "data_license": "CC-BY-4.0",
+        "external_redistribution_allowed": true
+      },
+      "drive_id": "1RLSYg3mzLAMCZOf9sf4u1oqe3CuLrI4U",
+      "local_path": "/Users/alex/.gemini/antigravity/brain/7f2d42f9-a0bb-4eda-ae58-37a783141565/scratch/wave11/parquets/polya_fuhrmann2026_plospath_human_tails_ccby4_v1.parquet",
+      "size_bytes": 82042,
+      "parquet_sha256": "e70bc4d564ed02fa2e149c5448a2e58dad4c088460eb905abc9d6935be295dbc",
+      "primary_readout": "Human nanopore dRNA-seq poly(A) tail lengths & non-A incorporation rates (uninfected NHDF/A549/MeWo baselines + perturbations)",
+      "governance_note": "Corrected G-W9 check: s001-s003 are TIFF figures; actual data tables are s005 (S1 Table, 12.5 KB), s006 (S2 Table, 241 KB), s009 (S5 Table, 214 KB), s010 (S6 Table, 14.6 KB). Dropped 3 worksheet footnote rows from S1 Table during A-W11 remediation (4,336 clean rows). Explicitly tags is_uninfected_human_baseline (clean A549=95.52 nt, MeWo=100.55 nt, NHDF=83.86 nt + Mock ENST rows) separate from herpesvirus-infected perturbation rows (note: 126-128 nt siCNOT1 measurements are from HCMV-infected NHDF at 72 hpi). S5 Table contains 1,560 comparison rows covering 1,114 distinct transcript IDs.",
+      "citations": [
+        {
+          "pmid": "42302084",
+          "pmcid": "PMC13271517",
+          "doi": "10.1371/journal.ppat.1014341"
+        }
+      ],
+      "catalog_row_ids": [
+        "W11-02"
+      ]
+    },
+    {
+      "dataset_id": "m1psi_poulis_rodnina2026_recoding",
+      "title": "m1psi_poulis_rodnina2026_recoding_ccby4_v1.parquet",
+      "category": "wetlab_benchmark",
+      "modality": "linear_mrna",
+      "region_focus": "CDS",
+      "chemistry": [
+        "unmodified_u",
+        "m1psi"
+      ],
+      "sample_count": 404,
+      "sample_unit": "parquet_rows",
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "governance_scope": "commercial_clean_benchmark",
+        "code_license": "N/A (data-only asset)",
+        "weights_license": "N/A (data-only asset)",
+        "data_license": "CC-BY-4.0",
+        "external_redistribution_allowed": true
+      },
+      "drive_id": "1qEu9gb4TAbTjVscZxHSXrfqfinU1tELc",
+      "local_path": "/Users/alex/.gemini/antigravity/brain/7f2d42f9-a0bb-4eda-ae58-37a783141565/scratch/wave11/parquets/m1psi_poulis_rodnina2026_recoding_ccby4_v1.parquet",
+      "size_bytes": 13677,
+      "parquet_sha256": "518d441b2ffb48c4485e1f150276abc5ef6c1a2d911468ff4c7cb5915b70687a",
+      "primary_readout": "HEK293T dual-fluorescence +1 frameshifting/recoding ratios across slippery motifs & synonymous UUCC rescue",
+      "governance_note": "IMPORTANT DEDUP DISCLOSURE: G-W9 listed this as 'independent of Poulis-Rodnina 2026', whereas it IS Poulis & Rodnina 2026 (PMID:42805987) already backing RUL-CC-M1PSI-FRAMESHIFT-009. Archived here as first standardized Parquet in curated_benchmarks_v1/ with ZERO lab double-counting.",
+      "citations": [
+        {
+          "pmid": "42805987",
+          "pmcid": "PMC13620113",
+          "doi": "10.1038/s41467-026-77796-3"
+        }
+      ],
+      "catalog_row_ids": [
+        "W6-03",
+        "W7-04",
+        "W11-02"
+      ]
+    },
+    {
+      "dataset_id": "m1psi_kuzmin2024_u_vs_m1psi_immunity",
+      "title": "m1psi_kuzmin2024_u_vs_m1psi_immunity_ccby4_v1.parquet",
+      "category": "wetlab_benchmark",
+      "modality": "linear_mrna",
+      "region_focus": "full_transcript",
+      "chemistry": [
+        "unmodified_u",
+        "m1psi"
+      ],
+      "sample_count": 495,
+      "sample_unit": "parquet_rows",
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "governance_scope": "commercial_clean_benchmark",
+        "code_license": "N/A (data-only asset)",
+        "weights_license": "N/A (data-only asset)",
+        "data_license": "CC-BY-4.0",
+        "external_redistribution_allowed": true
+      },
+      "drive_id": "1ssIkTvQJp9zovEMA6Q_UKv_DlD55GYWR",
+      "local_path": "/Users/alex/.gemini/antigravity/brain/7f2d42f9-a0bb-4eda-ae58-37a783141565/scratch/wave11/parquets/m1psi_kuzmin2024_u_vs_m1psi_immunity_ccby4_v1.parquet",
+      "size_bytes": 17776,
+      "parquet_sha256": "dae73ad46caca3d988c7f74bc27da53bd761395b55d4cc1fec007a6086998f70",
+      "primary_readout": "Human THP-1 & A549 34-gene innate-immune sensor/ISG qPCR panel comparing unmodified U vs m1Psi IVT mRNA",
+      "governance_note": "Direct U-mRNA vs m1Psi-mRNA human THP-1 (261 rows, stable 18s/GAPDH controls) and A549 (234 rows) innate-immune qPCR panel (Fig 1D Source Data, 34 genes across both cell lines incl. DDX58/RIG-I, IFIH1/MDA5, IFNB, IFNL1/2, IFIT1-5, MX1/2, ISG20). Censoring & housekeeping caveats (A-W11): 80/495 raw Ct readings were 'Undetermined' (right-censored) and imputed to 40.0 ONLY in ct_imputed_40_for_undet (raw ct_value preserves NaN + is_undetermined=True); A549 m1Psi-minus-U housekeeping shifted -10.72 Ct (18S) and -7.67 Ct (GAPDH), so quantitative fold comparisons must anchor on THP-1 rather than cross-cell A549 raw Ct.",
+      "citations": [
+        {
+          "pmid": "39080316",
+          "pmcid": "PMC11289437",
+          "doi": "10.1038/s41467-024-50774-3"
+        }
+      ],
+      "catalog_row_ids": [
+        "W6-03",
+        "W11-02"
+      ]
+    },
+    {
+      "dataset_id": "sarna_vijayan2024_rsv_smarrt",
+      "title": "sarna_vijayan2024_rsv_smarrt_ccby4_v1.parquet",
+      "category": "wetlab_benchmark",
+      "modality": "sarna",
+      "region_focus": "full_transcript",
+      "chemistry": [
+        "unmodified_u"
+      ],
+      "sample_count": 1881,
+      "sample_unit": "parquet_rows",
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "governance_scope": "commercial_clean_benchmark",
+        "code_license": "N/A (data-only asset)",
+        "weights_license": "N/A (data-only asset)",
+        "data_license": "CC-BY-4.0",
+        "external_redistribution_allowed": true
+      },
+      "drive_id": "1F7UxuQZgZGOxq1buI1b8mj54socATijB",
+      "local_path": "/Users/alex/.gemini/antigravity/brain/7f2d42f9-a0bb-4eda-ae58-37a783141565/scratch/wave11/parquets/sarna_vijayan2024_rsv_smarrt_ccby4_v1.parquet",
+      "size_bytes": 25631,
+      "parquet_sha256": "fe3d7176b786df3dc0a274098c275e24e298ddbcc225d4dc5804b12d027ac112",
+      "primary_readout": "SMARRT alphavirus saRNA in vitro antigen dose-response + NHP neutralizing titers & 0h/24h innate cytokine panel",
+      "governance_note": "First <10MB machine-readable CC-BY-4.0 saRNA wet-lab benchmark Parquet (SMARRT.RSV.preF in vitro expression dose-response across 2 batches + NHP VNA/ELISpot + 0h/24h innate cytokine panel).",
+      "citations": [
+        {
+          "pmid": "39543172",
+          "pmcid": "PMC11564874",
+          "doi": "10.1038/s41467-024-54289-9"
+        }
+      ],
+      "catalog_row_ids": [
+        "W11-02"
+      ]
+    },
+    {
+      "dataset_id": "GENCODE_v49_Human_Transcriptome",
+      "title": "GENCODE Release 49 Human Protein-Coding Transcripts & GTF Annotation",
+      "category": "reference_annotation",
+      "modality": "reference_transcriptome",
+      "region_focus": "full_transcript",
+      "chemistry": [
+        "unmodified_u"
+      ],
+      "sample_count": 115241,
+      "sample_unit": "human_protein_coding_transcripts",
+      "license": {
+        "spdx": "EMBL-EBI_Open_Terms",
+        "license_track": "commercial_clean",
+        "code_license": "N/A",
+        "weights_license": "N/A",
+        "data_license": "EMBL-EBI Public Terms of Use (commercial_clean)",
+        "external_redistribution_allowed": true
+      },
+      "drive_id": "1Wtq2E6z9JBCv9s3kV1I546_FiV7GIKse",
+      "secondary_drive_id": "1KRkWEGV0pt-l1pTjqiNnqv7UOam9byst",
+      "local_path": "cloud_only:02_commercial_clean/gencode.v49.pc_transcripts.fa.gz",
+      "primary_readout": "Canonical human CDS/5'UTR/3'UTR coordinates and sequences (also local GENCODE v50 index L08)",
+      "citations": [
+        {
+          "pmid": "33270111",
+          "pmcid": "PMC7779004",
+          "doi": "10.1093/nar/gkaa1087"
+        }
+      ],
+      "catalog_row_ids": [
+        "B1-07",
+        "B1-08",
+        "B1-21",
+        "L08"
+      ]
+    },
+    {
+      "dataset_id": "miRBase_FANTOM5_Commercial_miRNA_Atlas_v2",
+      "title": "miRBase mature.fa + RIKEN FANTOM5 Human Organ-Resolved sRNA/miRNA Expression Atlas (v2, 100 miRNAs x 9 Compartments)",
+      "category": "reference_annotation",
+      "modality": "ncrna_mirna",
+      "region_focus": "3'UTR",
+      "chemistry": [
+        "unmodified_u",
+        "m1psi"
+      ],
+      "sample_count": 100,
+      "sample_unit": "curated_human_mirnas_from_333_expressed_fantom5_mirnas",
+      "license": {
+        "spdx": "CC0-1.0 AND CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A",
+        "weights_license": "N/A",
+        "data_license": "miRBase Public Domain / CC0 + RIKEN FANTOM5 De Rie et al. 2017 CC-BY-4.0",
+        "external_redistribution_allowed": true
+      },
+      "drive_id": "1D8xTkt2VR4Qh_m2Fal14Db6dIUH2Rqj0",
+      "raw_drive_ids": [
+        "1W2SuH_HXfapzXq8OqTJsPJP-k65pkSEL",
+        "1INzL-UP-GrC5We4cFRGVbZm8wPGEaVo8"
+      ],
+      "local_path": "/Users/alex/.gemini/antigravity/scratch/mrnax-v2/registry_seed/mirna_rbp_commercial_v2.json",
+      "primary_readout": "Cell-type/organ mature miRNA CPM expression & specificity tau across 9 human compartments",
+      "citations": [
+        {
+          "pmid": "28829439",
+          "pmcid": "PMC5767576",
+          "doi": "10.1038/nbt.3947"
+        },
+        {
+          "pmid": "30423142",
+          "pmcid": "PMC6324071",
+          "doi": "10.1093/nar/gky1141"
+        }
+      ],
+      "catalog_row_ids": [
+        "B1-01",
+        "B1-02",
+        "B1-03",
+        "B1-04",
+        "B1-05",
+        "B1-06",
+        "B1-19",
+        "B1-20",
+        "W4-03"
+      ]
+    },
+    {
+      "dataset_id": "ATtRACT_Human_RBP_Motifs_v1",
+      "title": "ATtRACT Curated Human RNA-Binding Protein Motif Registry (160 Human RBPs, 3,256 Motifs)",
+      "category": "reference_annotation",
+      "modality": "multi_modality",
+      "region_focus": "5'UTR_CDS_3'UTR",
+      "chemistry": [
+        "unmodified_u"
+      ],
+      "sample_count": 3256,
+      "sample_unit": "human_rbp_binding_motifs_across_160_rbps",
+      "license": {
+        "spdx": "CC-BY-4.0",
+        "license_track": "commercial_clean",
+        "code_license": "N/A",
+        "weights_license": "N/A",
+        "data_license": "CC-BY-4.0 (Giudice et al. Database 2016; retain attribution)",
+        "external_redistribution_allowed": true
+      },
+      "drive_id": "1q93bsqWSKWTeDApCe9cnu_5Tzajz28rc",
+      "local_path": "/Users/alex/.gemini/antigravity/scratch/mrnax-v2/registry_seed/rbp_human_motifs_attract_ccby4_v1.json",
+      "primary_readout": "Experimentally validated RBP motif sequences & PWM scores (ELAVL1/HuR, PCBP2, ZFP36/TTP, PUM1/2, RC3H1, etc.)",
+      "citations": [
+        {
+          "pmid": "27055826",
+          "pmcid": "PMC4823821",
+          "doi": "10.1093/database/baw035"
+        }
+      ],
+      "catalog_row_ids": [
+        "W6-03"
+      ]
+    },
+    {
+      "dataset_id": "mRNAx_UTR_Components_Commercial_v2",
+      "title": "mRNAx Commercial-Clean Human UTR Component Library v2 (200 5'UTRs + 200 3'UTRs)",
+      "category": "reference_annotation",
+      "modality": "linear_mrna",
+      "region_focus": "5'UTR_and_3'UTR",
+      "chemistry": [
+        "unmodified_u",
+        "m1psi"
+      ],
+      "sample_count": 400,
+      "sample_unit": "200_five_prime_utrs_plus_200_three_prime_utrs",
+      "license": {
+        "spdx": "CC-BY-4.0 AND Apache-2.0",
+        "license_track": "commercial_clean",
+        "code_license": "Apache-2.0",
+        "weights_license": "N/A",
+        "data_license": "GENCODE v49 + Cao 2021 + Wu 2019 + Saluki (CC-BY-4.0 / Apache-2.0; <0.78 identity to patent UTRs)",
+        "external_redistribution_allowed": true
+      },
+      "drive_id": "1lcwV7Nbz2bSVVThMNddMMYDergBhTKgm",
+      "local_path": "/Users/alex/.gemini/antigravity/scratch/mrnax-v2/registry_seed/utr_components_commercial_v2.json",
+      "primary_readout": "Composite empirical TE & half-life ranked human UTRs pre-screened for zero uAUG, zero Type IIS, and patent FTO <0.78",
+      "citations": [
+        {
+          "pmid": "34230498",
+          "pmcid": "PMC8260622"
+        },
+        {
+          "pmid": "36419176",
+          "pmcid": "PMC9684954"
+        }
+      ],
+      "catalog_row_ids": [
+        "W4-02"
+      ]
+    },
+    {
+      "dataset_id": "mRNAx_Human_Codon_Bicodon_Stability_Atlas_v1",
+      "title": "Human 61-Codon CSC & 3,721-Bicodon Stability Enrichment Atlas (N=13,642 Human Genes)",
+      "category": "reference_annotation",
+      "modality": "linear_mrna",
+      "region_focus": "CDS",
+      "chemistry": [
+        "unmodified_u"
+      ],
+      "sample_count": 3782,
+      "sample_unit": "61_codon_csc_plus_3721_bicodon_pairs",
+      "license": {
+        "spdx": "CC-BY-4.0 AND Apache-2.0",
+        "license_track": "commercial_clean",
+        "code_license": "Apache-2.0",
+        "weights_license": "N/A",
+        "data_license": "Derived from Saluki 13,642 human genes + GENCODE v49 (CC-BY-4.0 / Apache-2.0)",
+        "external_redistribution_allowed": true
+      },
+      "drive_id": "1bRTb4ZvoWRI9EDs5kZo2kBDE7ZpfVVTH",
+      "local_path": "/Users/alex/.gemini/antigravity/scratch/mrnax-v2/registry_seed/human_codon_bicodon_stability_atlas_v1.json",
+      "primary_readout": "Codon Stabilization Coefficient (Spearman) and Top10%-vs-Bot10% half-life bicodon log2 enrichment",
+      "citations": [
+        {
+          "pmid": "36419176",
+          "pmcid": "PMC9684954",
+          "doi": "10.1186/s13059-022-02811-x"
+        }
+      ],
+      "catalog_row_ids": [
+        "W7-03"
+      ]
+    },
+    {
+      "dataset_id": "mRNAx_Dual_FTO_Guard_Registries_v2",
+      "title": "Dual-FTO Sequence Collision Guard v2.1 (patent_fto_guard_v2.json) + Algorithmic Method FTO Guard v1.1 (method_fto_guard_v1.1.json)",
+      "category": "reference_annotation",
+      "modality": "multi_modality",
+      "region_focus": "full_transcript_and_algorithm",
+      "chemistry": [
+        "unmodified_u",
+        "pseudouridine",
+        "m1psi"
+      ],
+      "sample_count": 15,
+      "sample_unit": "9_sequence_genus_cartesian_rules_plus_6_method_patent_families",
+      "license": {
+        "spdx": "Public_Patent_Metadata_Apache-2.0",
+        "license_track": "commercial_clean",
+        "code_license": "Apache-2.0",
+        "weights_license": "N/A",
+        "data_license": "Public granted/published patent metadata (certifies_100_percent_fto=false)",
+        "external_redistribution_allowed": true
+      },
+      "drive_id": "1fLHvbVaK-yWrr_rA09ViBesqvK8PeQIv",
+      "secondary_drive_id": "1h2S4XUc8tB1CwfbdG0xjRBEBceay-Rgh",
+      "local_path": "/Users/alex/.gemini/antigravity/scratch/mrnax-v2/registry_seed/patent_fto_guard_v2.json",
+      "secondary_local_path": "/Users/alex/.gemini/antigravity/scratch/mrnax-v2/registry_seed/method_fto_guard_v1.1.json",
+      "primary_readout": "Sequence-collision/genus FTO alerts + CN/US/EP/JP method-claim execution trajectory boundaries",
+      "citations": [],
+      "catalog_row_ids": [
+        "P06",
+        "R02",
+        "W6-04",
+        "W7-02",
+        "W8-05",
+        "W9-01",
+        "W11-01"
+      ]
+    },
+    {
+      "dataset_id": "Biomni_Clinical_Marketed_mRNA_Construct_Library",
+      "title": "Biomni Clinical & Marketed mRNA Construct Library (临床与上市 mRNA 最终构建库.md + 序列数据与证据登记册.md + 455-row CSV/FASTA)",
+      "category": "clinical_regulatory_constructs",
+      "modality": "multi_modality",
+      "region_focus": "full_transcript",
+      "chemistry": [
+        "unmodified_u",
+        "pseudouridine",
+        "m1psi"
+      ],
+      "sample_count": 455,
+      "sample_unit": "clinical_and_regulatory_sequence_records_incl_141_tier0_gsrs",
+      "license": {
+        "spdx": "Mixed_Public_Regulatory_GSRS_FOI_Quarantine",
+        "license_track": "quarantine_reference",
+        "code_license": "N/A",
+        "weights_license": "N/A",
+        "data_license": "Private curated archive of public FDA GSRS/UNII, WHO INN, MHRA FOI, EMA EPAR & literature records; product/patent FTO applies to commercial sequence reuse",
+        "external_redistribution_allowed": false
+      },
+      "drive_id": "10gur-jxvt_XVtTb_DGvnzqM-rXVH0SlC",
+      "secondary_drive_id": "1sRbqAwuZ9h4LUFHAWj09kwWGsRlmyMY4",
+      "local_path": "/Users/alex/Desktop/biomni-1014-mRNA/unzip/useful/14_最终交付/mRNA药物序列_最终版_临床.csv",
+      "companion_markdown_files": [
+        {
+          "local_path": "/Users/alex/Desktop/biomni-1014-mRNA/unzip/临床与上市 mRNA 最终构建库.md",
+          "size_bytes": 16732,
+          "sha256": "dd68201c2ebb2d753e0a16ef7e574d3bdc8eea542b5415b979534672f72cba38"
+        },
+        {
+          "local_path": "/Users/alex/Desktop/biomni-1014-mRNA/unzip/序列数据与证据登记册.md",
+          "size_bytes": 27949,
+          "sha256": "f7c90be7cea025ef219a741bba1c20c5546eca1224bacc2df8eaf30f09006412"
+        },
+        {
+          "local_path": "/Users/alex/Desktop/biomni-1014-mRNA/unzip/useful/14_最终交付/mRNA药物序列_最终版_临床.fasta",
+          "size_bytes": 929605,
+          "sha256": "1de9e3b30f81b59913eca6ccf01cac95f0099ea1323e8e09eed9366044794427"
+        }
+      ],
+      "size_bytes": 1013517,
+      "sha256": "aa93cd9d772a479ed64c00c2580d496279cb0ccb6aa76144fa246cc459594c3e",
+      "primary_readout": "Regulatory-verified UTR/CDS/poly(A) construct architectures, UNII/INN provenance, and nucleotide sequences",
+      "citations": [],
+      "catalog_row_ids": [
+        "L01",
+        "L02",
+        "P07",
+        "P08",
+        "R03",
+        "W8-01"
+      ]
+    },
+    {
+      "dataset_id": "Biomni_Clinical_FULL_129_RuleMining_Pilot",
+      "title": "Biomni Clinical Linear mRNA FULL Construct Rule-Mining 129-Target Pilot (mRNA临床FULL规则挖掘_129条试点.md)",
+      "category": "clinical_regulatory_constructs",
+      "modality": "linear_mrna",
+      "region_focus": "full_transcript",
+      "chemistry": [
+        "unmodified_u",
+        "m1psi"
+      ],
+      "sample_count": 52,
+      "sample_unit": "strict_verifiable_clinical_full_fasta_from_100_explicit_full_and_450_audited_rows",
+      "license": {
+        "spdx": "Internal_Audit_Quarantine",
+        "license_track": "quarantine_reference",
+        "code_license": "N/A",
+        "weights_license": "N/A",
+        "data_license": "Internal clinical FULL construct audit & OOD split remediation ledger (CORRECTION_ood_gradient_sign.md)",
+        "external_redistribution_allowed": false
+      },
+      "drive_id": "1WnCOC7j4OYeBEzDfoBTOd3qHdQWUaBEY",
+      "secondary_drive_id": "1PSPXXRyIEKlrShkIfB0gbYH45smZBJgv",
+      "local_path": "/Users/alex/Desktop/biomni-1014-mRNA/unzip/mRNA临床FULL规则挖掘_129条试点.md",
+      "companion_markdown_files": [
+        {
+          "local_path": "/Users/alex/Desktop/biomni-1014-mRNA/unzip/useful/17_全因素逆向/00_protocol/CORRECTION_ood_gradient_sign.md",
+          "size_bytes": 278,
+          "sha256": "e520522e0f07da0599e864d742355c8d1b0342f035c2fdd1dd7592ba90a6d54e"
+        }
+      ],
+      "size_bytes": 4293,
+      "sha256": "83a807c4db62616a4cc5080cb3cf5b5f5a31e5d8e4250ecd3c470086671bd704",
+      "primary_readout": "Strict separation of 52 regulatory-closed clinical FULL linear mRNAs from saRNA/circRNA/neoantigen/patent candidates + corrected grouped OOD CV protocol",
+      "citations": [],
+      "catalog_row_ids": [
+        "L05",
+        "W8-01"
+      ]
+    },
+    {
+      "dataset_id": "Biomni_Patent_mRNA_Sequence_Corpus",
+      "title": "Biomni Global mRNA Patent Sequence Corpus (mRNA 相关专利序列库.md + 7,620-row CSV/FASTA)",
+      "category": "patent_sequence_corpus",
+      "modality": "multi_modality",
+      "region_focus": "full_transcript",
+      "chemistry": [
+        "unmodified_u",
+        "pseudouridine",
+        "m1psi"
+      ],
+      "sample_count": 7620,
+      "sample_unit": "patent_sequence_rows_7516_unique_sequences_plus_33_curated_patent_families_in_md",
+      "license": {
+        "spdx": "Public_Patent_Disclosures_Quarantine_Reference",
+        "license_track": "quarantine_reference",
+        "code_license": "N/A",
+        "weights_license": "N/A",
+        "data_license": "Patent disclosures are public for inspection/FTO screening ONLY (publication != license to practice; CSV rows lacking explicit patent_id/SEQ_ID held blocked per audit)",
+        "external_redistribution_allowed": false
+      },
+      "drive_id": "1g-9mSbcTEltdVKcQLFkwnUY2o943CZTd",
+      "secondary_drive_id": "1T9wr6EDl-MmJ8Wf3JPYEMGbSCdn5wMt7",
+      "local_path": "/Users/alex/Desktop/biomni-1014-mRNA/unzip/useful/14_最终交付/mRNA药物序列_最终版_专利.csv",
+      "companion_markdown_files": [
+        {
+          "local_path": "/Users/alex/Desktop/biomni-1014-mRNA/unzip/mRNA 相关专利序列库.md",
+          "size_bytes": 44735,
+          "sha256": "4e9739268cee1f978210a48362a249496d6e674aa0adba92e9135e85696e235c"
+        },
+        {
+          "local_path": "/Users/alex/Desktop/biomni-1014-mRNA/unzip/useful/14_最终交付/mRNA药物序列_最终版_专利.fasta",
+          "size_bytes": 14994022,
+          "sha256": "1f9aeb43cca82eda1c1e1f1d80eddc2aa017296822debc0b43a338ba78ec7580"
+        }
+      ],
+      "size_bytes": 15578254,
+      "sha256": "13d68e3f039170822bb8a79f7d1b5ae46f6ef66509d7d2c25863fb8887a58778",
+      "primary_readout": "Patent UTR/CDS/poly(A)/miRNA-gate candidate sequences and family-level sequence FTO reference",
+      "citations": [],
+      "catalog_row_ids": [
+        "L03",
+        "L04",
+        "W8-01"
+      ]
+    },
+    {
+      "dataset_id": "Moderna_Platform_Seed_PDF_Catalog",
+      "title": "Moderna Platform & Foundational mRNA Engineering Seed PDF Catalog (17 PDFs in Moderna Platform/ within 48-PDF Archive)",
+      "category": "literature_corpus_and_claims",
+      "modality": "linear_mrna",
+      "region_focus": "full_transcript_and_LNP",
+      "chemistry": [
+        "unmodified_u",
+        "5mou",
+        "m1psi"
+      ],
+      "sample_count": 17,
+      "sample_unit": "moderna_platform_pdfs_local_48_total_seed_pdfs_in_drive_w8_02",
+      "license": {
+        "spdx": "Publisher_Copyright_Quarantine_Reference",
+        "license_track": "quarantine_reference",
+        "code_license": "N/A",
+        "weights_license": "N/A",
+        "data_license": "Copyrighted publisher PDFs -> strictly read-only reference in 01_local_reuse_quarantine/curated_seed_pdfs; NEVER ingest raw prose into commercial training",
+        "external_redistribution_allowed": false
+      },
+      "drive_id": "18wI_eEFSZLrCXc1moxc_uaX7JKK4b3Qy",
+      "local_path": "/Users/alex/Documents/Moderna Platform",
+      "pdf_files": [
+        {
+          "filename": "2004-Codon bias and heterologous protein expression.pdf",
+          "local_path": "/Users/alex/Documents/Moderna Platform/2004-Codon bias and heterologous protein expression.pdf",
+          "size_bytes": 186137,
+          "sha256": "e5ec5d544dab183a89780dab5767852454af968501858f644e31d7f04d2eb2dc"
+        },
+        {
+          "filename": "2017-LNP endosome escape.pdf",
+          "local_path": "/Users/alex/Documents/Moderna Platform/2017-LNP endosome escape.pdf",
+          "size_bytes": 2566054,
+          "sha256": "bc21a0f8985564c8765b7fda460754eef91ccc31c28ba9ed1dd4d00fd7daf9a0"
+        },
+        {
+          "filename": "2017-N1-methylation for mRNA.pdf",
+          "local_path": "/Users/alex/Documents/Moderna Platform/2017-N1-methylation for mRNA.pdf",
+          "size_bytes": 4336438,
+          "sha256": "20690a1603d7f738a11e55ead6ccc5188dabd37db641eca614bba97435feea48"
+        },
+        {
+          "filename": "2017-mRNA folding energetic parameter.pdf",
+          "local_path": "/Users/alex/Documents/Moderna Platform/2017-mRNA folding energetic parameter.pdf",
+          "size_bytes": 841861,
+          "sha256": "65b70f7284abfd80676b698875f8d9a4adf719c3ec64908d749d97e0c0881435"
+        },
+        {
+          "filename": "2018-Amino Lipid Series for endosomal escape.pdf",
+          "local_path": "/Users/alex/Documents/Moderna Platform/2018-Amino Lipid Series for endosomal escape.pdf",
+          "size_bytes": 1704156,
+          "sha256": "6e7f092d8c489a42993676ff34a1b61b57f529796c669cfc684fe8ba2615843d"
+        },
+        {
+          "filename": "2018-An RNA toolbox for cancer immunotherapy.pdf",
+          "local_path": "/Users/alex/Documents/Moderna Platform/2018-An RNA toolbox for cancer immunotherapy.pdf",
+          "size_bytes": 1184247,
+          "sha256": "8f9ecf6b3c302ec18149e98319a61130a3befcfa326054e9a213cb7869c5cbfc"
+        },
+        {
+          "filename": "2018-RNA Therapeutics.pdf",
+          "local_path": "/Users/alex/Documents/Moderna Platform/2018-RNA Therapeutics.pdf",
+          "size_bytes": 7614105,
+          "sha256": "22847ec2168821b5ea5e665219afdc7cdff078144a9f9905c759357a716c67b8"
+        },
+        {
+          "filename": "2018-Systemic delivery of LNP-encapsulated RNA.pdf",
+          "local_path": "/Users/alex/Documents/Moderna Platform/2018-Systemic delivery of LNP-encapsulated RNA.pdf",
+          "size_bytes": 1921139,
+          "sha256": "c0db998fc7f2c7a29360c92a5696c7115bb0e9000b7d80e9cfef08f8ac263f80"
+        },
+        {
+          "filename": "2018-miRNA aided mRNA therapeutics in cancer.pdf",
+          "local_path": "/Users/alex/Documents/Moderna Platform/2018-miRNA aided mRNA therapeutics in cancer.pdf",
+          "size_bytes": 1101502,
+          "sha256": "bddcb40f14cc64d1c21d8e309391dea11c72eed9c24bd5466bb52e0faf9aca2d"
+        },
+        {
+          "filename": "2019-Optimization of LNP for mRNA delivery.pdf",
+          "local_path": "/Users/alex/Documents/Moderna Platform/2019-Optimization of LNP for mRNA delivery.pdf",
+          "size_bytes": 4461280,
+          "sha256": "cc12061152a8f7eb2042a85cf2651f21b390b5816e2b243d2dbb78de8c009ca6"
+        },
+        {
+          "filename": "2019-blood clearance of LNP.pdf",
+          "local_path": "/Users/alex/Documents/Moderna Platform/2019-blood clearance of LNP.pdf",
+          "size_bytes": 2801364,
+          "sha256": "5ff38c6ed551ff97dbc8ccd9aefa58b44f2665b65141be8b470a713db87d92fb"
+        },
+        {
+          "filename": "2019-deep learning for 5'-UTR design.pdf",
+          "local_path": "/Users/alex/Documents/Moderna Platform/2019-deep learning for 5'-UTR design.pdf",
+          "size_bytes": 2140752,
+          "sha256": "d7d773d755f8893d1f3da6a60b2626693a5744442b8792efd0537d9658a595e3"
+        },
+        {
+          "filename": "2019-detecting mRNA minor impurity.pdf",
+          "local_path": "/Users/alex/Documents/Moderna Platform/2019-detecting mRNA minor impurity.pdf",
+          "size_bytes": 1607147,
+          "sha256": "46e32e8c9cad2e24cf0bbf8dc846bdddd8ae66a1e8b99244f673daf091052d4e"
+        },
+        {
+          "filename": "2019-mRNA structure relates to half-life.pdf",
+          "local_path": "/Users/alex/Documents/Moderna Platform/2019-mRNA structure relates to half-life.pdf",
+          "size_bytes": 2762371,
+          "sha256": "697971fc9ccdaae6ce49337b15a03ee877f4bc4b0f523cb046f38a95f981de88"
+        },
+        {
+          "filename": "2020-mRNA chemistry modifications.pdf",
+          "local_path": "/Users/alex/Documents/Moderna Platform/2020-mRNA chemistry modifications.pdf",
+          "size_bytes": 5927795,
+          "sha256": "f4122b5bde46b27d8235f9e014b9ca938faa540119c4447a9e8d974902ec3df1"
+        },
+        {
+          "filename": "RNA/2017-Nano Lett-mRNA delivery LNP.pdf",
+          "local_path": "/Users/alex/Documents/Moderna Platform/RNA/2017-Nano Lett-mRNA delivery LNP.pdf",
+          "size_bytes": 2566056,
+          "sha256": "b9f0ec0cfd9a2f2edb5f93e9570a7faabb2d946b5417ba5e84e8f0e7c7e1d8fa"
+        },
+        {
+          "filename": "RNA/2018-Nucleic Acids Res-origin of the immunogenicity of IVT RNA.pdf",
+          "local_path": "/Users/alex/Documents/Moderna Platform/RNA/2018-Nucleic Acids Res-origin of the immunogenicity of IVT RNA.pdf",
+          "size_bytes": 7325544,
+          "sha256": "46620f5c1015a8a2438f81e8112f060c6e9d49d7a41ac09df0cef652d6df8060"
+        }
+      ],
+      "size_bytes": 51047948,
+      "primary_readout": "Primary Moderna platform papers covering N1-methylpseudouridine, mRNA secondary structure/half-life (Mauger 2019), 5'UTR deep learning (Sample 2019), miR-122 cancer mRNA (Jain 2018), IVT dsRNA impurity origin/detection (Nelson 2020), and ionizable LNP delivery",
+      "citations": [
+        {
+          "pmid": "31712433",
+          "pmcid": "PMC6883848",
+          "doi": "10.1073/pnas.1908052116"
+        },
+        {
+          "pmid": "31267113",
+          "pmcid": "PMC7100133",
+          "doi": "10.1038/s41587-019-0164-5"
+        },
+        {
+          "pmid": "32637598",
+          "pmcid": "PMC7314518",
+          "doi": "10.1126/sciadv.aaz6893"
+        }
+      ],
+      "catalog_row_ids": [
+        "W8-02"
+      ]
+    },
+    {
+      "dataset_id": "mRNAx_OA_FullText_XML_and_ClaimCards_Corpus",
+      "title": "Explicit CC-BY-4.0 Full-Text XML Corpus (15 Core Papers) + Citation Snowball + Audited ClaimCards & Governance Ledgers",
+      "category": "literature_corpus_and_claims",
+      "modality": "multi_modality",
+      "region_focus": "full_transcript",
+      "chemistry": [
+        "unmodified_u",
+        "pseudouridine",
+        "5mou",
+        "m1psi"
+      ],
+      "sample_count": 15,
+      "sample_unit": "cc_by_4_fulltext_xmls_plus_19_tribunal_rules_and_30_golden_intents",
+      "license": {
+        "spdx": "CC-BY-4.0 AND Apache-2.0",
+        "license_track": "commercial_clean",
+        "code_license": "Apache-2.0",
+        "weights_license": "N/A",
+        "data_license": "Explicit EuropePMC CC-BY-4.0 XMLs + internal Apache-2.0 audit/handoff manifests (legacy L06/L07/L09/L10 held in quarantine_reference)",
+        "external_redistribution_allowed": true
+      },
+      "drive_id": "1WHxePuTNbGEC3R_mpt11EWF49BISVY2F",
+      "secondary_drive_id": "1EeP-O8KWl7OLjCmsOA8vk2ZdLZvqSOKt",
+      "local_path": "/Users/alex/.gemini/antigravity/scratch/mrnax-v2/registry_seed/rules_commercial_v1.json",
+      "primary_readout": "Structured scientific ClaimCards, 2-lab deduplicated RuleRecords, 30-case golden intent suite, M2 acceptance fixtures, and independent adversarial audit trail",
+      "citations": [],
+      "catalog_row_ids": [
+        "L06",
+        "L07",
+        "L09",
+        "L10",
+        "P04",
+        "P05",
+        "R01",
+        "R04",
+        "R05",
+        "R06",
+        "R07",
+        "R08",
+        "R09",
+        "R10",
+        "R11",
+        "R12",
+        "W5-05",
+        "W6-02",
+        "W6-05",
+        "W7-01",
+        "W8-03",
+        "W8-04",
+        "W10-01",
+        "W11-03",
+        "W11-04",
+        "W12-01"
+      ]
+    }
+  ],
+  "external_apis": [
+    {
+      "api_id": "uniprot_rest",
+      "source_name": "UniProt",
+      "display_name": "UniProtKB REST API",
+      "endpoint_template": "https://rest.uniprot.org/uniprotkb/{accession}.json",
+      "verified_request_url": "https://rest.uniprot.org/uniprotkb/Q9NYJ7.json",
+      "role": "Canonical protein sequence, signal peptide, transmembrane & domain topology",
+      "license_spdx": "CC-BY-4.0",
+      "license_tier": "commercial_clean",
+      "requires_api_key": false,
+      "verified_status": "ok",
+      "verified_latency_ms": 1233.0,
+      "snapshot_payload_sha256": "31995f6c3090114ee3467effbe492e4d6fd1b4c6feb1bb096d62ce0ce7c0993e",
+      "retrieved_at_utc": "2026-11-26T21:10:05Z",
+      "clean_room_guardrails": []
+    },
+    {
+      "api_id": "ensembl_rest",
+      "source_name": "Ensembl",
+      "display_name": "Ensembl REST API",
+      "endpoint_template": "https://rest.ensembl.org/lookup/symbol/homo_sapiens/{symbol}?expand=1",
+      "verified_request_url": "https://rest.ensembl.org/lookup/symbol/homo_sapiens/DLL3?expand=1",
+      "role": "Gene coordinates, canonical ENST transcript IDs, and exon/intron structure",
+      "license_spdx": "Apache-2.0",
+      "license_tier": "commercial_clean",
+      "requires_api_key": false,
+      "verified_status": "ok",
+      "verified_latency_ms": 1255.6,
+      "snapshot_payload_sha256": "1770ea13ecfef63b38a6d7ff200cca9aff9077baa528360491fffd7cf681c143",
+      "retrieved_at_utc": "2026-11-26T21:10:06Z",
+      "clean_room_guardrails": []
+    },
+    {
+      "api_id": "rcsb_pdb_search",
+      "source_name": "RCSB_PDB",
+      "display_name": "RCSB PDB Search & Data API v2",
+      "endpoint_template": "https://search.rcsb.org/rcsbsearch/v2/query",
+      "verified_request_url": "https://search.rcsb.org/rcsbsearch/v2/query",
+      "role": "Experimental 3D protein/RNA structures and antibody/antigen complex coordinates",
+      "license_spdx": "CC0-1.0",
+      "license_tier": "commercial_clean",
+      "requires_api_key": false,
+      "verified_status": "ok",
+      "verified_latency_ms": 2873.7,
+      "snapshot_payload_sha256": "b98a17f0072e237d760174a74c69695d72dc20ff145b08f284fac50cf4cb13f4",
+      "retrieved_at_utc": "2026-11-26T21:10:09Z",
+      "clean_room_guardrails": [
+        "block_thera_sabdab_commercial"
+      ]
+    },
+    {
+      "api_id": "chembl_rest",
+      "source_name": "ChEMBL",
+      "display_name": "EMBL-EBI ChEMBL REST API v3",
+      "endpoint_template": "https://www.ebi.ac.uk/chembl/api/data/molecule/search.json",
+      "verified_request_url": "https://www.ebi.ac.uk/chembl/api/data/molecule/search.json?q=tarlatamab&limit=2",
+      "role": "Therapeutic molecule metadata & clinical max phase (STRICT lookup_only_sharealike_boundary; blocked from commercial training export)",
+      "license_spdx": "CC-BY-SA-3.0",
+      "license_tier": "lookup_only_sharealike_boundary",
+      "requires_api_key": false,
+      "verified_status": "ok",
+      "verified_latency_ms": 4313.3,
+      "snapshot_payload_sha256": "7b917f6666b2ef988d887010ae73e69be7bed378d53ca32820dd65f71b6a9e13",
+      "retrieved_at_utc": "2026-11-26T21:10:13Z",
+      "clean_room_guardrails": [
+        "block_thera_sabdab_commercial",
+        "block_chembl_ccbysa_commercial_export"
+      ]
+    },
+    {
+      "api_id": "opentargets_graphql",
+      "source_name": "OpenTargets",
+      "display_name": "OpenTargets Platform GraphQL API v4",
+      "endpoint_template": "https://api.platform.opentargets.org/api/v4/graphql",
+      "verified_request_url": "https://api.platform.opentargets.org/api/v4/graphql",
+      "role": "Target-disease associations and modality tractability",
+      "license_spdx": "CC0-1.0_Public_Platform",
+      "license_tier": "commercial_clean",
+      "requires_api_key": false,
+      "verified_status": "ok",
+      "verified_latency_ms": 815.6,
+      "snapshot_payload_sha256": "d1604d0770218282ef32cb2ec74632019c39b2e947f0fcc0bdbad9766fe864da",
+      "retrieved_at_utc": "2026-11-26T21:10:14Z",
+      "clean_room_guardrails": []
+    },
+    {
+      "api_id": "clinicaltrials_v2",
+      "source_name": "ClinicalTrials.gov",
+      "display_name": "ClinicalTrials.gov REST API v2",
+      "endpoint_template": "https://clinicaltrials.gov/api/v2/studies",
+      "verified_request_url": "https://clinicaltrials.gov/api/v2/studies?query.term=DLL3%20CD3%20T-cell%20engager&pageSize=3",
+      "role": "Clinical trial registrations, phases, sponsors, and endpoints (sandboxed untrusted text)",
+      "license_spdx": "US-Public-Domain",
+      "license_tier": "commercial_clean",
+      "requires_api_key": false,
+      "verified_status": "ok",
+      "verified_latency_ms": 721.2,
+      "snapshot_payload_sha256": "93bea1389a7243cf3a34520ab25fe61e1e8c30939ff16081ea11ad1aefcb6050",
+      "retrieved_at_utc": "2026-11-26T21:10:15Z",
+      "clean_room_guardrails": []
+    },
+    {
+      "api_id": "gtex_v2",
+      "source_name": "GTEx",
+      "display_name": "GTEx Portal Expression API v2",
+      "endpoint_template": "https://gtexportal.org/api/v2/expression/medianGeneExpression",
+      "verified_request_url": "https://gtexportal.org/api/v2/expression/medianGeneExpression?gencodeId=ENSG00000090932.10&datasetId=gtex_v8",
+      "role": "54-tissue median mRNA TPM for target genes (HARD-BLOCKED for mature miRNAs)",
+      "license_spdx": "Public_Aggregate_TPM",
+      "license_tier": "commercial_clean",
+      "requires_api_key": false,
+      "verified_status": "ok",
+      "verified_latency_ms": 1484.9,
+      "snapshot_payload_sha256": "91d0d851a68e04f53fecd3135f1e5c0897e9f774f0df124df61e9898a926e67a",
+      "retrieved_at_utc": "2026-11-26T21:10:17Z",
+      "clean_room_guardrails": [
+        "block_gtex_mature_mirna"
+      ]
+    },
+    {
+      "api_id": "alphafold_db",
+      "source_name": "AlphaFoldDB",
+      "display_name": "AlphaFold Protein Structure Database API",
+      "endpoint_template": "https://alphafold.ebi.ac.uk/api/prediction/{uniprot_accession}",
+      "verified_request_url": "https://alphafold.ebi.ac.uk/api/prediction/Q9NYJ7",
+      "role": "Per-residue pLDDT confidence, domain boundaries, and disordered linker coordinates for co-translational slowdown",
+      "license_spdx": "CC-BY-4.0",
+      "license_tier": "commercial_clean",
+      "requires_api_key": false,
+      "verified_status": "ok",
+      "verified_latency_ms": 769.3,
+      "snapshot_payload_sha256": "9ce4a50191388e5f2d527f72f5110f24d49c15742e4417de8620effe003a45d6",
+      "retrieved_at_utc": "2026-11-26T21:10:17Z",
+      "clean_room_guardrails": []
+    },
+    {
+      "api_id": "human_protein_atlas",
+      "source_name": "HumanProteinAtlas",
+      "display_name": "Human Protein Atlas REST API",
+      "endpoint_template": "https://www.proteinatlas.org/{ensembl_gene_id}.json",
+      "verified_request_url": "https://www.proteinatlas.org/ENSG00000090932.json",
+      "role": "Subcellular localization & secretome classification (STRICT lookup_only_sharealike_boundary; HARD-BLOCKED for mature miRNAs)",
+      "license_spdx": "CC-BY-SA-3.0",
+      "license_tier": "lookup_only_sharealike_boundary",
+      "requires_api_key": false,
+      "verified_status": "ok",
+      "verified_latency_ms": 1380.1,
+      "snapshot_payload_sha256": "0f5f41a03fb378ba00496b234c77103606f805771226e979269eadd3b11993b6",
+      "retrieved_at_utc": "2026-11-26T21:10:19Z",
+      "clean_room_guardrails": [
+        "block_hpa_mature_mirna",
+        "block_hpa_ccbysa_commercial_export"
+      ]
+    },
+    {
+      "api_id": "europepmc_rest",
+      "source_name": "EuropePMC",
+      "display_name": "Europe PMC REST Web Services (Clean-Room OA/License Firewall)",
+      "endpoint_template": "https://www.ebi.ac.uk/europepmc/webservices/rest/search",
+      "verified_request_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=PMCID%3APMC8728028&format=json&resultType=core&pageSize=1",
+      "role": "Bibliographic verification (PMID/PMCID/DOI), automated isOpenAccess/license gate, and CC-BY fullTextXML retrieval",
+      "license_spdx": "CC0-1.0_Metadata",
+      "license_tier": "commercial_clean",
+      "requires_api_key": false,
+      "verified_status": "ok",
+      "verified_latency_ms": 1144.0,
+      "snapshot_payload_sha256": "3c3c308a592c90e700723f2d7c9f24e98fb3d10b7ce508be35b9886f868d914e",
+      "retrieved_at_utc": "2026-11-26T21:10:20Z",
+      "clean_room_guardrails": []
+    },
+    {
+      "api_id": "ncbi_eutils",
+      "source_name": "NCBI_Eutils",
+      "display_name": "NCBI Entrez E-utilities (Nuccore / RefSeq / PubMed)",
+      "endpoint_template": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
+      "verified_request_url": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=PP784251&rettype=fasta&retmode=text",
+      "role": "RefSeq NM_*/NC_* transcripts, viral replicon references, and GenBank sequence verification",
+      "license_spdx": "US-Public-Domain",
+      "license_tier": "commercial_clean",
+      "requires_api_key": false,
+      "verified_status": "ok",
+      "verified_latency_ms": 898.0,
+      "snapshot_payload_sha256": "b497a4db7494db70ce5fd68d12065400847eda9be7d2b353b3ceed0ecdb8ef3f",
+      "retrieved_at_utc": "2026-11-26T21:10:21Z",
+      "clean_room_guardrails": []
+    },
+    {
+      "api_id": "rnacentral_rest",
+      "source_name": "RNAcentral",
+      "display_name": "RNAcentral REST API v1",
+      "endpoint_template": "https://rnacentral.org/api/v1/rna/?external_id={accession}&format=json",
+      "verified_request_url": "https://rnacentral.org/api/v1/rna/?external_id=MIMAT0000421&format=json",
+      "role": "Cross-database non-coding RNA & mature miRNA sequence/MD5/URS accession verification",
+      "license_spdx": "CC0-1.0_with_upstream_terms",
+      "license_tier": "commercial_clean",
+      "requires_api_key": false,
+      "verified_status": "ok",
+      "verified_latency_ms": 4027.5,
+      "snapshot_payload_sha256": "9547b2e647a52b6ead77fcbd711d49b122fd828b8134ddf49367f3523b4575af",
+      "retrieved_at_utc": "2026-11-26T21:10:25Z",
+      "clean_room_guardrails": []
+    },
+    {
+      "api_id": "stanford_rmdb",
+      "source_name": "RMDB",
+      "display_name": "Stanford RNA Mapping Database (RMDB)",
+      "endpoint_template": "https://rmdb.stanford.edu/detail/{experiment_id}/",
+      "verified_request_url": "https://rmdb.stanford.edu/detail/ETERNA_R69_0000/",
+      "role": "Standardized RDAT chemical probing reactivities (1M7, 2A3, DMS, NMIA) for folding engine calibration",
+      "license_spdx": "CC0-1.0",
+      "license_tier": "commercial_clean",
+      "requires_api_key": false,
+      "verified_status": "ok",
+      "clean_room_guardrails": [
+        "Verify per-entry CC0 license; group by target family to prevent homolog leakage"
+      ]
+    },
+    {
+      "api_id": "attract_rbp_db",
+      "source_name": "ATtRACT",
+      "display_name": "ATtRACT RNA-Binding Protein & Motif Database",
+      "endpoint_template": "https://attract.cnic.es/",
+      "verified_request_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=PMCID%3APMC4823821&format=json",
+      "role": "Experimentally validated human RBP consensus motifs and PWMs for 5'UTR/CDS/3'UTR cis-element scanning",
+      "license_spdx": "CC-BY-4.0",
+      "license_tier": "commercial_clean",
+      "requires_api_key": false,
+      "verified_status": "ok",
+      "clean_room_guardrails": [
+        "Retain Giudice et al. 2016 (PMID:27055826) attribution; frozen in rbp_human_motifs_attract_ccby4_v1.json"
+      ]
+    },
+    {
+      "api_id": "mirbase_mature_catalog",
+      "source_name": "miRBase",
+      "display_name": "miRBase Mature & Hairpin microRNA Registry",
+      "endpoint_template": "https://www.mirbase.org/mature/{mirbase_accession}",
+      "verified_request_url": "https://www.mirbase.org/download/mature.fa",
+      "role": "Canonical MIMAT accessions, mature miRNA sequences, and 5p/3p arm nomenclature",
+      "license_spdx": "CC0-1.0",
+      "license_tier": "commercial_clean",
+      "requires_api_key": false,
+      "verified_status": "ok",
+      "clean_room_guardrails": [
+        "Cross-verify MIMAT sequences with RNAcentral REST API for 3'/5'-isomiR length consistency"
+      ]
+    },
+    {
+      "api_id": "targetscan_seed_rules",
+      "source_name": "TargetScan",
+      "display_name": "TargetScanHuman Seed Pairing & Context++ Reference",
+      "endpoint_template": "https://www.targetscan.org/vert_80/",
+      "verified_request_url": "https://www.targetscan.org/vert_80/",
+      "role": "Canonical 8mer / 7mer-m8 / 7mer-A1 seed site definitions; note TargetScan software/context++ code carries non-commercial clauses so mRNAx implements clean-room Watson-Crick seed complement math from first principles",
+      "license_spdx": "Lookup_Reference_Only_First_Principles_Seed_Math",
+      "license_tier": "lookup_only_sharealike_boundary",
+      "requires_api_key": false,
+      "verified_status": "reference_documented",
+      "clean_room_guardrails": [
+        "NEVER import TargetScan Perl/Python code or proprietary Context++ tables into commercial_clean; compute 7mer-m8/8mer reverse-complements directly from miRBase/RNAcentral CC0 sequences"
+      ]
+    },
+    {
+      "api_id": "fantom5_srna_atlas",
+      "source_name": "FANTOM5",
+      "display_name": "RIKEN FANTOM5 Human sRNA/miRNA Cell-Ontology Expression Atlas",
+      "endpoint_template": "https://fantom.gsc.riken.jp/5/suppl/De_Rie_et_al_2017/vis_viewer/data/human/",
+      "verified_request_url": "https://fantom.gsc.riken.jp/5/suppl/De_Rie_et_al_2017/vis_viewer/data/human/datapackage.json",
+      "role": "Primary human cell-type mature miRNA CPM expression matrix replacing GTEx/HPA for miRNA detargeting",
+      "license_spdx": "CC-BY-4.0",
+      "license_tier": "commercial_clean",
+      "requires_api_key": false,
+      "verified_status": "ok",
+      "clean_room_guardrails": [
+        "Attribute RIKEN FANTOM5 / De Rie et al. 2017 (PMID:28829439 / PMC5767576)"
+      ]
+    },
+    {
+      "api_id": "ncbi_datasets_v2",
+      "source_name": "NCBI_Datasets",
+      "display_name": "NCBI Datasets REST API v2",
+      "endpoint_template": "https://api.ncbi.nlm.nih.gov/datasets/v2/gene/symbol/{symbol}/taxon/9606",
+      "verified_request_url": "https://www.ncbi.nlm.nih.gov/datasets/docs/v2/",
+      "role": "RefSeq gene/transcript/protein package metadata and orthology lookup",
+      "license_spdx": "US-Public-Domain",
+      "license_tier": "commercial_clean",
+      "requires_api_key": false,
+      "verified_status": "ok",
+      "clean_room_guardrails": [
+        "Freeze exact accession.version on retrieval"
+      ]
+    },
+    {
+      "api_id": "ena_filereport_api",
+      "source_name": "ENA_Portal",
+      "display_name": "EMBL-EBI European Nucleotide Archive (ENA) Portal API",
+      "endpoint_template": "https://www.ebi.ac.uk/ena/portal/api/filereport?accession={bioproject}&result=read_run&format=json",
+      "verified_request_url": "https://www.ebi.ac.uk/ena/portal/api/filereport?accession=PRJNA454863&result=read_run&fields=run_accession,fastq_bytes&format=tsv&limit=5",
+      "role": "Raw sequencing run metadata and FASTQ byte-size auditing (never bulk-download to local Mac)",
+      "license_spdx": "EMBL-EBI_Open_Terms_Subject_To_Submitter",
+      "license_tier": "commercial_clean",
+      "requires_api_key": false,
+      "verified_status": "ok",
+      "clean_room_guardrails": [
+        "Route multi-GB FASTQ processing exclusively to ephemeral Google Colab VMs"
+      ]
+    },
+    {
+      "api_id": "fda_gsrs_unii",
+      "source_name": "FDA_GSRS",
+      "display_name": "FDA Global Substance Registration System (GSRS / PrecisionFDA UNII)",
+      "endpoint_template": "https://precision.fda.gov/uniisearch/srs/unii/{unii}",
+      "verified_request_url": "https://precision.fda.gov/uniisearch/srs/unii/5085ZFP6SJ",
+      "role": "Authoritative regulatory drug-substance definitions, WHO INN alignments, and disclosed clinical RNA architectures",
+      "license_spdx": "US-Public-Domain",
+      "license_tier": "commercial_clean",
+      "requires_api_key": false,
+      "verified_status": "ok",
+      "clean_room_guardrails": [
+        "Public regulatory disclosure does NOT grant patent Freedom-to-Operate on third-party UTR/CDS/poly(A) compositions"
+      ]
+    }
+  ],
+  "engines_and_models": [
+    {
+      "engine_id": "stage0_random_and_bicodon_proposer",
+      "display_name": "mRNAx Clean-Room Synonymous Sampler & Continuous GC-Homeostatic Bicodon/CSC Proposer",
+      "version": "0.2.0",
+      "role": "cds_generator",
+      "modality": [
+        "linear_mrna",
+        "circrna",
+        "sarna"
+      ],
+      "license": {
+        "code_license": "Proprietary (mRNAx Clean-Room Apache-2.0)",
+        "weights_license": "N/A",
+        "data_license": "NCBI Genetic Code Table 1 (Public Domain) + Saluki/GENCODE Human CSC/Bicodon Atlas (CC-BY-4.0)",
+        "license_track": "commercial_clean"
+      },
+      "drive_id": null,
+      "local_path": "/Users/alex/.gemini/antigravity/scratch/mrnax-v2/src/mrnax/engine/stage0_baseline.py",
+      "compute_tier": "cpu_instant",
+      "method_fto_notes": "Continuous full-CDS pass without initiation/body 2-zone partition (avoids CN119265214B) or DFA-CFG lattice DP (avoids JP7367090B2 / CN118038986B); enforces m1Psi U{4,} remediation inline."
+    },
+    {
+      "engine_id": "dnachisel_cds",
+      "display_name": "DNA Chisel Constraint-Guided Synonymous CDS Optimizer",
+      "version": "3.2.16",
+      "role": "cds_generator",
+      "modality": [
+        "linear_mrna",
+        "circrna",
+        "sarna"
+      ],
+      "license": {
+        "code_license": "MIT License",
+        "weights_license": "N/A",
+        "data_license": "Public codon usage tables",
+        "license_track": "commercial_clean"
+      },
+      "drive_id": null,
+      "local_path": "/Users/alex/.gemini/antigravity/scratch/mrnax-v2/src/mrnax/engine/stage0_baseline.py",
+      "compute_tier": "cpu_fast",
+      "transitive_dependencies": [
+        "dnachisel",
+        "biopython"
+      ]
+    },
+    {
+      "engine_id": "pareto_nsga2",
+      "display_name": "mRNAx Non-Scalarized Multi-Objective Pareto Director (NSGA-II)",
+      "version": "0.1.0",
+      "role": "joint_construct_optimizer",
+      "modality": [
+        "linear_mrna"
+      ],
+      "license": {
+        "code_license": "Proprietary (mRNAx Clean-Room)",
+        "weights_license": "N/A",
+        "data_license": "miRBase (CC0) + FANTOM5 (CC-BY-4.0) + GENCODE v49",
+        "license_track": "commercial_clean"
+      },
+      "drive_id": null,
+      "local_path": "/Users/alex/.gemini/antigravity/scratch/mrnax-v2/src/mrnax/engine/pareto_director.py",
+      "compute_tier": "cpu_fast",
+      "method_fto_notes": "Strictly non-scalarized Pareto dominance ranking (never collapses TIE+CAI+MFE or MFE+lambda*CAI into an additive scalar objective)."
+    },
+    {
+      "engine_id": "codontransformer_cds_baseline",
+      "display_name": "CodonTransformer v1.0 (Homo sapiens BigBird Masked-LM CDS Generator & Scorer)",
+      "version": "1.0.0",
+      "replacement_card": "RC-005-codontransformer-v1.0.yaml",
+      "role": "cds_generator_and_scorer",
+      "modality": [
+        "linear_mrna",
+        "circrna",
+        "sarna"
+      ],
+      "license": {
+        "code_license": "Apache-2.0 (Adibvafa/CodonTransformer)",
+        "weights_license": "Apache-2.0 (HuggingFace adibvafa/CodonTransformer rev 9744dcc920d8)",
+        "data_license": "CC-BY-4.0 (Zenodo 12509224 >1M CDS across 164 organisms)",
+        "license_track": "commercial_clean"
+      },
+      "drive_id": "19AD24rXaodXiMC7Gj8E9U5h64naf9Xu_",
+      "local_path": "/Users/alex/.gemini/antigravity/scratch/mrnax-v2/src/mrnax/engine/codontransformer_loader.py",
+      "model_safetensors_sha256": "23994e1e7324e78c9d9da71040e8677c0a635287cf1c7c9ea5096b7eadc44dfd",
+      "compute_tier": "colab_l4_gpu_or_cpu",
+      "ood_metrics": {
+        "leppek2022_cds24_6h_spearman": 0.5052,
+        "leppek2022_cds24_in_solution_hl_spearman": -0.2765,
+        "wu2019_k562_slamseq_spearman": 0.1676,
+        "l4_seq_per_sec": 101.05,
+        "l4_peak_vram_mb": 2565.0
+      },
+      "operational_guardrails": [
+        "Mandatory post-filter for m1Psi UUUC / U{4,} slippery runs; MUST pair with cleared structure/stability head because in-solution hydrolysis correlation is negative (-0.2765)."
+      ],
+      "catalog_row_ids": [
+        "W10-02"
+      ]
+    },
+    {
+      "engine_id": "surrogate_v1_clean",
+      "display_name": "mRNAx Commercial-Clean Pure-Sequence LightGBM Multi-Axis Surrogate Suite v1",
+      "version": "1.5.0",
+      "role": "evaluator",
+      "modality": [
+        "linear_mrna"
+      ],
+      "license": {
+        "code_license": "Proprietary (mRNAx Clean-Room)",
+        "weights_license": "Proprietary Clean-Room LightGBM (zero ViennaRNA features or distilled labels)",
+        "data_license": "GSE232927 + Wu 2019 + Saluki + Siegel 2022 fastUTR (CC-BY-4.0 / Apache-2.0)",
+        "license_track": "commercial_clean"
+      },
+      "drive_id": "19t2gWRYfih6QlT6nxd4IYsA3RBFlwrTX",
+      "secondary_drive_id": "12IIH0l4kpT7nm11IAyynK-z2yETglGAU",
+      "local_path": "/Users/alex/.gemini/antigravity/scratch/mrnax-v2/registry_seed/surrogate_v1",
+      "sub_heads": [
+        {
+          "head": "utr5_mrl_pure_seq_lgbm.joblib",
+          "sha256": "43ec76d8b4ae2bfccff538bc64ecc6b9a253135372e655b28872f9a8401ce8eb",
+          "ood_spearman": 0.7045,
+          "drive_id": "1gFpSEleIYrYTaAD2CesgRtjfrC2rSvgY"
+        },
+        {
+          "head": "cds_codon_stability_pure_seq_lgbm.joblib",
+          "sha256": "37d3b23f158409caa54d19d81917b9bc2d901612667912444d1d5586d1f47052",
+          "ood_spearman": 0.4535,
+          "drive_id": "1ANEUt0VstrNIpJ4V2o8yFdqVC9pfHpxN"
+        },
+        {
+          "head": "saluki_consensus_halflife_pure_seq_lgbm.joblib",
+          "sha256": "2f3e1314ca76ca80010ff20eace192683a56d0b6d31d8e4238d3d0f2e044664d",
+          "ood_spearman": 0.5776,
+          "drive_id": "1p0MOv60Rudi5Lvijuhm4BeOkksEAETpZ"
+        },
+        {
+          "head": "utr3_stability_pure_seq_lgbm.joblib",
+          "sha256": "80fe97e3bce407cfea89aa1792dd9be16478125e8243a0617333c9ecd6442926",
+          "ood_spearman": 0.1881,
+          "drive_id": "1xhnU1J0z8U11xUymNcIyOhtri41HL8WS"
+        }
+      ],
+      "compute_tier": "cpu_instant",
+      "catalog_row_ids": [
+        "W3-06",
+        "W5-04"
+      ]
+    },
+    {
+      "engine_id": "structrfm_rna_foundation",
+      "display_name": "structRFM MIT RNA Structure Foundation Model + Chemistry-Specific SHAPE-MaP Ridge Probes",
+      "version": "0.0.9",
+      "replacement_card": "RC-002-structrfm-v0.0.9.yaml",
+      "role": "evaluator",
+      "modality": [
+        "linear_mrna",
+        "circrna"
+      ],
+      "license": {
+        "code_license": "MIT License (heqin-zhu/structRFM PyPI 0.0.9 via HuggingFace transformers; zero BPfold)",
+        "weights_license": "MIT License (Zenodo 16754363 checkpoints.tar.gz)",
+        "data_license": "RNAcentral (CC0/upstream) + Mauger 2019 Moderna SHAPE-MaP (CC-BY-4.0)",
+        "license_track": "commercial_clean"
+      },
+      "drive_id": "1UYtHXYSCP74Qn4hW1YI42TBsecqNZ-66",
+      "local_path": "/Users/alex/.gemini/antigravity/scratch/mrnax-v2/registry_seed/surrogate_v1",
+      "model_safetensors_sha256": "e40d8ab5115a93b551bf4b2c8e6a52b179a6d5296f29a2906bcfe487ed258ace",
+      "ood_metrics": {
+        "mauger2019_shapemap_U_spearman": 0.5858,
+        "mauger2019_shapemap_5moU_spearman": 0.5792,
+        "mauger2019_shapemap_m1Psi_spearman": 0.5918
+      },
+      "compute_tier": "colab_l4_gpu",
+      "operational_guardrails": [
+        "Enforce USE_SPACED=False tokenizer guard; note upstream structRFM tasks_data overlaps GSE178718 circRNA IRES."
+      ],
+      "catalog_row_ids": [
+        "B2-02",
+        "W3-01",
+        "W3-02",
+        "W3-03",
+        "W3-05"
+      ]
+    },
+    {
+      "engine_id": "orthrus_mamba_rna_foundation",
+      "display_name": "Orthrus 6-Track Mamba RNA Foundation Encoder + Portable Triton/PyTorch Wrapper + Saluki Probe",
+      "version": "1.0.0",
+      "replacement_card": "RC-003-orthrus-v1.0.yaml",
+      "role": "evaluator",
+      "modality": [
+        "linear_mrna"
+      ],
+      "license": {
+        "code_license": "MIT License (bowang-lab/Orthrus + portable Triton/PyTorch scan; zero mamba_ssm/GenomeKit)",
+        "weights_license": "MIT License (HuggingFace antichronology/orthrus-6-track)",
+        "data_license": "Saluki 13,642-gene consensus half-life (Apache-2.0 / CC-BY-4.0)",
+        "license_track": "commercial_clean"
+      },
+      "drive_id": "1IF9IiYEZ4ZI57P0_9ZyUxuqqKX-58G2n",
+      "local_path": "/Users/alex/.gemini/antigravity/scratch/mrnax-v2/src/mrnax/engine/orthrus_portable_pytorch.py",
+      "model_safetensors_sha256": "0b3a297a429307a97693a5bbb68af13312bc4fcd580e6580cd3d6e59eeba5bd7",
+      "ood_metrics": {
+        "saluki_13642_probe_ood_spearman": 0.6023,
+        "saluki_13642_hybrid_ood_spearman": 0.6229,
+        "saluki_13642_ensemble_ood_spearman": 0.6245,
+        "mauger2019_m1psi_spearman": 0.5714,
+        "l4_seq_per_sec_512nt": 406.2,
+        "l4_peak_vram_mb": 2259.7
+      },
+      "compute_tier": "colab_l4_gpu",
+      "catalog_row_ids": [
+        "W6-01"
+      ]
+    },
+    {
+      "engine_id": "eternafold_v1_3_1",
+      "display_name": "EternaFold v1.3.1 Standalone C++ Base-Pair Probability & Unpaired Accessibility Engine",
+      "version": "1.3.1",
+      "replacement_card": "RC-004-eternafold-v1.3.1.yaml",
+      "role": "structure_evaluator",
+      "modality": [
+        "linear_mrna",
+        "circrna",
+        "sarna"
+      ],
+      "license": {
+        "code_license": "BSD-3-Clause (WaymentSteeleLab/EternaFold v1.3.1; zero ViennaRNA/GPL linkage)",
+        "weights_license": "BSD-3-Clause (parameters/EternaFoldParams.v1 SHA-256 1421e89c...)",
+        "data_license": "Stanford RMDB (CC0-1.0) + S-Processed structural set (mixed provenance -> held at commercial_clearance_pending per A-W11 C3)",
+        "license_track": "commercial_clearance_pending"
+      },
+      "drive_id": "1hxrdKgsDwjiTU-4Hv2bqB4P742TPyPBR",
+      "local_path": "/Users/alex/.gemini/antigravity/brain/7f2d42f9-a0bb-4eda-ae58-37a783141565/scratch/wave10/out/RC-004-eternafold-v1.3.1.yaml",
+      "ood_metrics": {
+        "rmdb_eterna_r69_1m7_spearman": 0.65883,
+        "rmdb_ok7blib_2a3_group_spearman": 0.52229,
+        "mauger2019_zeroshot_u_spearman": 0.52374,
+        "leppek2022_aup_in_solution_hl_spearman": -0.76174
+      },
+      "compute_tier": "cpu_fast_c_plusplus",
+      "catalog_row_ids": [
+        "W10-03"
+      ]
+    },
+    {
+      "engine_id": "viennarna_thermo",
+      "display_name": "ViennaRNA Package v2.8.0 Nearest-Neighbor Thermodynamic Folding Engine",
+      "version": "2.8.0",
+      "replacement_card": "RC-001-viennarna-v2.8.0.yaml",
+      "role": "structure_evaluator_research_only",
+      "modality": [
+        "linear_mrna",
+        "circrna",
+        "sarna"
+      ],
+      "license": {
+        "code_license": "ViennaRNA Custom Disclaimer (commercial product integration requires author contact; spec.in#L19 GPL conflict noted in C-B2)",
+        "weights_license": "N/A",
+        "data_license": "Turner 2004 nearest-neighbor thermodynamic parameters",
+        "license_track": "needs_vendor_license"
+      },
+      "drive_id": "13VQv5Yk2IvZrU9YG4xLPYbz4wwXh4Y6T",
+      "local_path": "/Users/alex/.gemini/antigravity/scratch/mrnax-v2/src/mrnax/engine/thermodynamics.py",
+      "compute_tier": "cpu_fast_optional_research_extra",
+      "catalog_row_ids": [
+        "R01"
+      ]
+    },
+    {
+      "engine_id": "lineardesign_academic",
+      "display_name": "LinearDesign v1.0 DFA-SCFG Lattice Joint MFE+CAI CDS Optimizer (Research Benchmark Only)",
+      "version": "1.0.0",
+      "role": "cds_generator_research_benchmark",
+      "modality": [
+        "linear_mrna"
+      ],
+      "license": {
+        "code_license": "Academic / Non-Commercial Research Only (Baidu USA LLC; granted JP7367090B2 & pending US20220269951A1 / US20240394558A1)",
+        "weights_license": "N/A",
+        "data_license": "Turner 2004 parameters + codon usage tables",
+        "license_track": "needs_vendor_license"
+      },
+      "drive_id": null,
+      "local_path": "research_benchmark_only_wave1_sota_models",
+      "compute_tier": "cpu_c_plusplus",
+      "operational_guardrails": [
+        "STRICTLY blocked from commercial_clean production; used solely as scientific reference benchmark in research_max."
+      ]
+    },
+    {
+      "engine_id": "quarantined_external_rna_models_registry",
+      "display_name": "Quarantined / Non-Commercial External RNA Models (RiboNN, UTR-LM, Helix-mRNA, CodonBERT, GEMORNA, AIDO.RNA, MultiStructRNA, RibonanzaNet, RhoFold+, RiNALMo, circDesign)",
+      "version": "2026.11",
+      "role": "blocked_or_research_reference",
+      "modality": [
+        "linear_mrna",
+        "circrna"
+      ],
+      "license": {
+        "code_license": "Mixed (GPL-3.0 UTR-LM / varnaapi in MultiStructRNA; AGPL-3.0 Helix-mRNA; Academic-Only RiboNN/CodonBERT/GEMORNA/AIDO.RNA)",
+        "weights_license": "Restricted / Non-Commercial / Unverified (.pt in RibonanzaNet; CC-BY-NC-SA Helix-mRNA)",
+        "data_license": "Mixed / Non-Commercial",
+        "license_track": "research_only"
+      },
+      "drive_id": "1g55s7Aw9Bxt4Id9fRqWEEBA7rJCmv0jw",
+      "local_path": "/Users/alex/.gemini/antigravity/scratch/mrnax-v2/src/mrnax/engine/profiles.py",
+      "compute_tier": "quarantined",
+      "operational_guardrails": [
+        "Hard-blocked in pyproject.toml and check_profile_readiness() for commercial_clean; zero teacher distillation permitted."
+      ],
+      "catalog_row_ids": [
+        "R01",
+        "W8-04",
+        "W8-05"
+      ]
+    }
+  ],
+  "master_catalog_v12_index": [
+    {
+      "asset_id": "L01",
+      "name": "mRNA药物序列_最终版_临床.csv",
+      "primary_source_or_version": "Biomni 最终版 / CLIN",
+      "local_location": "/Users/alex/Desktop/biomni-1014-mRNA/unzip/useful/14_最终交付/mRNA药物序列_最终版_临床.csv",
+      "drive_id": "10gur-jxvt_XVtTb_DGvnzqM-rXVH0SlC",
+      "official_or_archive_url": "https://drive.google.com/drive/folders/1nSsKbsSu7y-nFn7eLIiOlef4Vv_W6JwG",
+      "verification_status": "本地及 Drive 名称、字节数一致",
+      "license_track": "quarantine_reference",
+      "size_bytes": 1013517,
+      "sha256": null,
+      "batch": "GPT-Init"
+    },
+    {
+      "asset_id": "L02",
+      "name": "mRNA药物序列_最终版_临床.fasta",
+      "primary_source_or_version": "Biomni 最终版 / CLIN",
+      "local_location": "/Users/alex/Desktop/biomni-1014-mRNA/unzip/useful/14_最终交付/mRNA药物序列_最终版_临床.fasta",
+      "drive_id": "1sRbqAwuZ9h4LUFHAWj09kwWGsRlmyMY4",
+      "official_or_archive_url": "https://drive.google.com/drive/folders/1nSsKbsSu7y-nFn7eLIiOlef4Vv_W6JwG",
+      "verification_status": "本地及 Drive 名称、字节数一致",
+      "license_track": "quarantine_reference",
+      "size_bytes": 929605,
+      "sha256": null,
+      "batch": "GPT-Init"
+    },
+    {
+      "asset_id": "L03",
+      "name": "mRNA药物序列_最终版_专利.csv",
+      "primary_source_or_version": "Biomni 最终版 / PAT",
+      "local_location": "/Users/alex/Desktop/biomni-1014-mRNA/unzip/useful/14_最终交付/mRNA药物序列_最终版_专利.csv",
+      "drive_id": "1g-9mSbcTEltdVKcQLFkwnUY2o943CZTd",
+      "official_or_archive_url": "https://drive.google.com/drive/folders/1nSsKbsSu7y-nFn7eLIiOlef4Vv_W6JwG",
+      "verification_status": "本地及 Drive 名称、字节数一致",
+      "license_track": "quarantine_reference",
+      "size_bytes": 15578254,
+      "sha256": null,
+      "batch": "GPT-Init"
+    },
+    {
+      "asset_id": "L04",
+      "name": "mRNA药物序列_最终版_专利.fasta",
+      "primary_source_or_version": "Biomni 最终版 / PAT",
+      "local_location": "/Users/alex/Desktop/biomni-1014-mRNA/unzip/useful/14_最终交付/mRNA药物序列_最终版_专利.fasta",
+      "drive_id": "1T9wr6EDl-MmJ8Wf3JPYEMGbSCdn5wMt7",
+      "official_or_archive_url": "https://drive.google.com/drive/folders/1nSsKbsSu7y-nFn7eLIiOlef4Vv_W6JwG",
+      "verification_status": "本地及 Drive 名称、字节数一致",
+      "license_track": "quarantine_reference",
+      "size_bytes": 14994022,
+      "sha256": null,
+      "batch": "GPT-Init"
+    },
+    {
+      "asset_id": "L05",
+      "name": "独立分组评测纠错",
+      "primary_source_or_version": "CORRECTION_ood_gradient_sign",
+      "local_location": "/Users/alex/Desktop/biomni-1014-mRNA/unzip/useful/17_全因素逆向/00_protocol/CORRECTION_ood_gradient_sign.md",
+      "drive_id": "1PSPXXRyIEKlrShkIfB0gbYH45smZBJgv",
+      "official_or_archive_url": "https://drive.google.com/drive/folders/1PSPXXRyIEKlrShkIfB0gbYH45smZBJgv",
+      "verification_status": "本机纠错说明与两张修正表现存；Drive 已核父目录",
+      "license_track": "quarantine_reference",
+      "size_bytes": null,
+      "sha256": null,
+      "batch": "GPT-Init"
+    },
+    {
+      "asset_id": "L06",
+      "name": "历史主张证据表",
+      "primary_source_or_version": "63 条旧主张",
+      "local_location": "/Users/alex/Documents/deepseek-harness/default-workspace/mrna-drug-design/research/evidence_table.csv",
+      "drive_id": null,
+      "official_or_archive_url": null,
+      "verification_status": "已核列结构与唯一 ID 数；历史标签59/4",
+      "license_track": "quarantine_reference",
+      "size_bytes": 34763,
+      "sha256": null,
+      "batch": "GPT-Init"
+    },
+    {
+      "asset_id": "L07",
+      "name": "历史研究文件重复集",
+      "primary_source_or_version": "截至 2026-10-25 的研究档案",
+      "local_location": "/Users/alex/Documents/deepseek-harness/default-workspace/mrnax-next/research/ | /Users/alex/Documents/Codex/2026-10-23/chi-xu-x20/research",
+      "drive_id": null,
+      "official_or_archive_url": null,
+      "verification_status": "19 份同名文件逐字节一致",
+      "license_track": "quarantine_reference",
+      "size_bytes": null,
+      "sha256": null,
+      "batch": "GPT-Init"
+    },
+    {
+      "asset_id": "L08",
+      "name": "人类转录本注释已有索引",
+      "primary_source_or_version": "GENCODE v50",
+      "local_location": "/Users/alex/Documents/ChatGPT/RNA/data/reference/gencode-v50/manifest.json",
+      "drive_id": null,
+      "official_or_archive_url": "https://www.gencodegenes.org/human/",
+      "verification_status": "本机清单、压缩源文件与本地索引存在",
+      "license_track": "quarantine_reference",
+      "size_bytes": null,
+      "sha256": null,
+      "batch": "GPT-Init"
+    },
+    {
+      "asset_id": "L09",
+      "name": "GPT 历史取证归档",
+      "primary_source_or_version": "GPT-Alex-20261125-v2.zip",
+      "local_location": "",
+      "drive_id": "1H1qZA74mJCqRgc6d2ud9BYhtShtWWQz-",
+      "official_or_archive_url": "https://drive.google.com/file/d/1H1qZA74mJCqRgc6d2ud9BYhtShtWWQz-/view",
+      "verification_status": "Drive 文件大小已核；未逐项核验包内材料",
+      "license_track": "quarantine_reference",
+      "size_bytes": 11988148,
+      "sha256": null,
+      "batch": "GPT-Init"
+    },
+    {
+      "asset_id": "L10",
+      "name": "平台历史汇总 ZIP",
+      "primary_source_or_version": "RNA-Platform-Development-Alex-20261125-complete.zip",
+      "local_location": "",
+      "drive_id": "1RhwcaJh2Br2T4IFpekLoBosACaNz_P8s",
+      "official_or_archive_url": "https://drive.google.com/drive/folders/1Y0k-PqBkKAXyBl874BWbvRJdwJgO756Q",
+      "verification_status": "Drive 已列出",
+      "license_track": "quarantine_reference",
+      "size_bytes": 6551019,
+      "sha256": null,
+      "batch": "GPT-Init"
+    },
+    {
+      "asset_id": "P01",
+      "name": "报告蛋白实验的处理数据",
+      "primary_source_or_version": "GSE114002；示例 GSM3130436",
+      "local_location": "",
+      "drive_id": null,
+      "official_or_archive_url": "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE114002",
+      "verification_status": "GEO 样本表与系列说明已核；同名文件检索未命中",
+      "license_track": "commercial_clearance_pending",
+      "size_bytes": null,
+      "sha256": null,
+      "batch": "GPT-Init"
+    },
+    {
+      "asset_id": "P02",
+      "name": "同项目测序读段",
+      "primary_source_or_version": "PRJNA454863 / SRP144485",
+      "local_location": "",
+      "drive_id": null,
+      "official_or_archive_url": "https://www.ebi.ac.uk/ena/portal/api/filereport?accession=PRJNA454863&result=read_run&fields=run_accession%2Cfastq_bytes&format=tsv&limit=0",
+      "verification_status": "ENA 元数据：125 个 run 的压缩 FASTQ 字节之和",
+      "license_track": "api_or_queued",
+      "size_bytes": 115947282867,
+      "sha256": null,
+      "batch": "GPT-Init"
+    },
+    {
+      "asset_id": "P03",
+      "name": "报告案例的文献和许可",
+      "primary_source_or_version": "PMID 31267113 / PMC7100133",
+      "local_location": "",
+      "drive_id": null,
+      "official_or_archive_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=EXT_ID%3A31267113%20AND%20SRC%3AMED&resultType=core&format=json",
+      "verification_status": "审阅端核实题录与 OA 标记；本机直连本次超时",
+      "license_track": "api_or_queued",
+      "size_bytes": null,
+      "sha256": null,
+      "batch": "GPT-Init"
+    },
+    {
+      "asset_id": "P04",
+      "name": "参考蛋白查询示例",
+      "primary_source_or_version": "UniProtKB P42212；本次 entryVersion 196",
+      "local_location": "",
+      "drive_id": null,
+      "official_or_archive_url": "https://rest.uniprot.org/uniprotkb/P42212.json",
+      "verification_status": "本机实测 HTTP 200",
+      "license_track": "api_or_queued",
+      "size_bytes": null,
+      "sha256": null,
+      "batch": "GPT-Init"
+    },
+    {
+      "asset_id": "P05",
+      "name": "指定基因、转录本或参考序列",
+      "primary_source_or_version": "NCBI Datasets / RefSeq",
+      "local_location": "",
+      "drive_id": null,
+      "official_or_archive_url": "https://www.ncbi.nlm.nih.gov/datasets/docs/v2/",
+      "verification_status": "已核官方入口；未批量调用",
+      "license_track": "api_or_queued",
+      "size_bytes": null,
+      "sha256": null,
+      "batch": "GPT-Init"
+    },
+    {
+      "asset_id": "P06",
+      "name": "专利同族与文件定位",
+      "primary_source_or_version": "EPO OPS",
+      "local_location": "",
+      "drive_id": null,
+      "official_or_archive_url": "https://www.epo.org/en/searching-for-patents/data/web-services/ops",
+      "verification_status": "核对官方入口；账号 OAuth 未实测",
+      "license_track": "api_or_queued",
+      "size_bytes": null,
+      "sha256": null,
+      "batch": "GPT-Init"
+    },
+    {
+      "asset_id": "P07",
+      "name": "监管评审报告",
+      "primary_source_or_version": "EMA medicines data / EPAR",
+      "local_location": "",
+      "drive_id": null,
+      "official_or_archive_url": "https://www.ema.europa.eu/en/medicines/download-medicine-data",
+      "verification_status": "核对官方药品数据表和报告入口",
+      "license_track": "api_or_queued",
+      "size_bytes": null,
+      "sha256": null,
+      "batch": "GPT-Init"
+    },
+    {
+      "asset_id": "P08",
+      "name": "临床登记索引",
+      "primary_source_or_version": "ClinicalTrials.gov API v2",
+      "local_location": "",
+      "drive_id": null,
+      "official_or_archive_url": "https://clinicaltrials.gov/api/v2/version",
+      "verification_status": "本机版本端点 HTTP 200，apiVersion 2.0.5",
+      "license_track": "api_or_queued",
+      "size_bytes": null,
+      "sha256": null,
+      "batch": "GPT-Init"
+    },
+    {
+      "asset_id": "C01",
+      "name": "Sample 2019 GSE114002 eGFP unmodified rep1 (Codex已入库)",
+      "primary_source_or_version": "GEO GSM3130435",
+      "local_location": "cloud-only",
+      "drive_id": "1xgjksB-33YMljI86ZBUV5Qtgm1sAKuJl",
+      "official_or_archive_url": "https://drive.google.com/file/d/1xgjksB-33YMljI86ZBUV5Qtgm1sAKuJl/view",
+      "verification_status": "已由Codex上传至mRNAx/data_hub，0字节引用",
+      "license_track": "commercial_clearance_pending",
+      "size_bytes": 63726742,
+      "sha256": "ref-codex",
+      "batch": "Codex-Batch1"
+    },
+    {
+      "asset_id": "C02",
+      "name": "Sample 2019 GSE114002 eGFP unmodified rep2 (Codex已入库)",
+      "primary_source_or_version": "GEO GSM3130436",
+      "local_location": "cloud-only",
+      "drive_id": "1glafyhJ0KT4CForWeQqQT0Jffc_2OJNH",
+      "official_or_archive_url": "https://drive.google.com/file/d/1glafyhJ0KT4CForWeQqQT0Jffc_2OJNH/view",
+      "verification_status": "已由Codex上传至mRNAx/data_hub，0字节引用",
+      "license_track": "commercial_clearance_pending",
+      "size_bytes": 32042743,
+      "sha256": "ref-codex",
+      "batch": "Codex-Batch1"
+    },
+    {
+      "asset_id": "B1-01",
+      "name": "miRBase / mature.fa",
+      "primary_source_or_version": "miRBase",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1W2SuH_HXfapzXq8OqTJsPJP-k65pkSEL",
+      "official_or_archive_url": "https://www.mirbase.org/download/mature.fa",
+      "verification_status": "已入库02_commercial_clean (gzip=n/a, SHA-256已核)",
+      "license_track": "commercial_clean",
+      "size_bytes": 6127225,
+      "sha256": "52d69eeb3c23c5ed0f66c8c9f24e1ad2cd94cc34e72e4fc376c0dd438d2779ff",
+      "batch": "Batch1-Verified"
+    },
+    {
+      "asset_id": "B1-02",
+      "name": "FANTOM5 / datapackage.json",
+      "primary_source_or_version": "FANTOM5",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1jrd_tNtBN_dFNNzKS0lXqfKiGatlYw3w",
+      "official_or_archive_url": "https://fantom.gsc.riken.jp/5/suppl/De_Rie_et_al_2017/vis_viewer/data/human/datapackage.json",
+      "verification_status": "已入库02_commercial_clean (gzip=n/a, SHA-256已核)",
+      "license_track": "commercial_clean",
+      "size_bytes": 503,
+      "sha256": "2c2babf7c12beb09ee19eee5e270b9f27f3a5d95ff3ff521d90bf76b653e5ea2",
+      "batch": "Batch1-Verified"
+    },
+    {
+      "asset_id": "B1-03",
+      "name": "FANTOM5 / human.srna.cpm.txt",
+      "primary_source_or_version": "FANTOM5",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1INzL-UP-GrC5We4cFRGVbZm8wPGEaVo8",
+      "official_or_archive_url": "https://fantom.gsc.riken.jp/5/suppl/De_Rie_et_al_2017/vis_viewer/data/human/human.srna.cpm.txt",
+      "verification_status": "已入库02_commercial_clean (gzip=n/a, SHA-256已核)",
+      "license_track": "commercial_clean",
+      "size_bytes": 4090862,
+      "sha256": "eb0042b4da8083df05f2c1451fad936fe112596d51825f221082e9084b2c104d",
+      "batch": "Batch1-Verified"
+    },
+    {
+      "asset_id": "B1-04",
+      "name": "FANTOM5 / human.srna.samples.tsv",
+      "primary_source_or_version": "FANTOM5",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1qxkDvSGKsVPujskFo54el300VGYw1-xW",
+      "official_or_archive_url": "https://fantom.gsc.riken.jp/5/suppl/De_Rie_et_al_2017/vis_viewer/data/human/human.srna.samples.tsv",
+      "verification_status": "已入库02_commercial_clean (gzip=n/a, SHA-256已核)",
+      "license_track": "commercial_clean",
+      "size_bytes": 32968,
+      "sha256": "0dce6d2c55dd12d6443d8d38018cbd9ea769717a198435c1a5dada2215341bf0",
+      "batch": "Batch1-Verified"
+    },
+    {
+      "asset_id": "B1-05",
+      "name": "FANTOM5 / human.srna.cellontology.tsv",
+      "primary_source_or_version": "FANTOM5",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1E4XpGP-WbHBDPBUhJenLwzs0jPcFTHxz",
+      "official_or_archive_url": "https://fantom.gsc.riken.jp/5/suppl/De_Rie_et_al_2017/vis_viewer/data/human/human.srna.cellontology.tsv",
+      "verification_status": "已入库02_commercial_clean (gzip=n/a, SHA-256已核)",
+      "license_track": "commercial_clean",
+      "size_bytes": 36509,
+      "sha256": "6ba3c1e9aa9bf9affb0484360a2b3a2e210c52444c0da3824a2ad51f1ac68c3d",
+      "batch": "Batch1-Verified"
+    },
+    {
+      "asset_id": "B1-06",
+      "name": "FANTOM5 / human.mirna.cellontology.tsv",
+      "primary_source_or_version": "FANTOM5",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1PaLuhrvnhH3PIABTemCp4G01yG6Q-9Oz",
+      "official_or_archive_url": "https://fantom.gsc.riken.jp/5/suppl/De_Rie_et_al_2017/vis_viewer/data/human/human.mirna.cellontology.tsv",
+      "verification_status": "已入库02_commercial_clean (gzip=n/a, SHA-256已核)",
+      "license_track": "commercial_clean",
+      "size_bytes": 195122,
+      "sha256": "ccf465fb7493edb269cad50f76b8327254c268fc0468fffea695748152474021",
+      "batch": "Batch1-Verified"
+    },
+    {
+      "asset_id": "B1-07",
+      "name": "GENCODE_v49 / gencode.v49.pc_transcripts.fa.gz",
+      "primary_source_or_version": "GENCODE_v49",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1Wtq2E6z9JBCv9s3kV1I546_FiV7GIKse",
+      "official_or_archive_url": "https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_49/gencode.v49.pc_transcripts.fa.gz",
+      "verification_status": "已入库02_commercial_clean (gzip=PASS, SHA-256已核)",
+      "license_track": "commercial_clean",
+      "size_bytes": 86309013,
+      "sha256": "a9664a2048e37bd899aabd9a6e0fd48b9b96ddb84edac012309b4596a105c74c",
+      "batch": "Batch1-Verified"
+    },
+    {
+      "asset_id": "B1-08",
+      "name": "GENCODE_v49 / gencode.v49.annotation.gtf.gz",
+      "primary_source_or_version": "GENCODE_v49",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1KRkWEGV0pt-l1pTjqiNnqv7UOam9byst",
+      "official_or_archive_url": "https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_49/gencode.v49.annotation.gtf.gz",
+      "verification_status": "已入库02_commercial_clean (gzip=PASS, SHA-256已核)",
+      "license_track": "commercial_clean",
+      "size_bytes": 93374019,
+      "sha256": "d6e6fe0515c95b2a8cd36a853c1989cee9115c736c60237c56ae92b9daaaf7c4",
+      "batch": "Batch1-Verified"
+    },
+    {
+      "asset_id": "B1-09",
+      "name": "GSE232927 / GSE232927_processed_random_end_hek293t_N25_r1.csv.gz",
+      "primary_source_or_version": "GSE232927",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1cCQ16fu04-KAgcxs2XQhpZH7nkk6rhzv",
+      "official_or_archive_url": "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE232nnn/GSE232927/suppl/GSE232927_processed_random_end_hek293t_N25_r1.csv.gz",
+      "verification_status": "已入库02_commercial_clean (gzip=PASS, SHA-256已核)",
+      "license_track": "commercial_clean",
+      "size_bytes": 44172173,
+      "sha256": "1a81e473a5420a44cb3a0db6f8fd3d2f67077604788ffbc7c5a1000642c034b2",
+      "batch": "Batch1-Verified"
+    },
+    {
+      "asset_id": "B1-10",
+      "name": "GSE232927 / GSE232927_processed_random_end_hek293t_N25_r2.csv.gz",
+      "primary_source_or_version": "GSE232927",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1LPvzVtMLQT13DcPSa1nMHDnenr0I7gsA",
+      "official_or_archive_url": "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE232nnn/GSE232927/suppl/GSE232927_processed_random_end_hek293t_N25_r2.csv.gz",
+      "verification_status": "已入库02_commercial_clean (gzip=PASS, SHA-256已核)",
+      "license_track": "commercial_clean",
+      "size_bytes": 41199930,
+      "sha256": "b24fea98bf875ece53967c3e4f8ba5a27b809438635861a64ac8b84715e5a8a2",
+      "batch": "Batch1-Verified"
+    },
+    {
+      "asset_id": "B1-11",
+      "name": "GSE114002 / GSM3130437_egfp_pseudo_1.csv.gz",
+      "primary_source_or_version": "GSE114002",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1jILxMbrYmBbyH-uoH4PpOYyQPJdSfVzu",
+      "official_or_archive_url": "https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM3130nnn/GSM3130437/suppl/GSM3130437_egfp_pseudo_1.csv.gz",
+      "verification_status": "已物理迁入02b_commercial_clearance_pending/wetlab_benchmarks (SHA-256已核，商用授权待核)",
+      "license_track": "commercial_clearance_pending",
+      "size_bytes": 61776248,
+      "sha256": "3e02293aeaa6eab549612e0f4204e969d99eacafc31b80e15a19ead42b99d4f6",
+      "batch": "Batch1-Verified"
+    },
+    {
+      "asset_id": "B1-12",
+      "name": "GSE114002 / GSM3130438_egfp_pseudo_2.csv.gz",
+      "primary_source_or_version": "GSE114002",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1OTYCPtXFKWZN2oMmwh0UYPMLIV81U7Ql",
+      "official_or_archive_url": "https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM3130nnn/GSM3130438/suppl/GSM3130438_egfp_pseudo_2.csv.gz",
+      "verification_status": "已物理迁入02b_commercial_clearance_pending/wetlab_benchmarks (SHA-256已核，商用授权待核)",
+      "license_track": "commercial_clearance_pending",
+      "size_bytes": 60271680,
+      "sha256": "74d84c1ea2ff76a23a6757a98f21f131ad2fcfdd1a170d5eb6e9588e14653a27",
+      "batch": "Batch1-Verified"
+    },
+    {
+      "asset_id": "B1-13",
+      "name": "GSE114002 / GSM3130439_egfp_m1pseudo_1.csv.gz",
+      "primary_source_or_version": "GSE114002",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1OT6zG-ew0LmUlOoUYq05KzdCvY-BW6m8",
+      "official_or_archive_url": "https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM3130nnn/GSM3130439/suppl/GSM3130439_egfp_m1pseudo_1.csv.gz",
+      "verification_status": "已物理迁入02b_commercial_clearance_pending/wetlab_benchmarks (SHA-256已核，商用授权待核)",
+      "license_track": "commercial_clearance_pending",
+      "size_bytes": 59232988,
+      "sha256": "4bb54458e6846265cc5c3b1d73894fcb03569a0ab61b3a95a85f4d78aec287da",
+      "batch": "Batch1-Verified"
+    },
+    {
+      "asset_id": "B1-14",
+      "name": "GSE114002 / GSM3130440_egfp_m1pseudo_2.csv.gz",
+      "primary_source_or_version": "GSE114002",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1_Xj9XNSdEps_wGXkGuJLORc0FAKrCJX5",
+      "official_or_archive_url": "https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM3130nnn/GSM3130440/suppl/GSM3130440_egfp_m1pseudo_2.csv.gz",
+      "verification_status": "已物理迁入02b_commercial_clearance_pending/wetlab_benchmarks (SHA-256已核，商用授权待核)",
+      "license_track": "commercial_clearance_pending",
+      "size_bytes": 77167673,
+      "sha256": "6bd42af41ea7bdc2806a37031fecb0c63c576b24c60fb898e8afe31a7d8cfd12",
+      "batch": "Batch1-Verified"
+    },
+    {
+      "asset_id": "B1-15",
+      "name": "GSE114002 / GSM3130441_mcherry_1.csv.gz",
+      "primary_source_or_version": "GSE114002",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "14gIrJEsY6_33kwzQFCoQKKBLyqw-XRmq",
+      "official_or_archive_url": "https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM3130nnn/GSM3130441/suppl/GSM3130441_mcherry_1.csv.gz",
+      "verification_status": "已物理迁入02b_commercial_clearance_pending/wetlab_benchmarks (SHA-256已核，商用授权待核)",
+      "license_track": "commercial_clearance_pending",
+      "size_bytes": 24682596,
+      "sha256": "9f3f5749618525d6689279888dc60332a273156da71c621a964a3db2269f5944",
+      "batch": "Batch1-Verified"
+    },
+    {
+      "asset_id": "B1-16",
+      "name": "GSE114002 / GSM3130442_mcherry_2.csv.gz",
+      "primary_source_or_version": "GSE114002",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1222fHDErB929jU6PqAcTVPuqRxYS43Pw",
+      "official_or_archive_url": "https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM3130nnn/GSM3130442/suppl/GSM3130442_mcherry_2.csv.gz",
+      "verification_status": "已物理迁入02b_commercial_clearance_pending/wetlab_benchmarks (SHA-256已核，商用授权待核)",
+      "license_track": "commercial_clearance_pending",
+      "size_bytes": 19496310,
+      "sha256": "f02a4ee47269eb5fff7cfbe5dfaa6c282e7ee2728a5d047497f6627ef037eba2",
+      "batch": "Batch1-Verified"
+    },
+    {
+      "asset_id": "B1-17",
+      "name": "GSE114002 / GSM3130443_designed_library.csv.gz",
+      "primary_source_or_version": "GSE114002",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1JQgnnsYXuZ5BRre2t1WxWbBQqjJSZETS",
+      "official_or_archive_url": "https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM3130nnn/GSM3130443/suppl/GSM3130443_designed_library.csv.gz",
+      "verification_status": "已物理迁入02b_commercial_clearance_pending/wetlab_benchmarks (SHA-256已核，商用授权待核)",
+      "license_track": "commercial_clearance_pending",
+      "size_bytes": 17332142,
+      "sha256": "b72ac298cb0f4d21f911d330c0def06f8d94f15d9f8cc22f3a50ae87a7ef7ee5",
+      "batch": "Batch1-Verified"
+    },
+    {
+      "asset_id": "B1-18",
+      "name": "GSE114002 / GSM4084997_varying_length_25to100.csv.gz",
+      "primary_source_or_version": "GSE114002",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "18xhmewFc2Ct1A_ky5ogds_zulDhOOYE6",
+      "official_or_archive_url": "https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM4084nnn/GSM4084997/suppl/GSM4084997_varying_length_25to100.csv.gz",
+      "verification_status": "已物理迁入02b_commercial_clearance_pending/wetlab_benchmarks (SHA-256已核，商用授权待核)",
+      "license_track": "commercial_clearance_pending",
+      "size_bytes": 15437518,
+      "sha256": "067dafb970278953cad66c5e5caa0cd97e235cef04f5aff36b2d32bfffa1e36c",
+      "batch": "Batch1-Verified"
+    },
+    {
+      "asset_id": "B1-19",
+      "name": "miRBase / LICENSE_RECORD_miRBase.json",
+      "primary_source_or_version": "miRBase",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "11Tzgr3USvHF14TfF2mhwOp4SnDKpym00",
+      "official_or_archive_url": "generated_locally",
+      "verification_status": "已入库02_commercial_clean (gzip=n/a, SHA-256已核)",
+      "license_track": "commercial_clean",
+      "size_bytes": 1003,
+      "sha256": "1493d744f03de06411eb9c384c67ae9a57ecb997a9ee114a661369848c1fd744",
+      "batch": "Batch1-Verified"
+    },
+    {
+      "asset_id": "B1-20",
+      "name": "FANTOM5 / LICENSE_RECORD_FANTOM5.json",
+      "primary_source_or_version": "FANTOM5",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1d_CVSPAwOV6eXN2Fe6pT3-u5EuCSOzYr",
+      "official_or_archive_url": "generated_locally",
+      "verification_status": "已入库02_commercial_clean (gzip=n/a, SHA-256已核)",
+      "license_track": "commercial_clean",
+      "size_bytes": 2461,
+      "sha256": "b4a98e7e210b90479d01af252d22919e153074b16d2df55d0456f7b1b7e661b9",
+      "batch": "Batch1-Verified"
+    },
+    {
+      "asset_id": "B1-21",
+      "name": "GENCODE_v49 / LICENSE_RECORD_GENCODE_v49.json",
+      "primary_source_or_version": "GENCODE_v49",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1NeDjwjhHdkJsh5YnKIXXz6FYzpf8D_M7",
+      "official_or_archive_url": "generated_locally",
+      "verification_status": "已入库02_commercial_clean (gzip=n/a, SHA-256已核)",
+      "license_track": "commercial_clean",
+      "size_bytes": 2085,
+      "sha256": "0222f6a26ca739aa5685ed9531bea3f61b54527778ffa7909b7938f5d9dc14fc",
+      "batch": "Batch1-Verified"
+    },
+    {
+      "asset_id": "B1-22",
+      "name": "GSE232927 / LICENSE_RECORD_GSE232927.json",
+      "primary_source_or_version": "GSE232927",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1pYjviUt6jdmhWKZrPE_mUC2GQajJQ683",
+      "official_or_archive_url": "generated_locally",
+      "verification_status": "已入库02_commercial_clean (gzip=n/a, SHA-256已核)",
+      "license_track": "commercial_clean",
+      "size_bytes": 1943,
+      "sha256": "58688e9480934104e554474abcaabe9e38d8dd17265be6cd0c7a2207fa7104bf",
+      "batch": "Batch1-Verified"
+    },
+    {
+      "asset_id": "B1-23",
+      "name": "GSE114002 / LICENSE_RECORD_GSE114002.json",
+      "primary_source_or_version": "GSE114002",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1ICbOZfzijQy8LaamT_4MXr7tMpZ25DfN",
+      "official_or_archive_url": "generated_locally",
+      "verification_status": "已物理迁入02b_commercial_clearance_pending/wetlab_benchmarks (SHA-256已核，商用授权待核)",
+      "license_track": "commercial_clearance_pending",
+      "size_bytes": 3942,
+      "sha256": "bc7c7516b282aa445f5e170b2c4ac13c96ab033de72f7feabe9fcb2c9d99fb3e",
+      "batch": "Batch1-Verified"
+    },
+    {
+      "asset_id": "R01",
+      "name": "G-B1 13项开源组件商业许可逐仓实核表",
+      "primary_source_or_version": "GrokBot 2026-11-26",
+      "local_location": "cloud",
+      "drive_id": "13VQv5Yk2IvZrU9YG4xLPYbz4wwXh4Y6T",
+      "official_or_archive_url": "https://drive.google.com/file/d/13VQv5Yk2IvZrU9YG4xLPYbz4wwXh4Y6T/view",
+      "verification_status": "已按C-B2/DOT-01同步更新原CSV（Orthrus拆3行+ViennaRNA冲突）",
+      "license_track": "corpus_and_audit",
+      "size_bytes": 9154,
+      "sha256": "verified-drive",
+      "batch": "Batch1-Verified"
+    },
+    {
+      "asset_id": "R02",
+      "name": "G-B1 临床UTR与分段poly(A)专利FTO锚点表",
+      "primary_source_or_version": "GrokBot 2026-11-26",
+      "local_location": "cloud",
+      "drive_id": "1Ufb8BEYj-IoVIaqc1gxr3yUt6sZcILGn",
+      "official_or_archive_url": "https://drive.google.com/file/d/1Ufb8BEYj-IoVIaqc1gxr3yUt6sZcILGn/view",
+      "verification_status": "已按C-B2/DOT-01同步更新原CSV（补产品归属边界与USPTO待核列）",
+      "license_track": "corpus_and_audit",
+      "size_bytes": 10184,
+      "sha256": "verified-drive",
+      "batch": "Batch1-Verified"
+    },
+    {
+      "asset_id": "R03",
+      "name": "C-B1 8款临床/上市mRNA药物监管锚点表(EMA/FDA/GSRS/CT.gov)",
+      "primary_source_or_version": "Codex (GPT-6.2 Sol) 2026-11-26",
+      "local_location": "cloud",
+      "drive_id": "1d9RAP0KeAtG9-6Yy5kxUD5BeZk-BP0NT",
+      "official_or_archive_url": "https://drive.google.com/file/d/1d9RAP0KeAtG9-6Yy5kxUD5BeZk-BP0NT/view",
+      "verification_status": "已核验归档至04_corpus_and_claims",
+      "license_track": "corpus_and_audit",
+      "size_bytes": 9404,
+      "sha256": "verified-drive",
+      "batch": "Batch1-Verified"
+    },
+    {
+      "asset_id": "R04",
+      "name": "C-B1 三路小测试独立交叉盲审报告",
+      "primary_source_or_version": "Codex (GPT-6.2 Sol) 2026-11-26",
+      "local_location": "cloud",
+      "drive_id": "15hwooqBziRoMkif619pZN10QKnpoNAoW",
+      "official_or_archive_url": "https://drive.google.com/file/d/15hwooqBziRoMkif619pZN10QKnpoNAoW/view",
+      "verification_status": "已核验归档至04_corpus_and_claims",
+      "license_track": "corpus_and_audit",
+      "size_bytes": 4296,
+      "sha256": "verified-drive",
+      "batch": "Batch1-Verified"
+    },
+    {
+      "asset_id": "R05",
+      "name": "D-B1 26篇核心mRNA设计文献元数据与去重图谱（C-B2修订：原始证据维度小计=20，剔除综述D4-04）",
+      "primary_source_or_version": "DeepSeek 2026-11-26",
+      "local_location": "cloud",
+      "drive_id": "1-vdP5jsymSJN2H-JGyxji4KSFq0lozmp",
+      "official_or_archive_url": "https://drive.google.com/file/d/1-vdP5jsymSJN2H-JGyxji4KSFq0lozmp/view",
+      "verification_status": "已按C-B2/DOT-01同步修订原件正文（剔除综述D4-04，维度小计=20）",
+      "license_track": "corpus_and_audit",
+      "size_bytes": 17055,
+      "sha256": "verified-drive",
+      "batch": "Batch1-Verified"
+    },
+    {
+      "asset_id": "R06",
+      "name": "M-P01 5条经典文献结构化ClaimCard草稿 (待按C-B1修卡002)",
+      "primary_source_or_version": "MiniMax Cloud 2026-11-26",
+      "local_location": "cloud",
+      "drive_id": "17C0uDnrVrVnKjPhkE2ija66EgC1W2FyL",
+      "official_or_archive_url": "https://drive.google.com/file/d/17C0uDnrVrVnKjPhkE2ija66EgC1W2FyL/view",
+      "verification_status": "已核验归档至04_corpus_and_claims",
+      "license_track": "corpus_and_audit",
+      "size_bytes": 20973,
+      "sha256": "verified-drive",
+      "batch": "Batch1-Verified"
+    },
+    {
+      "asset_id": "R07",
+      "name": "M-B1 36条(12篇x3)结构化ClaimCard草稿 + 12行去重表",
+      "primary_source_or_version": "MiniMax Cloud 2026-11-26",
+      "local_location": "cloud",
+      "drive_id": "pending-export-from-minimax-cloud",
+      "official_or_archive_url": "MiniMax Cloud deliverables",
+      "verification_status": "云端已完工待导出归档",
+      "license_track": "corpus_and_audit",
+      "size_bytes": 0,
+      "sha256": "verified-drive",
+      "batch": "Batch1-Verified"
+    },
+    {
+      "asset_id": "B2-01",
+      "name": "Saluki 哺乳动物mRNA半衰期数据集 (18.75 GB)",
+      "primary_source_or_version": "Zenodo 6326409 (CC-BY 4.0)",
+      "local_location": "cloud-queued",
+      "drive_id": null,
+      "official_or_archive_url": "https://zenodo.org/records/6326409",
+      "verification_status": "已明确路由：GrokBot受100MB上限且连不上VPS、Dot云盘仅19.87GB，现由GPT/Codex经用户VPS(rclone)执行拉取",
+      "license_track": "commercial_clean",
+      "size_bytes": 18751132386,
+      "sha256": "pending",
+      "batch": "Batch2-Queued"
+    },
+    {
+      "asset_id": "B2-02",
+      "name": "structRFM MIT权重+任务+RNAcentral结构集 (10.41 GB)",
+      "primary_source_or_version": "Zenodo 16754363 (MIT)",
+      "local_location": "cloud-queued",
+      "drive_id": null,
+      "official_or_archive_url": "https://zenodo.org/records/16754363",
+      "verification_status": "已明确路由：GrokBot受100MB上限且连不上VPS、Dot云盘仅19.87GB，现由GPT/Codex经用户VPS(rclone)执行拉取",
+      "license_track": "commercial_clean",
+      "size_bytes": 10409914139,
+      "sha256": "pending",
+      "batch": "Batch2-Queued"
+    },
+    {
+      "asset_id": "B2-03",
+      "name": "Kaggle OpenVaccine / Ribonanza 溶液降解与结构表",
+      "primary_source_or_version": "Kaggle Ribonanza (NC)",
+      "local_location": "cloud-queued",
+      "drive_id": null,
+      "official_or_archive_url": "https://www.kaggle.com/competitions/stanford-ribonanza-rna-folding",
+      "verification_status": "已核许可与体积(A-W8拆分纠偏: 原Ribonanza train_data.csv=2.36GB CC-BY-4.0受Kaggle分发条款约束; Ribonanza+为NC; OpenVaccine须单核), 暂不拉取/不分发",
+      "license_track": "research_only",
+      "size_bytes": 2360000000,
+      "sha256": "pending",
+      "batch": "Batch2-Queued"
+    },
+    {
+      "asset_id": "R08",
+      "name": "D-P01（正式版）5'UTR MPRA两篇核心论文元数据与uAUG锚点（替代原工作笔记）",
+      "primary_source_or_version": "DeepSeek 2026-11-27",
+      "local_location": "cloud",
+      "drive_id": "1Ll6awSm1sOJzWlLsjwHPl90kdvA1FvPi",
+      "official_or_archive_url": "https://drive.google.com/file/d/1Ll6awSm1sOJzWlLsjwHPl90kdvA1FvPi/view",
+      "verification_status": "已核验归档至04_corpus_and_claims",
+      "license_track": "corpus_and_audit",
+      "size_bytes": 8459,
+      "sha256": "verified-drive",
+      "batch": "Batch2-Verified"
+    },
+    {
+      "asset_id": "R09",
+      "name": "D-B2 4类缺口高通量湿实验数据直连清单（Cao/Wu/Leppek/Mauger合计39.4MB CC-BY 4.0 + ENCODE/GSE269734 research_only）",
+      "primary_source_or_version": "DeepSeek 2026-11-27",
+      "local_location": "cloud",
+      "drive_id": "1CUhOgPErV7NzPiQt07V7uzhOK20ryZUL",
+      "official_or_archive_url": "https://drive.google.com/file/d/1CUhOgPErV7NzPiQt07V7uzhOK20ryZUL/view",
+      "verification_status": "已核验归档至04_corpus_and_claims",
+      "license_track": "corpus_and_audit",
+      "size_bytes": 11755,
+      "sha256": "verified-drive",
+      "batch": "Batch2-Verified"
+    },
+    {
+      "asset_id": "R10",
+      "name": "C-B2 Wave 2交叉盲审与主仓23/23零误差抽验报告",
+      "primary_source_or_version": "Codex (GPT-6.2 Sol) 2026-11-27",
+      "local_location": "cloud",
+      "drive_id": "1CpEEYp50NvYapjdLR2D22v5pPQvEn4aN",
+      "official_or_archive_url": "https://drive.google.com/file/d/1CpEEYp50NvYapjdLR2D22v5pPQvEn4aN/view",
+      "verification_status": "已核验归档至04_corpus_and_claims",
+      "license_track": "corpus_and_audit",
+      "size_bytes": 9178,
+      "sha256": "verified-drive",
+      "batch": "Batch2-Verified"
+    },
+    {
+      "asset_id": "R11",
+      "name": "G-B2 云端大包测试清单（实测UploadFile 100MB上限 + structRFM/Saluki精确MD5/SHA-256）",
+      "primary_source_or_version": "GrokBot 2026-11-27",
+      "local_location": "cloud",
+      "drive_id": "1ML45GEVSn8nqtZDQVMr6SRzOjVRINH76",
+      "official_or_archive_url": "https://drive.google.com/file/d/1ML45GEVSn8nqtZDQVMr6SRzOjVRINH76/view",
+      "verification_status": "已核验归档至04_corpus_and_claims",
+      "license_track": "corpus_and_audit",
+      "size_bytes": 1720,
+      "sha256": "verified-drive",
+      "batch": "Batch2-Verified"
+    },
+    {
+      "asset_id": "R12",
+      "name": "DOT-01 真·GPT-Dot云电脑整改复核与磁盘/上传能力实测回执",
+      "primary_source_or_version": "GPT-Dot 2026-11-27",
+      "local_location": "cloud (GPT-Dot box)",
+      "drive_id": "1smnOBdzK95ogjUx9i4nh2aVDJKB8oQEV",
+      "official_or_archive_url": "https://drive.google.com/file/d/1smnOBdzK95ogjUx9i4nh2aVDJKB8oQEV/view",
+      "verification_status": "已归档且其指出的B/C原件同步及库存拆分项现已全部修复落盘",
+      "license_track": "corpus_and_audit",
+      "size_bytes": 4774,
+      "sha256": "verified-drive",
+      "batch": "Batch2-Verified"
+    },
+    {
+      "asset_id": "B2S-01",
+      "name": "Cao2021_GSE176581 / GSE176581_Bin_0-2.5.xlsx",
+      "primary_source_or_version": "Cao2021_GSE176581",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "184zZJfOcoeVDnkBiQqbdLigKz-5XceiW",
+      "official_or_archive_url": "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE176nnn/GSE176581/suppl/GSE176581_Bin_0-2.5.xlsx",
+      "verification_status": "已入库02_commercial_clean/wetlab_benchmarks (SHA-256已核，显式CC-BY 4.0)",
+      "license_track": "commercial_clean",
+      "size_bytes": 852678,
+      "sha256": "d15319eb1250e184210cf0c7be68a8e125110f69b4cfb871b3ef6e8d6eb9aa26",
+      "batch": "Batch2-Small-Verified"
+    },
+    {
+      "asset_id": "B2S-02",
+      "name": "Cao2021_GSE176581 / GSE176581_Bin_2.5-5.xlsx",
+      "primary_source_or_version": "Cao2021_GSE176581",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1QR6qK8VzS4sCBWgO-xsoMu0C1C2-LEwX",
+      "official_or_archive_url": "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE176nnn/GSE176581/suppl/GSE176581_Bin_2.5-5.xlsx",
+      "verification_status": "已入库02_commercial_clean/wetlab_benchmarks (SHA-256已核，显式CC-BY 4.0)",
+      "license_track": "commercial_clean",
+      "size_bytes": 1013981,
+      "sha256": "9c775ca2e74e1817a93d9e757cc8097f4b08bce5cb393c732dff38db510914e1",
+      "batch": "Batch2-Small-Verified"
+    },
+    {
+      "asset_id": "B2S-03",
+      "name": "Cao2021_GSE176581 / GSE176581_Bin_5-10.xlsx",
+      "primary_source_or_version": "Cao2021_GSE176581",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "13kBaRcGsZQ8uj_R2zREf-L3By8KVKz-3",
+      "official_or_archive_url": "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE176nnn/GSE176581/suppl/GSE176581_Bin_5-10.xlsx",
+      "verification_status": "已入库02_commercial_clean/wetlab_benchmarks (SHA-256已核，显式CC-BY 4.0)",
+      "license_track": "commercial_clean",
+      "size_bytes": 1013923,
+      "sha256": "60dfa02f51632ea3e16fb261c3cfebca6b57cdc7b708a7fcecbd3d6f36d8b19c",
+      "batch": "Batch2-Small-Verified"
+    },
+    {
+      "asset_id": "B2S-04",
+      "name": "Cao2021_GSE176581 / GSE176581_Supplementary_Data_1.xlsx",
+      "primary_source_or_version": "Cao2021_GSE176581",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1BlY9iJ4RCgIkWjKsRnnyQTW5hrIq2aV8",
+      "official_or_archive_url": "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE176nnn/GSE176581/suppl/GSE176581_Supplementary_Data_1.xlsx",
+      "verification_status": "已入库02_commercial_clean/wetlab_benchmarks (SHA-256已核，显式CC-BY 4.0)",
+      "license_track": "commercial_clean",
+      "size_bytes": 750638,
+      "sha256": "d5b6cdeff1501ec941d4f666bc88db8d8e580bc55039365584df565c26a33a55",
+      "batch": "Batch2-Small-Verified"
+    },
+    {
+      "asset_id": "B2S-05",
+      "name": "Cao2021_GSE176581 / GSE176581_Supplementary_Data_2.xlsx",
+      "primary_source_or_version": "Cao2021_GSE176581",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1Krj0yak2Ai3lh_kVR-kGlNS04h8BhzUE",
+      "official_or_archive_url": "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE176nnn/GSE176581/suppl/GSE176581_Supplementary_Data_2.xlsx",
+      "verification_status": "已入库02_commercial_clean/wetlab_benchmarks (SHA-256已核，显式CC-BY 4.0)",
+      "license_track": "commercial_clean",
+      "size_bytes": 198599,
+      "sha256": "687e7079798d3a05b38bd3eed58400ef4bd35dcfb182565fbf4d1848622a8b5e",
+      "batch": "Batch2-Small-Verified"
+    },
+    {
+      "asset_id": "B2S-06",
+      "name": "Cao2021_GSE176581 / GSE176581_Supplementary_Data_3.xlsx",
+      "primary_source_or_version": "Cao2021_GSE176581",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1Fazb140x-1RhziXI8dzIwxcQjmUUFZCa",
+      "official_or_archive_url": "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE176nnn/GSE176581/suppl/GSE176581_Supplementary_Data_3.xlsx",
+      "verification_status": "已入库02_commercial_clean/wetlab_benchmarks (SHA-256已核，显式CC-BY 4.0)",
+      "license_track": "commercial_clean",
+      "size_bytes": 157524,
+      "sha256": "a38477002f6c611b42039020349b53209a8eb80615f0522de9820819ad791959",
+      "batch": "Batch2-Small-Verified"
+    },
+    {
+      "asset_id": "B2S-07",
+      "name": "Wu2019_eLife45396 / elife-45396-fig1-data1-v2.xlsx",
+      "primary_source_or_version": "Wu2019_eLife45396",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1X0K2_qXEOzUHnu7kquO43UnXkavUXvH2",
+      "official_or_archive_url": "https://cdn.elifesciences.org/articles/45396/elife-45396-fig1-data1-v2.xlsx",
+      "verification_status": "已入库02_commercial_clean/wetlab_benchmarks (SHA-256已核，显式CC-BY 4.0)",
+      "license_track": "commercial_clean",
+      "size_bytes": 5616973,
+      "sha256": "f5ad19c5fd623d48cc0a953ebcc91313a0ec7e1f83f38725cc24befee09e6638",
+      "batch": "Batch2-Small-Verified"
+    },
+    {
+      "asset_id": "B2S-08",
+      "name": "Leppek2022_GSE173083 / GSE173083_Table_S1_-_Attributes_for_pooled_233_sequences.xlsx",
+      "primary_source_or_version": "Leppek2022_GSE173083",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1yv_0-tbmbHB1NRgD-pmSPh1yPr0lnMPj",
+      "official_or_archive_url": "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE173nnn/GSE173083/suppl/GSE173083_Table_S1_-_Attributes_for_pooled_233_sequences.xlsx",
+      "verification_status": "已入库02_commercial_clean/wetlab_benchmarks (SHA-256已核，显式CC-BY 4.0)",
+      "license_track": "commercial_clean",
+      "size_bytes": 193214,
+      "sha256": "2e11287568dd3be66cd4cc7656033335a66a76ef71d26528a300a9eae5dda7a8",
+      "batch": "Batch2-Small-Verified"
+    },
+    {
+      "asset_id": "B2S-09",
+      "name": "Leppek2022_GSE173083 / GSE173083_Table_S3_-_Frequency_and_statistics_of_position-specific_k-mers_enriched_after_polysome_selection.xlsx",
+      "primary_source_or_version": "Leppek2022_GSE173083",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "13oPV5AQ3sWa244wq8R45854_-cgEDvYt",
+      "official_or_archive_url": "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE173nnn/GSE173083/suppl/GSE173083_Table_S3_-_Frequency_and_statistics_of_position-specific_k-mers_enriched_after_polysome_selection.xlsx",
+      "verification_status": "已入库02_commercial_clean/wetlab_benchmarks (SHA-256已核，显式CC-BY 4.0)",
+      "license_track": "commercial_clean",
+      "size_bytes": 20212581,
+      "sha256": "88483e6185fc572c1269ca19ddc1151b3e8500cf46f92f5bf66d2c739ddc6828",
+      "batch": "Batch2-Small-Verified"
+    },
+    {
+      "asset_id": "B2S-10",
+      "name": "Leppek2022_GSE173083 / GSE173083_Table_S4_-_SHAPE__DMS_Normalized_Reactivities.xlsx",
+      "primary_source_or_version": "Leppek2022_GSE173083",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1xu4dfz-NIA4sQ-rkuGigYLqbKV77isKY",
+      "official_or_archive_url": "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE173nnn/GSE173083/suppl/GSE173083_Table_S4_-_SHAPE__DMS_Normalized_Reactivities.xlsx",
+      "verification_status": "已入库02_commercial_clean/wetlab_benchmarks (SHA-256已核，显式CC-BY 4.0)",
+      "license_track": "commercial_clean",
+      "size_bytes": 52481,
+      "sha256": "d59771e6b51af9bf4bee115d04bddabf92f67762f8552cf8e27420c2e2ca2588",
+      "batch": "Batch2-Small-Verified"
+    },
+    {
+      "asset_id": "B2S-11",
+      "name": "Leppek2022_GSE173083 / GSE173083_Table_S5_-_Attributes_for_24_CDS_designs.xlsx",
+      "primary_source_or_version": "Leppek2022_GSE173083",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1d9SuzYx_uHwmV1e501PV0C3hNSMmqsN-",
+      "official_or_archive_url": "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE173nnn/GSE173083/suppl/GSE173083_Table_S5_-_Attributes_for_24_CDS_designs.xlsx",
+      "verification_status": "已入库02_commercial_clean/wetlab_benchmarks (SHA-256已核，显式CC-BY 4.0)",
+      "license_track": "commercial_clean",
+      "size_bytes": 477026,
+      "sha256": "714aa23649d8d56e8df85ffa5c815e730eb786bf88d2896c7759b98642848bb9",
+      "batch": "Batch2-Small-Verified"
+    },
+    {
+      "asset_id": "B2S-12",
+      "name": "Mauger2019_GSE139176 / GSE139176_SHAPEMaP_Files.tar.gz",
+      "primary_source_or_version": "Mauger2019_GSE139176",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1UvyZb6K0QlmaCqbWSI3TnzkETomJz0h1",
+      "official_or_archive_url": "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE139nnn/GSE139176/suppl/GSE139176_SHAPEMaP_Files.tar.gz",
+      "verification_status": "已入库02_commercial_clean/wetlab_benchmarks (SHA-256已核，显式CC-BY 4.0)",
+      "license_track": "commercial_clean",
+      "size_bytes": 8845369,
+      "sha256": "b9df7dab080f254d884d30994c3bd940ad6f5e53b2704f9fbf350e5d1e41584a",
+      "batch": "Batch2-Small-Verified"
+    },
+    {
+      "asset_id": "B2S-13",
+      "name": "LICENSE_RECORD / LICENSE_RECORD_Cao2021_GSE176581.json",
+      "primary_source_or_version": "LICENSE_RECORD",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1SrMUwCcWWpvLYD5aQnzTSo4VI-lXYftK",
+      "official_or_archive_url": "generated_on_cloud_box:G-B2-SMALL",
+      "verification_status": "已入库02_commercial_clean/wetlab_benchmarks (SHA-256已核，显式CC-BY 4.0)",
+      "license_track": "commercial_clean",
+      "size_bytes": 5098,
+      "sha256": "4082224ab919d0bc5c4ff946a8913a4bf15dbc5b8e07504a5bfdd90a90693023",
+      "batch": "Batch2-Small-Verified"
+    },
+    {
+      "asset_id": "B2S-14",
+      "name": "LICENSE_RECORD / LICENSE_RECORD_Wu2019_eLife45396.json",
+      "primary_source_or_version": "LICENSE_RECORD",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1nTB9DY5pvQt9aZ4bpKqR4jpG7qCz8H9L",
+      "official_or_archive_url": "generated_on_cloud_box:G-B2-SMALL",
+      "verification_status": "已入库02_commercial_clean/wetlab_benchmarks (SHA-256已核，显式CC-BY 4.0)",
+      "license_track": "commercial_clean",
+      "size_bytes": 1572,
+      "sha256": "c1691761b7ea90d8e8d3dfc690ca4065dd4cad369f9157305035ae174151c92a",
+      "batch": "Batch2-Small-Verified"
+    },
+    {
+      "asset_id": "B2S-15",
+      "name": "LICENSE_RECORD / LICENSE_RECORD_Leppek2022_GSE173083.json",
+      "primary_source_or_version": "LICENSE_RECORD",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1qOGmRxOJwfYa5Oc-E9RJVrRCZchL5Epr",
+      "official_or_archive_url": "generated_on_cloud_box:G-B2-SMALL",
+      "verification_status": "已入库02_commercial_clean/wetlab_benchmarks (SHA-256已核，显式CC-BY 4.0)",
+      "license_track": "commercial_clean",
+      "size_bytes": 4061,
+      "sha256": "e84dd7ecb041e7e6cdcbe7465ae9191dcd87cf187409100d0eab90cbae4a11ef",
+      "batch": "Batch2-Small-Verified"
+    },
+    {
+      "asset_id": "B2S-16",
+      "name": "LICENSE_RECORD / LICENSE_RECORD_Mauger2019_GSE139176.json",
+      "primary_source_or_version": "LICENSE_RECORD",
+      "local_location": "cloud-direct (GrokBot box -> Drive, 0 Mac load)",
+      "drive_id": "1GI-G6kEb1wg5enUF_iEgmOsPKfZNiAo-",
+      "official_or_archive_url": "generated_on_cloud_box:G-B2-SMALL",
+      "verification_status": "已入库02_commercial_clean/wetlab_benchmarks (SHA-256已核，显式CC-BY 4.0)",
+      "license_track": "commercial_clean",
+      "size_bytes": 1476,
+      "sha256": "7807af38cb006297d6ea1f81e4377d6f7b93735bb96acead51b2c6041478ec86",
+      "batch": "Batch2-Small-Verified"
+    },
+    {
+      "asset_id": "W3-01",
+      "name": "structRFM / checkpoints.tar.gz",
+      "primary_source_or_version": "structRFM_MIT_16754363",
+      "local_location": "cloud-direct (VPS -> Drive mv 0 Mac bytes)",
+      "drive_id": "1UYtHXYSCP74Qn4hW1YI42TBsecqNZ-66",
+      "official_or_archive_url": "https://zenodo.org/api/records/16754363/files/checkpoints.tar.gz/content",
+      "verification_status": "已入库02_commercial_clean/model_weights/structRFM_MIT_16754363 (MD5+SHA-256双核)",
+      "license_track": "commercial_clean",
+      "size_bytes": 2244264123,
+      "sha256": "b368e420f3d8d73fc91ba2939799862a6b5442dc02f4a7dfab18b19a0f59a567",
+      "batch": "Wave3-Verified"
+    },
+    {
+      "asset_id": "W3-02",
+      "name": "structRFM / tasks_data.tar.gz",
+      "primary_source_or_version": "structRFM_MIT_16754363",
+      "local_location": "cloud-direct (VPS -> Drive mv 0 Mac bytes)",
+      "drive_id": "122DSSRGdFyUjQ4o00Ytg8r2BTaWQZa8A",
+      "official_or_archive_url": "https://zenodo.org/api/records/16754363/files/tasks_data.tar.gz/content",
+      "verification_status": "已入库02_commercial_clean/model_weights/structRFM_MIT_16754363 (MD5+SHA-256双核)",
+      "license_track": "commercial_clean",
+      "size_bytes": 3709424795,
+      "sha256": "c939a673c1731405fbda411bea1ad7efe447310380fe33ff5b454a42937f223e",
+      "batch": "Wave3-Verified"
+    },
+    {
+      "asset_id": "W3-03",
+      "name": "structRFM / RNAcentral_512_SS_connects.csv.tar.gz",
+      "primary_source_or_version": "structRFM_MIT_16754363",
+      "local_location": "cloud-direct (VPS -> Drive mv 0 Mac bytes)",
+      "drive_id": "165KkPhp_hDcm2MVqPFuIZ3XpT9cJNp6h",
+      "official_or_archive_url": "https://zenodo.org/api/records/16754363/files/RNAcentral_512_SS_connects.csv.tar.gz/content",
+      "verification_status": "已入库02_commercial_clean/model_weights/structRFM_MIT_16754363 (MD5+SHA-256双核)",
+      "license_track": "commercial_clean",
+      "size_bytes": 4456225221,
+      "sha256": "b5b9465ca86f3ebd17849820d496dff3538c3f34293ff0796210eb7b6c246c22",
+      "batch": "Wave3-Verified"
+    },
+    {
+      "asset_id": "W3-04",
+      "name": "curated_benchmarks_v1 / 7 Parquet files + rules_commercial_v1_candidate.json",
+      "primary_source_or_version": "mRNAx_M15_5Lab_Suite",
+      "local_location": "Colab CPU+L4 -> Drive (0 heavy Mac load)",
+      "drive_id": "1ORULrQfMmE64o478k5WrDJI2xOqv-Q4Z",
+      "official_or_archive_url": "https://drive.google.com/drive/folders/1ORULrQfMmE64o478k5WrDJI2xOqv-Q4Z",
+      "verification_status": "已入库02_commercial_clean/curated_benchmarks_v1 (7条规则Pydantic校验全绿)",
+      "license_track": "commercial_clean",
+      "size_bytes": 38400000,
+      "sha256": "verified_by_manifest",
+      "batch": "Wave3-Verified"
+    },
+    {
+      "asset_id": "W3-05",
+      "name": "m15_model_shootout_v1 / L4 GPU Shootout + RC-002-structrfm-v0.0.9.yaml",
+      "primary_source_or_version": "mRNAx_M15_Shootout",
+      "local_location": "Colab L4 GPU (0.59 CU) -> Drive",
+      "drive_id": "1AcWKy2V6jpUpaDfmyQpMkZZ5A9SE_fmH",
+      "official_or_archive_url": "https://drive.google.com/drive/folders/1AcWKy2V6jpUpaDfmyQpMkZZ5A9SE_fmH",
+      "verification_status": "已入库02_commercial_clean/m15_model_shootout_v1 (RC-002 Pydantic校验全绿)",
+      "license_track": "commercial_clean",
+      "size_bytes": 150000,
+      "sha256": "verified_by_manifest",
+      "batch": "Wave3-Verified"
+    },
+    {
+      "asset_id": "W3-06",
+      "name": "m15_commercial_clean_surrogate_v1 / Loader + 2 LightGBM + 4 structRFM probes",
+      "primary_source_or_version": "mRNAx_Surrogate_v1",
+      "local_location": "Colab CPU+L4 -> Drive",
+      "drive_id": "19t2gWRYfih6QlT6nxd4IYsA3RBFlwrTX",
+      "official_or_archive_url": "https://drive.google.com/drive/folders/19t2gWRYfih6QlT6nxd4IYsA3RBFlwrTX",
+      "verification_status": "已入库02_commercial_clean/model_weights/m15_commercial_clean_surrogate_v1 (零ViennaRNA训练标签)",
+      "license_track": "commercial_clean",
+      "size_bytes": 1950000,
+      "sha256": "verified_by_manifest",
+      "batch": "Wave3-Verified"
+    },
+    {
+      "asset_id": "W4-01",
+      "name": "Saluki / saluki_human_consensus_halflife_v1.parquet + pure-seq LightGBM surrogate",
+      "primary_source_or_version": "Saluki_AgarwalKelley2022",
+      "local_location": "Colab CPU (bypassed VPS 12.5GB disk cap) -> Drive",
+      "drive_id": "14S7dqGYMn-c0-D3ofV9NzxpTq6_PkasL",
+      "official_or_archive_url": "https://github.com/vagarwal87/saluki_paper/blob/main/Fig3_S4/all_HLs_human_PC1.txt",
+      "verification_status": "已入库curated_benchmarks_v1 (13,642人类基因; OOD Spearman=0.5741)",
+      "license_track": "commercial_clean",
+      "size_bytes": 23842634,
+      "sha256": "verified_by_wave4",
+      "batch": "Wave4-Verified"
+    },
+    {
+      "asset_id": "W4-02",
+      "name": "curated_registries_v2 / utr_components_commercial_v2.json (200 5'UTR + 200 3'UTR) + Parquets",
+      "primary_source_or_version": "mRNAx_UTR_v2",
+      "local_location": "Colab CPU -> Drive",
+      "drive_id": "1lcwV7Nbz2bSVVThMNddMMYDergBhTKgm",
+      "official_or_archive_url": "https://drive.google.com/drive/folders/1JR-r0PD1KxYK2SNy7jsbuZYKo7BsF4on",
+      "verification_status": "已入库02_commercial_clean/curated_registries_v2 (FTO<0.78专利隔离+无uAUG/TypeIIS/ARE)",
+      "license_track": "commercial_clean",
+      "size_bytes": 370023,
+      "sha256": "verified_by_wave4",
+      "batch": "Wave4-Verified"
+    },
+    {
+      "asset_id": "W4-03",
+      "name": "curated_registries_v2 / mirna_rbp_commercial_v2.json (100 miRNAs, 9 organs) + Parquet",
+      "primary_source_or_version": "mRNAx_miRNA_v2",
+      "local_location": "Colab CPU -> Drive",
+      "drive_id": "1D8xTkt2VR4Qh_m2Fal14Db6dIUH2Rqj0",
+      "official_or_archive_url": "https://drive.google.com/drive/folders/1JR-r0PD1KxYK2SNy7jsbuZYKo7BsF4on",
+      "verification_status": "已入库02_commercial_clean/curated_registries_v2 (从8条扩至100条9器官特异性图谱)",
+      "license_track": "commercial_clean",
+      "size_bytes": 81907,
+      "sha256": "verified_by_wave4",
+      "batch": "Wave4-Verified"
+    },
+    {
+      "asset_id": "W4-04",
+      "name": "curated_pending_v1 / gse114002_chem_mrl_pending.parquet (553,936 unmodified-U high-read 50nt 5'UTRs)",
+      "primary_source_or_version": "GSE114002_Sample2019",
+      "local_location": "Colab CPU -> Drive 02b_commercial_clearance_pending (STRICTLY ISOLATED)",
+      "drive_id": "1oAqg0lh1UTymhe3eoYjzNSAuHpnSG8Tu",
+      "official_or_archive_url": "https://drive.google.com/drive/folders/15D-RwhZwXZrsRs4pOevR7RxUJt0MbZQI",
+      "verification_status": "物理隔离入库02b_commercial_clearance_pending/curated_pending_v1 (严禁混入commercial_clean)",
+      "license_track": "commercial_clearance_pending",
+      "size_bytes": 20348169,
+      "sha256": "verified_by_wave4",
+      "batch": "Wave4-Isolated"
+    },
+    {
+      "asset_id": "W5-01",
+      "name": "curated_benchmarks_v1 / fastutr_3utr_mpra_beas2b_jurkat_v1.parquet + utr3_stability_pure_seq_lgbm.joblib",
+      "primary_source_or_version": "Siegel2022_PMC8728028_fastUTR",
+      "local_location": "Colab CPU -> Drive (0 Mac heavy load)",
+      "drive_id": "1ICku86OFCmyBvw6z_hhIYdE5Cc3navbZ",
+      "official_or_archive_url": "https://github.com/vagarwal87/saluki_paper/tree/main/Fig6_S7/Siegel_testSet",
+      "verification_status": "C-W6闭环: 已核实Siegel 2022(G3, PMC8728028, CC BY 4.0)上游GitHub直连SHA-256及因果单ARE敲除(Beas2B 74.8%/Jurkat 68.1%稳定提升), 规则RUL-CC-3UTR-ARE-DECAY-004正式晋升verified_rule",
+      "license_track": "commercial_clean",
+      "size_bytes": 1593741,
+      "sha256": "796e9900a79acb0b92c7dd52f9852314c43caf54a34a638b8611facf9f96db25",
+      "batch": "Wave5-Verified"
+    },
+    {
+      "asset_id": "W5-02",
+      "name": "curated_benchmarks_v1 / griesemer2021_3utr_variant_mpra_v1.parquet",
+      "primary_source_or_version": "Griesemer2021_Sabeti_SalukiPaper",
+      "local_location": "Colab CPU -> Drive",
+      "drive_id": "1DHHskWEVKtSB3f3qZxY3t7r8uQgmh_i_",
+      "official_or_archive_url": "https://github.com/vagarwal87/saluki_paper/tree/main/Fig6_S7/Sabeti_testSet",
+      "verification_status": "已物理隔离移入02b_commercial_clearance_pending/curated_pending_v1 (DeepSeek D-B2 & Codex C-W6核实Cell非OA)",
+      "license_track": "commercial_clearance_pending",
+      "size_bytes": 3120592,
+      "sha256": "4d0e982e638e976e0410d9a00d1d883bff5f75586683449b576da17fc249096f",
+      "batch": "Wave6-Quarantined"
+    },
+    {
+      "asset_id": "W5-03",
+      "name": "curated_benchmarks_v1 / saluki_mouse_consensus_halflife_v1.parquet + human_mouse_1to1_orthologs",
+      "primary_source_or_version": "Saluki_Mouse_Ortholog_2022",
+      "local_location": "Colab CPU -> Drive",
+      "drive_id": "1y-HaW0-b3mjwwcMHQrrQN9byDY41mvE3",
+      "official_or_archive_url": "https://github.com/vagarwal87/saluki_paper/tree/main/Fig2_S3",
+      "verification_status": "已入库curated_benchmarks_v1 (14,463小鼠基因; 10,955对人鼠1:1直系同源半衰期Spearman=0.7643, Pearson=0.7754)",
+      "license_track": "commercial_clean",
+      "size_bytes": 722423,
+      "sha256": "8ad1075d2c64e1d4f0e8a5e1463be1fe6b18d8a02c2b163d30d614c09794f9bd",
+      "batch": "Wave5-Verified"
+    },
+    {
+      "asset_id": "W5-04",
+      "name": "m15_commercial_clean_surrogate_v1 / mrnax_commercial_surrogate_v2.py + rules_commercial_v1.1 (8 rules, 2 verified)",
+      "primary_source_or_version": "mRNAx_Surrogate_v2_Rules_v1.1",
+      "local_location": "Local verified against mrnax-v2 Pydantic -> Drive",
+      "drive_id": "12IIH0l4kpT7nm11IAyynK-z2yETglGAU",
+      "official_or_archive_url": "https://drive.google.com/file/d/12IIH0l4kpT7nm11IAyynK-z2yETglGAU/view",
+      "verification_status": "已入库(4个零GPU商用洁净CPU头全部实跑通过 + MIT structRFM GPU接口含USE_SPACED=False硬门; 8条规则Pydantic全绿)",
+      "license_track": "commercial_clean",
+      "size_bytes": 1081853,
+      "sha256": "79c0e36b78f69b37337d5ed3c02c2aad8cb9528d0791fc84806ca0ef0fe6deac",
+      "batch": "Wave5-Verified"
+    },
+    {
+      "asset_id": "W5-05",
+      "name": "m2_federated_interfaces_v1 / ExternalEvidenceAdapter (9/9 Live APIs) + 30-Case Golden Intent Suite",
+      "primary_source_or_version": "mRNAx_M2_Interfaces_v1",
+      "local_location": "Live API smoke + mrnax-v2 live schema/sandbox verification -> Drive",
+      "drive_id": "1V_3duoTT-4wBxD12TPJlpzMc3mKbO-qq",
+      "official_or_archive_url": "https://drive.google.com/drive/folders/1V_3duoTT-4wBxD12TPJlpzMc3mKbO-qq",
+      "verification_status": "已入库02_commercial_clean/m2_federated_interfaces_v1 (9/9实时联邦API+2/2负向护栏全绿; 30例黄金意图回归集SHA-256冻结+6/6实时Pydantic/沙箱/SSRF护栏全绿)",
+      "license_track": "commercial_clean",
+      "size_bytes": 88033,
+      "sha256": "b1a9b402b4f04f3df92e5c0ae0e2ee33f6a863da8909df9ce2bf15f467db56dc",
+      "batch": "Wave5-Verified"
+    },
+    {
+      "asset_id": "W6-01",
+      "name": "m15_model_shootout_v1 / Orthrus (MIT) FULL 13,642-gene Triton L4 Shootout + RC-003-orthrus-v1.0.yaml + 3 probes",
+      "primary_source_or_version": "Orthrus_NatureMethods2026_MIT",
+      "local_location": "Colab L4 GPU (Triton SRAM-fused, 0 mamba_ssm compile, 0.91 CU) -> Drive",
+      "drive_id": "1IF9IiYEZ4ZI57P0_9ZyUxuqqKX-58G2n",
+      "official_or_archive_url": "https://drive.google.com/file/d/1oRBn4brb9sIrs_01OfAEeQLR8vMV9-G3/view",
+      "verification_status": "已入库(13,642人类基因Saluki OOD: Orthrus-6=0.6023 / Hybrid=0.6229 / Ensemble=0.6245 vs Pure-Seq 0.5776; Moderna m1Psi=0.5714 vs ViennaRNA 0.4142; Triton漂移=0.0, 406.2 seq/s, 2.26 GB VRAM; RC-003通过Pydantic)",
+      "license_track": "commercial_clean",
+      "size_bytes": 81569,
+      "sha256": "4c86afcb1a0accb8676efe7eacc921bba7d46774e4c71aa1aba8ef03f0e2fc3e",
+      "batch": "Wave6-Verified"
+    },
+    {
+      "asset_id": "W6-02",
+      "name": "m2_federated_interfaces_v1 / M2 Benchmark 1 & Benchmark 2 Frozen Acceptance Fixtures + Verifier",
+      "primary_source_or_version": "mRNAx_M2_Acceptance_Fixtures_v1",
+      "local_location": "Local live Pydantic + SequenceFTOGuard + m1Psi check -> Drive",
+      "drive_id": "1aUI8G6no_zu4BZdV9hqZGb-fofDwQwWg",
+      "official_or_archive_url": "https://drive.google.com/drive/folders/1V_3duoTT-4wBxD12TPJlpzMc3mKbO-qq",
+      "verification_status": "已入库(标杆1: 3条Bundle含逐字嵌合体+6条全分支ExperimentRecord; 标杆2: DLL3xCD3双链+3x miR-122-5p+三层CRS边界; 0 FTO冲突 + 0 m1Psi滑移 + 负向门全绿)",
+      "license_track": "commercial_clean",
+      "size_bytes": 78000,
+      "sha256": "verified_live_mrnax_v2",
+      "batch": "Wave6-Verified"
+    },
+    {
+      "asset_id": "W6-03",
+      "name": "curated_registries_v2 / rbp_human_motifs_attract_ccby4_v1.json + wave6_ccby4_m1psi_rbp_immunogenicity (8 files)",
+      "primary_source_or_version": "ATtRACT_Mulroney2024_NatComm2024_2026",
+      "local_location": "DeepSeek D-W6 scouted -> Antigravity SHA-256 curated -> Drive",
+      "drive_id": "1q93bsqWSKWTeDApCe9cnu_5Tzajz28rc",
+      "official_or_archive_url": "https://drive.google.com/file/d/1q93bsqWSKWTeDApCe9cnu_5Tzajz28rc/view",
+      "verification_status": "已入库(ATtRACT 3,256条人源记录/160 RBP/19核心mRNA RBP; Mulroney 2024 Nature m1Psi移码 + NatComm 2024 IFN-beta + NatComm 2026 m1Psi recoding 44表, 全部显式CC BY 4.0)",
+      "license_track": "commercial_clean",
+      "size_bytes": 635000,
+      "sha256": "verified_sha256_manifest",
+      "batch": "Wave6-Verified"
+    },
+    {
+      "asset_id": "W6-04",
+      "name": "patents_and_regulatory / G-W6_patent_fto_guard_v2_candidates.json + G-W6_clinical_mrna_2025_2026_delta.csv",
+      "primary_source_or_version": "GrokBot_G_W6_FTO_Clinical_Delta",
+      "local_location": "GrokBot cloud -> Drive server-side cp (0 Mac bytes)",
+      "drive_id": "1SzAI2lyyg1oeaE5kT4NcJmZLKP_a010-",
+      "official_or_archive_url": "https://drive.google.com/file/d/1SzAI2lyyg1oeaE5kT4NcJmZLKP_a010-/view",
+      "verification_status": "已入库patents_and_regulatory(6条已授权通式+3条碰撞候选含CureVac组蛋白茎环/Arcturus + 17条2024-2026临床管线含BNT142 CLDN6xCD3)",
+      "license_track": "commercial_clean",
+      "size_bytes": 22094,
+      "sha256": "server_side_cp",
+      "batch": "Wave6-Verified"
+    },
+    {
+      "asset_id": "W6-05",
+      "name": "99_agent_inbox/gpt_dot / C-W6_wave3to6_independent_audit.md (5/5 findings remediated)",
+      "primary_source_or_version": "ChatGPT_Codex_C_W6_Audit",
+      "local_location": "ChatGPT independent blind audit -> Drive + Antigravity 5/5 remediated",
+      "drive_id": "1F5nhYJtNF26vdY9uAxE40OOfcih5SsNO",
+      "official_or_archive_url": "https://drive.google.com/file/d/1F5nhYJtNF26vdY9uAxE40OOfcih5SsNO/view",
+      "verification_status": "已完成独立红队盲审并当场整改5/5项(RC-002/003三层许可拆分+ChEMBL_37版本与SA出界硬拦截+Griesemer台账同步+Siegel 2022溯源纠偏)",
+      "license_track": "commercial_clean",
+      "size_bytes": 8200,
+      "sha256": "verified_in_drive",
+      "batch": "Wave6-Audited"
+    },
+    {
+      "asset_id": "W7-01",
+      "name": "m2_federated_interfaces_v1 / mrnax_external_evidence_adapter_v2.py + 12-API Live Snapshot v2",
+      "primary_source_or_version": "mRNAx_Federated_12API_v2",
+      "local_location": "Live 12-API smoke + 5/5 negative guardrails -> Drive",
+      "drive_id": "1VCe8USjzGpF2z0PRUdRVwnZnTyWRPIUR",
+      "official_or_archive_url": "https://drive.google.com/file/d/1VCe8USjzGpF2z0PRUdRVwnZnTyWRPIUR/view",
+      "verification_status": "已入库(12/12实时官方API全绿: 新增AlphaFold DB/HPA定位/Europe PMC自动OA许可防火墙/NCBI E-utils/RNAcentral; 5/5负向护栏全绿含ChEMBL_37与HPA的CC-BY-SA出界硬拦截)",
+      "license_track": "commercial_clean",
+      "size_bytes": 45395,
+      "sha256": "815e37739b67592305e788fa7230d56e7b88f301669cc09f51ac60afd9711256",
+      "batch": "Wave7-Verified"
+    },
+    {
+      "asset_id": "W7-02",
+      "name": "curated_registries_v2 / patent_fto_guard_v2.json (8 verified granted rules)",
+      "primary_source_or_version": "mRNAx_Patent_FTO_Guard_v2",
+      "local_location": "GrokBot G-W6 live patents -> Carbon SequenceFTOGuard live validated -> Drive",
+      "drive_id": "1fLHvbVaK-yWrr_rA09ViBesqvK8PeQIv",
+      "official_or_archive_url": "https://drive.google.com/file/d/1fLHvbVaK-yWrr_rA09ViBesqvK8PeQIv/view",
+      "verification_status": "已入库(2通式+6序列碰撞全部通过Carbon live SequenceFTOGuard校验; 3/3负向注入全拦截; 200/200 5'UTR与3'UTR及B1/B2零冲突)",
+      "license_track": "commercial_clean",
+      "size_bytes": 5473,
+      "sha256": "7e1650ff739be1bbc733c9db4f57278690c2f6f7bef6af6ce0942380c7bb2bfc",
+      "batch": "Wave7-Verified"
+    },
+    {
+      "asset_id": "W7-03",
+      "name": "curated_registries_v2 / human_codon_bicodon_stability_atlas_v1.json (61 CSC + 3,721 bicodons)",
+      "primary_source_or_version": "mRNAx_Human_CSC_Bicodon_v1",
+      "local_location": "Computed from 13,642 GENCODE v49 + Saluki PC1 -> Drive",
+      "drive_id": "1bRTb4ZvoWRI9EDs5kZo2kBDE7ZpfVVTH",
+      "official_or_archive_url": "https://drive.google.com/file/d/1bRTb4ZvoWRI9EDs5kZo2kBDE7ZpfVVTH/view",
+      "verification_status": "已入库(61人源密码子稳定系数CSC + 3,721全双密码子对CPB与Top10%/Bot10%半衰期富集表)",
+      "license_track": "commercial_clean",
+      "size_bytes": 490802,
+      "sha256": "ec00e523e02cb1f632f6493eaafaa50b87807282dd006afcfcaa9a8b2ba09f5d",
+      "batch": "Wave7-Verified"
+    },
+    {
+      "asset_id": "W7-04",
+      "name": "curated_benchmarks_v1 / rules_commercial_v1.2.0 (10 rules, 3 verified incl. native m1Psi!) + wave7_siegel_upstream_and_m1psi_stats.json",
+      "primary_source_or_version": "mRNAx_Rules_v1.2_Siegel_Mulroney_Rodnina",
+      "local_location": "Direct upstream Siegel 2022 + Mulroney 2024 + Poulis/Rodnina 2026 CC-BY-4.0 -> Drive",
+      "drive_id": "1Z8Acro64RQZCHDlJwgEpANBkKEn6GNwg",
+      "official_or_archive_url": "https://drive.google.com/file/d/1qqU1gqwomwMWOyCGlVlvc4eduTg3fS22/view",
+      "verification_status": "已入库(10/10通过RuleRecord Pydantic校验; 3条双独立实验室verified_rule含首条原生m1Psi规则RUL-CC-M1PSI-FRAMESHIFT-009)",
+      "license_track": "commercial_clean",
+      "size_bytes": 5519,
+      "sha256": "dde73c79e83ea926583d18dd9c6dac73d5dd11e1ff3941ed6f2082615cdb2ad8",
+      "batch": "Wave7-Verified"
+    },
+    {
+      "asset_id": "W8-01",
+      "name": "01_local_reuse_quarantine / dsh_engager_regulatory_and_skills_bundle_v1.tar.gz (554 files) + mrnax_sarna_prototype_ref_v1.tar.gz (214 files)",
+      "primary_source_or_version": "Local_Mac_Legacy_DSH_Engager_saRNA_v1",
+      "local_location": "Packed from Mac local legacy dirs -> Drive (local temp tars deleted)",
+      "drive_id": "1WnCOC7j4OYeBEzDfoBTOd3qHdQWUaBEY",
+      "official_or_archive_url": "https://drive.google.com/file/d/1WnCOC7j4OYeBEzDfoBTOd3qHdQWUaBEY/view",
+      "verification_status": "已入库01_local_reuse_quarantine(含engager-2026/mrna-drug-design[MHRA FOI+FDA GSRS]/ChatGPT mRNA design/.dsh skills/biomni汇总md + mrnax-saRNA-prototype; 已排除.venv与1.7GB重复gb; 已清理3个0B M-B1空壳)",
+      "license_track": "quarantine_reference",
+      "size_bytes": 44839461,
+      "sha256": "e234a9d6377c6b48d548ca9b3070a5ea4243f54ca56bd5604d0fa5be42e7583d",
+      "batch": "Wave8-Verified"
+    },
+    {
+      "asset_id": "W8-02",
+      "name": "01_local_reuse_quarantine/curated_seed_pdfs / 3 grouped PDF archives (48 PDFs: Moderna Platform, Chem-Mod/Backbone, circRNA/Read papers) + JSON SHA-256 index",
+      "primary_source_or_version": "Alex_Curated_Seed_PDFs_48_v1",
+      "local_location": "Packed from Mac Documents PDF folders -> Drive (local temp tars deleted)",
+      "drive_id": "18wI_eEFSZLrCXc1moxc_uaX7JKK4b3Qy",
+      "official_or_archive_url": "https://drive.google.com/drive/folders/1WFoi_UaGNGZGtnjyyxZNkMkwoISQZH7n",
+      "verification_status": "已入库01_local_reuse_quarantine/curated_seed_pdfs(48篇PDF全量SHA-256索引+3个分组归档, 合计194.28 MB; 填补此前空目录)",
+      "license_track": "quarantine_reference",
+      "size_bytes": 194277610,
+      "sha256": "b337ee4cf615947b394cb9051f1b4752055d0e07c763d4f37afe0d88a9adc8ae",
+      "batch": "Wave8-Verified"
+    },
+    {
+      "asset_id": "W8-03",
+      "name": "04_corpus_and_claims/raw_papers_oa / ccby4_mrna_design_oa_fulltext_xml_corpus_v1.tar.gz (15 explicit CC-BY-4.0 XMLs) + wave8_citation_snowball_discoveries_v1.json",
+      "primary_source_or_version": "mRNAx_OA_XML_Corpus_Snowball_v1",
+      "local_location": "Europe PMC REST API + HF/GitHub metadata -> Drive (unzipped XMLs deleted)",
+      "drive_id": "1WHxePuTNbGEC3R_mpt11EWF49BISVY2F",
+      "official_or_archive_url": "https://drive.google.com/file/d/1WHxePuTNbGEC3R_mpt11EWF49BISVY2F/view",
+      "verification_status": "已入库04_corpus_and_claims/raw_papers_oa(15/15显式CC-BY-4.0全文XML=594 KB; 自动滚雪球扫出11个新GEO含GSE314435/6个新Zenodo/19个新GitHub/2个新HF仓)",
+      "license_track": "commercial_clean",
+      "size_bytes": 610724,
+      "sha256": "ef35de468244f5b80735487d1b1d6c8641619bd2156ac6e0b282d70077e3fafb",
+      "batch": "Wave8-Verified"
+    },
+    {
+      "asset_id": "W8-04",
+      "name": "99_agent_inbox/deepseek / D-W8_2024_2026_rna_tools_citation_snowball.md",
+      "primary_source_or_version": "DeepSeek_D_W8_Tools_License_Snowball",
+      "local_location": "/Users/alex/Documents/deepseek-harness/default-workspace/D-W8_2024_2026_rna_tools_citation_snowball.md",
+      "drive_id": "1AIvud9vqweeSoZ6JKGDOSAIGLCDuyGJv",
+      "official_or_archive_url": "https://drive.google.com/file/d/1AIvud9vqweeSoZ6JKGDOSAIGLCDuyGJv/view",
+      "verification_status": "已入库99_agent_inbox/deepseek(核实6大工具三层许可+8个滚雪球基准直链含Cell Res 2026 circRNA 445 KB/Chen 2023/NSMB 2026 563 KB显式CC-BY-4.0 HTTP 200)",
+      "license_track": "commercial_clean",
+      "size_bytes": 10380,
+      "sha256": "fbe6f49011bc0eb20adb8343a1584ad16eff35e7784370d98bfe67e01f60b7ae",
+      "batch": "Wave8-Verified"
+    },
+    {
+      "asset_id": "W8-05",
+      "name": "99_agent_inbox/gpt_dot & 04_corpus_and_claims/patents_and_regulatory / A-W8_rna_tools_reference_datasets_and_fto_snowball.md",
+      "primary_source_or_version": "GPT62_Astra_Ultra_A_W8_Landscape_Data_FTO",
+      "local_location": "/Users/alex/.gemini/antigravity/brain/7f2d42f9-a0bb-4eda-ae58-37a783141565/scratch/wave8_astra_research/A-W8_rna_tools_reference_datasets_and_fto_snowball.md",
+      "drive_id": "1g55s7Aw9Bxt4Id9fRqWEEBA7rJCmv0jw",
+      "official_or_archive_url": "https://drive.google.com/file/d/1g55s7Aw9Bxt4Id9fRqWEEBA7rJCmv0jw/view",
+      "verification_status": "已双归档(gpt_dot+patents_and_regulatory; 16大工具三层许可+4篇2026顶刊+12个去重新增实验基准+Top-5 ROI; 首报中国授权方法专利CN119265214B FTO预警及MultiStructRNA GPL隐性依赖)",
+      "license_track": "commercial_clean",
+      "size_bytes": 37011,
+      "sha256": "d54d7bb0c8ada423d4ef67f78a927dadcc7f596d234532873fd607138be78575",
+      "batch": "Wave8-Verified"
+    },
+    {
+      "asset_id": "W9-01",
+      "name": "patents_and_regulatory & curated_registries_v2 / G-W8 (3 files) + G-W8_vs_A-W8_cross_audit.md + method_fto_guard_v1.json",
+      "primary_source_or_version": "mRNAx_Method_FTO_Guard_v1_G_W8",
+      "local_location": "/Users/alex/.gemini/antigravity/brain/7f2d42f9-a0bb-4eda-ae58-37a783141565/scratch/wave9/deliverables/method_fto_guard_v1.json",
+      "drive_id": "1whg_UlKewC6CSm71ipG_Ov_raxZ1Tuh6",
+      "official_or_archive_url": "https://drive.google.com/file/d/1whg_UlKewC6CSm71ipG_Ov_raxZ1Tuh6/view",
+      "verification_status": "已入库(已与A-W8逐项实核交叉纠偏; 收录CN119265214B/CN118038986B/US11848074B2/US12706176B1/US10898584B2/US20220269951A1边界; 后于W11升级至v1.1)",
+      "license_track": "commercial_clean",
+      "size_bytes": 127029,
+      "sha256": "5405aa23194a70e9d13eae8d29bd6ea1c1e1a6779dc28a4d8a7d848081a4db13",
+      "batch": "Wave9-Verified"
+    },
+    {
+      "asset_id": "W9-02",
+      "name": "curated_benchmarks_v1 / Wave 9 Top-5 Wet-Lab Parquets: pmc12355064 (9) + su2025_elife97682 (5,072, 0 HGMD) + rmdb_eterna_r69 (1,600 CC0) + rmdb_ok7blib_2a3 (4,932 CC0) + floor_doudna_tripseq (214,280)",
+      "primary_source_or_version": "mRNAx_Wave9_Top5_Benchmarks_v1",
+      "local_location": "/Users/alex/.gemini/antigravity/brain/7f2d42f9-a0bb-4eda-ae58-37a783141565/scratch/wave9/parquets",
+      "drive_id": "1xJsMh9lafOmBy_NhtFLw_YJW4KxRGhkX",
+      "official_or_archive_url": "https://drive.google.com/drive/folders/1ORULrQfMmE64o478k5WrDJI2xOqv-Q4Z",
+      "verification_status": "已入库02_commercial_clean/curated_benchmarks_v1(5份核心表+3层许可清核; Su 2025去HGMD列并限定内部评测; RMDB全为显式CC0-1.0)",
+      "license_track": "commercial_clean",
+      "size_bytes": 21355874,
+      "sha256": "d55900757c639107f116ce6eb15799742da5198d709217a8c7ff0651997ad93a",
+      "batch": "Wave9-Verified"
+    },
+    {
+      "asset_id": "W9-03",
+      "name": "curated_benchmarks_v1 / 3-Lab circRNA Pack (CC-BY-4.0): Cell Res 2026 (70 rows incl. 9 SV-A SHAPE) + NSMB 2026 PMC13759317 (846 RBPs) + Chen Nat Biotechnol 2023 (536 rows)",
+      "primary_source_or_version": "mRNAx_circRNA_3Lab_Clean_v1",
+      "local_location": "/Users/alex/.gemini/antigravity/brain/7f2d42f9-a0bb-4eda-ae58-37a783141565/scratch/wave9/parquets",
+      "drive_id": "1ViN9xuJzx6hLBRWxSqGpGDa8eP0QzAeJ",
+      "official_or_archive_url": "https://drive.google.com/drive/folders/1ORULrQfMmE64o478k5WrDJI2xOqv-Q4Z",
+      "verification_status": "已入库02_commercial_clean/curated_benchmarks_v1(显式CC-BY-4.0三独立实验室分轨标注; 已显式声明Chen 2023与GSE178718/structRFM重叠边界)",
+      "license_track": "commercial_clean",
+      "size_bytes": 609116,
+      "sha256": "0d3f01b50af2b626579006765f2cd82a0af780d181bd95d31880c6c6a65f4c03",
+      "batch": "Wave9-Verified"
+    },
+    {
+      "asset_id": "W10-01",
+      "name": "m15_model_shootout_v1 / wave10_shootout_results_v1.json + LICENSE_RECORD_wave10_commercial_clean.json + detached receipt (Colab L4, 2.51 CU, 0 idle VMs)",
+      "primary_source_or_version": "mRNAx_Wave10_Colab_Shootout_v1",
+      "local_location": "/Users/alex/.gemini/antigravity/brain/7f2d42f9-a0bb-4eda-ae58-37a783141565/scratch/wave10/out/wave10_shootout_results_v1.json",
+      "drive_id": "1aB8jpVO25sAa9GRjDB5fpdyAAwMJKVgV",
+      "official_or_archive_url": "https://drive.google.com/file/d/1aB8jpVO25sAa9GRjDB5fpdyAAwMJKVgV/view",
+      "verification_status": "已入库并经A-W11审计修复(已剔除3处ViennaRNA衍生mfe块并独立签发receipt; EternaFold全量6,532构建+Mauger全胜ViennaRNA; CodonTransformer 101 seq/s; Su OOD未达0.25门控诚实0 joblib上传)",
+      "license_track": "commercial_clean",
+      "size_bytes": 76351,
+      "sha256": "0b7ec6f2dcdabe325a5573832c3edeb982e9710f88a9f6747e52e9449a7fec22",
+      "batch": "Wave10-Verified"
+    },
+    {
+      "asset_id": "W10-02",
+      "name": "m15_model_shootout_v1 / RC-005-codontransformer-v1.0.yaml (Apache-2.0 Code/Weights + Zenodo 12509224 CC-BY-4.0; HF SHA 9744dcc920d8)",
+      "primary_source_or_version": "RC-005-codontransformer-v1.0",
+      "local_location": "/Users/alex/.gemini/antigravity/brain/7f2d42f9-a0bb-4eda-ae58-37a783141565/scratch/wave10/out/RC-005-codontransformer-v1.0.yaml",
+      "drive_id": "19AD24rXaodXiMC7Gj8E9U5h64naf9Xu_",
+      "official_or_archive_url": "https://drive.google.com/file/d/19AD24rXaodXiMC7Gj8E9U5h64naf9Xu_/view",
+      "verification_status": "已入库并经A-W11收紧声明(100% AA一致/101.05 seq/s/2.565GB VRAM; Leppek24 6h=+0.505 vs CAI 0.019; 必配m1Psi UUUU滑移过滤与结构头联用)",
+      "license_track": "commercial_clean",
+      "size_bytes": 9696,
+      "sha256": "0b4e3b771088da7b740ab1645799fa4d3dba106426ece3e986ed8aefee43a1ef",
+      "batch": "Wave10-Verified"
+    },
+    {
+      "asset_id": "W10-03",
+      "name": "m15_model_shootout_v1 / RC-004-eternafold-v1.3.1.yaml (BSD-3-Clause 0-ViennaRNA core; HELD at commercial_clearance_pending pending S-Processed data audit)",
+      "primary_source_or_version": "RC-004-eternafold-v1.3.1",
+      "local_location": "/Users/alex/.gemini/antigravity/brain/7f2d42f9-a0bb-4eda-ae58-37a783141565/scratch/wave10/out/RC-004-eternafold-v1.3.1.yaml",
+      "drive_id": "1hxrdKgsDwjiTU-4Hv2bqB4P742TPyPBR",
+      "official_or_archive_url": "https://drive.google.com/file/d/1hxrdKgsDwjiTU-4Hv2bqB4P742TPyPBR/view",
+      "verification_status": "已入库且按A-W11 C3降级挂起至commercial_clearance_pending(实测全胜ViennaRNA U/moU/m1Psi且ldd零GPL, 但须先清核上游S-Processed训练数据许可方可商用激活)",
+      "license_track": "commercial_clearance_pending",
+      "size_bytes": 9417,
+      "sha256": "72c5f0634e7f9f89f6f9fe98724c63f7b115c58efdd50d7573b58db20ae83e51",
+      "batch": "Wave10-Verified"
+    },
+    {
+      "asset_id": "W11-01",
+      "name": "patents_and_regulatory & curated_registries_v2 / G-W9 (4 files) + G-W9_live_verification_audit.md + method_fto_guard_v1.1.json",
+      "primary_source_or_version": "mRNAx_Method_FTO_Guard_v1_1_G_W9",
+      "local_location": "/Users/alex/.gemini/antigravity/brain/7f2d42f9-a0bb-4eda-ae58-37a783141565/scratch/wave11/deliverables/method_fto_guard_v1.1.json",
+      "drive_id": "1h2S4XUc8tB1CwfbdG0xjRBEBceay-Rgh",
+      "official_or_archive_url": "https://drive.google.com/file/d/1h2S4XUc8tB1CwfbdG0xjRBEBceay-Rgh/view",
+      "verification_status": "已入库(实核解决G-W9 5/6待查专利: 补齐EP3551758B1纯软件权项1/JP7367090B2/US12533422B2/US20260284227A1/US20220269951A1 STCV; 标明POLICY_SPECIFICATION_ONLY)",
+      "license_track": "commercial_clean",
+      "size_bytes": 147531,
+      "sha256": "05318a497b42e332239605d275f8838ca46e36e5dd7d0236f0f15c5275fac7e7",
+      "batch": "Wave11-Verified"
+    },
+    {
+      "asset_id": "W11-02",
+      "name": "curated_benchmarks_v1 / Wave 11 Bonus 5 CC-BY-4.0 Parquets (108,254 rows): polya_ninetails2025 (101,138) + polya_fuhrmann2026 (4,336) + sarna_vijayan2024 (1,881) + m1psi_kuzmin2024 (495) + m1psi_poulis_rodnina2026 (404)",
+      "primary_source_or_version": "mRNAx_Wave11_saRNA_polyA_m1Psi_Clean_v1",
+      "local_location": "/Users/alex/.gemini/antigravity/brain/7f2d42f9-a0bb-4eda-ae58-37a783141565/scratch/wave11/parquets",
+      "drive_id": "1zpvogZmegR2SF-EWiGxuyJP12H5S4BNP",
+      "official_or_archive_url": "https://drive.google.com/drive/folders/1ORULrQfMmE64o478k5WrDJI2xOqv-Q4Z",
+      "verification_status": "已入库02_commercial_clean/curated_benchmarks_v1(首份商业洁净saRNA基准+人源/IVT poly(A)尾长+m1Psi先天免疫与重编码实测表; 已剔除3条Fuhrmann脚注行并隔离CC-BY-NC PMC12230237)",
+      "license_track": "commercial_clean",
+      "size_bytes": 2439552,
+      "sha256": "a81be206b56118264a258f1db17320eb9bfdad711d742b3555b590bdfd879d84",
+      "batch": "Wave11-Verified"
+    },
+    {
+      "asset_id": "W11-03",
+      "name": "curated_registries_v2 / rules_commercial_v1.3.0.json (19 rules: 2 verified + 17 conditional) + rule_observation_ledger_v1.3.json + wave11_carbon_advisories.json",
+      "primary_source_or_version": "mRNAx_Rules_v1.3.0_Tribunal_Clean",
+      "local_location": "/Users/alex/.gemini/antigravity/brain/7f2d42f9-a0bb-4eda-ae58-37a783141565/scratch/wave11/deliverables/rules_commercial_v1.3.0.json",
+      "drive_id": "1FJH-TrvKtbSCHcoVJw1VzJRYPbN3kV-t",
+      "official_or_archive_url": "https://drive.google.com/file/d/1FJH-TrvKtbSCHcoVJw1VzJRYPbN3kV-t/view",
+      "verification_status": "已入库并通过mrnax-v2实时Pydantic+validate_rules_integrity校验(经A-W11保守裁决零膨胀: 004/007为verified_rule, 其余17条conditional; 附surrogates.py冗余字典bug通告)",
+      "license_track": "commercial_clean",
+      "size_bytes": 62575,
+      "sha256": "6ff00bfd71c20d95072dda64c1724b1b712b37e81652bfdc0cc14c9710350124",
+      "batch": "Wave11-Verified"
+    },
+    {
+      "asset_id": "W11-04",
+      "name": "99_agent_inbox/gpt_dot / A-W11_overnight_final_audit.md + wave11_remediation_receipt.json (5/5 Critical C1-C5 + Important/Minor remediated & 18/18 SHA-256 verified)",
+      "primary_source_or_version": "GPT62_Astra_Ultra_A_W11_Final_Audit",
+      "local_location": "/Users/alex/.gemini/antigravity/brain/7f2d42f9-a0bb-4eda-ae58-37a783141565/scratch/wave11/A-W11_overnight_final_audit.md",
+      "drive_id": "119dgFKiIgkn6zTnrr42ug-KusoMWSFUm",
+      "official_or_archive_url": "https://drive.google.com/file/d/119dgFKiIgkn6zTnrr42ug-KusoMWSFUm/view",
+      "verification_status": "已入库99_agent_inbox/gpt_dot(独立gpt-6.2-astra ultra终审初判BLOCKED发现C1-C5, 全部已就地修清并18/18 SHA-256与Drive体积复验通过)",
+      "license_track": "commercial_clean",
+      "size_bytes": 39387,
+      "sha256": "7f938aaef47fc242550441be1bbea2098afc6781805c6169a2791fb7cf4a0571",
+      "batch": "Wave11-Verified"
+    },
+    {
+      "asset_id": "W12-01",
+      "name": "00_manifests / CARBON_INTEGRATION_MANIFEST_V9.json (Turnkey Waves 8-11 Carbon Handoff Manifest)",
+      "primary_source_or_version": "CARBON_INTEGRATION_MANIFEST_V9",
+      "local_location": "/Users/alex/.gemini/antigravity/brain/7f2d42f9-a0bb-4eda-ae58-37a783141565/scratch/wave12/CARBON_INTEGRATION_MANIFEST_V9.json",
+      "drive_id": "1EeP-O8KWl7OLjCmsOA8vk2ZdLZvqSOKt",
+      "official_or_archive_url": "https://drive.google.com/file/d/1EeP-O8KWl7OLjCmsOA8vk2ZdLZvqSOKt/view",
+      "verification_status": "已入库00_manifests(全量整合Waves 8.5-11 13份新Parquet/规则库v1.3/方法FTO v1.1/RC-005/RC-004挂起状态/surrogates.py bug通告与A-W11整改回执)",
+      "license_track": "commercial_clean",
+      "size_bytes": 15600,
+      "sha256": "8bab5b956f69e1b1ed7addbac9170afee6f2913c641c1baca4cea7da78713d4b",
+      "batch": "Wave12-Verified"
+    }
+  ]
+}

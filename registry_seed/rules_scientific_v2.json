@@ -1,0 +1,1630 @@
+{
+  "schema_version": "2.0.0",
+  "rulebook_id": "mRNAx_Scientific_Quantitative_Rulebook_v2",
+  "generated_at_utc": "2026-11-27T18:03:13Z",
+  "supersedes": "rules_commercial_v1.json (v1.3.1, 19 rules)",
+  "deduplication_policy": "Strict lab-lineage and underlying-dataset deduplication enforced: cross_lab_verified requires >=2 independent wet-lab datasets from distinct author lineages with concordant direction and zero sample overlap; model outputs are never counted as biological wet-lab replications.",
+  "summary_counts": {
+    "total_rules": 38,
+    "legacy_v1_rules_preserved": 19,
+    "by_evidence_grade": {
+      "conditional": 22,
+      "cross_lab_verified": 2,
+      "mechanistic_heuristic": 8,
+      "debunked_myth": 6
+    },
+    "by_region": {
+      "5'UTR": 7,
+      "CDS": 14,
+      "3'UTR": 6,
+      "Poly(A)": 4,
+      "circRNA": 4,
+      "saRNA": 3
+    },
+    "enforced_in_generator_count": 27,
+    "unique_verified_citations": 49
+  },
+  "rules": [
+    {
+      "rule_id": "RUL-V2-5UTR-UAUG-001",
+      "legacy_v1_rule_id": "RUL-CC-5UTR-UAUG-001",
+      "title_zh": "5'UTR 严禁上游起始密码子 (uAUG / uORF)",
+      "title_en": "Eliminate Upstream AUG (uAUG) and Out-of-Frame uORFs in 5'UTR",
+      "modality": [
+        "linear_mrna",
+        "sarna"
+      ],
+      "region": "5'UTR",
+      "chemistries": [
+        "unmodified_u",
+        "pseudouridine",
+        "m1psi"
+      ],
+      "evidence_grade": "conditional",
+      "effect_size_summary": "GSE232927 synthetic 50-nt 5'UTR MPRA (N=25,000, HEK293T): uAUG count vs MRL Spearman rho=-0.5821 (95% CI [-0.5945, -0.5754]); Floor & Doudna 2016 endogenous TrIP-seq (50,739 isoforms / 11,928 genes): descriptive within-gene centered MRL rho=-0.1055 (uORF rho=-0.1008); concordant MRL drop across U/Psi/m1Psi in Sample 2019 GSE114002 (held conditional per A-W11 retrospective isoform-grouping gate).",
+      "citations": [
+        {
+          "authors": "Castillo-Hair et al.",
+          "year": 2024,
+          "journal": "Nat Commun",
+          "pmid": "38902240",
+          "pmcid": "PMC11189900",
+          "doi": "10.1038/s41467-024-49508-2"
+        },
+        {
+          "authors": "Floor & Doudna",
+          "year": 2016,
+          "journal": "eLife",
+          "pmid": "26735365",
+          "pmcid": "PMC4764583",
+          "doi": "10.7554/elife.10921"
+        },
+        {
+          "authors": "Sample et al.",
+          "year": 2019,
+          "journal": "Nat Biotechnol",
+          "pmid": "31267113",
+          "pmcid": "PMC7100133",
+          "doi": "10.1038/s41587-019-0164-5"
+        }
+      ],
+      "machine_check_key": "gate_uaug_5utr:uaug_free",
+      "enforced_in_generator": true,
+      "failure_modes": [
+        "Premature 43S initiation hijacks scanning ribosomes before reaching the canonical CDS start codon.",
+        "Out-of-frame uORFs synthesize truncated immunogenic peptides and trigger nonsense-mediated decay (NMD)-like ribosome release."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-5UTR-KOZAK-M3-002",
+      "legacy_v1_rule_id": "RUL-CC-5UTR-KOZAK-M3-002",
+      "title_zh": "起始密码子 -3 位嘌呤 (Kozak A/G) 强化核糖体识别",
+      "title_en": "Enforce Purine (A/G) at Position -3 in Kozak Translation Initiation Context",
+      "modality": [
+        "linear_mrna",
+        "sarna"
+      ],
+      "region": "5'UTR",
+      "chemistries": [
+        "unmodified_u",
+        "pseudouridine",
+        "m1psi"
+      ],
+      "evidence_grade": "conditional",
+      "effect_size_summary": "GSE232927 HEK293T 5'UTR MRL MPRA (N=25,000): position -3 purine (A/G) vs MRL Spearman rho=+0.2178 (p=4.34e-266, 95% CI [0.2060, 0.2327]); classical vertebrate consensus GCCRCCAUGG established across 699 mRNAs in Kozak 1987.",
+      "citations": [
+        {
+          "authors": "Castillo-Hair et al.",
+          "year": 2024,
+          "journal": "Nat Commun",
+          "pmid": "38902240",
+          "pmcid": "PMC11189900",
+          "doi": "10.1038/s41467-024-49508-2"
+        },
+        {
+          "authors": "Kozak",
+          "year": 1987,
+          "journal": "Nucleic Acids Res",
+          "pmid": "3313277",
+          "pmcid": "PMC306349",
+          "doi": "10.1093/nar/15.20.8125"
+        }
+      ],
+      "machine_check_key": "feature:utr5_kozak_m3_purine",
+      "enforced_in_generator": true,
+      "failure_modes": [
+        "Pyrimidine (C/U) at -3 causes leaky scanning past the canonical AUG into downstream internal AUG codons, generating N-terminally truncated isoforms."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-5UTR-GC-TIS-003",
+      "legacy_v1_rule_id": "RUL-CC-5UTR-GC-TIS-007",
+      "title_zh": "限制起始密码子前 15 nt 局部 GC 含量以保持起始区开放",
+      "title_en": "Constrain Local GC Content in the 15 nt Upstream of AUG (gc_tail15 <= 0.60)",
+      "modality": [
+        "linear_mrna"
+      ],
+      "region": "5'UTR",
+      "chemistries": [
+        "unmodified_u",
+        "m1psi"
+      ],
+      "evidence_grade": "cross_lab_verified",
+      "effect_size_summary": "Concordant negative effect across TWO independent CC-BY-4.0 labs with zero sample overlap: (1) Castillo-Hair et al. 2024 GSE232927 (Seelig Lab, N=25,000, HEK293T MRL): gc_tail15 Spearman rho=-0.0550 (p=3.15e-18); (2) Cao et al. 2021 GSE176581 (Lu Lab, N=4,000 adapter-stripped Top-2.5% GFP MPRA): rho=-0.0482 (p=2.28e-3).",
+      "citations": [
+        {
+          "authors": "Castillo-Hair et al.",
+          "year": 2024,
+          "journal": "Nat Commun",
+          "pmid": "38902240",
+          "pmcid": "PMC11189900",
+          "doi": "10.1038/s41467-024-49508-2"
+        },
+        {
+          "authors": "Cao et al.",
+          "year": 2021,
+          "journal": "Nat Commun",
+          "pmid": "34230498",
+          "pmcid": "PMC8260622",
+          "doi": "10.1038/s41467-021-24436-7"
+        }
+      ],
+      "machine_check_key": "feature:utr5_gc_tail15_cap",
+      "enforced_in_generator": true,
+      "failure_modes": [
+        "GC-dense stems immediately upstream of AUG sequester the Kozak box in stable base pairs with N-terminal CDS codons, blocking 48S pre-initiation complex assembly."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-5UTR-G4-CAP-STEM-004",
+      "legacy_v1_rule_id": null,
+      "title_zh": "规避 5'UTR RNA G-四链体与帽近端超稳定发夹",
+      "title_en": "Avoid 5'UTR Canonical RNA G-Quadruplexes and Cap-Proximal Hyper-Stable Hairpins",
+      "modality": [
+        "linear_mrna"
+      ],
+      "region": "5'UTR",
+      "chemistries": [
+        "unmodified_u",
+        "pseudouridine",
+        "m1psi"
+      ],
+      "evidence_grade": "mechanistic_heuristic",
+      "effect_size_summary": "Cap-proximal hairpins stronger than dG < -30 kcal/mol within 12 nt of the 5' m7G cap sterically block eIF4F cap-binding, and canonical G4 motifs (G{3,}N{1,7}x4) increase eIF4A helicase burden and reduce MRL in 5'UTR MPRA screens.",
+      "citations": [
+        {
+          "authors": "Leppek, Das & Barna",
+          "year": 2018,
+          "journal": "Nat Rev Mol Cell Biol",
+          "pmid": "29165424",
+          "pmcid": "PMC5820134",
+          "doi": "10.1038/nrm.2017.103"
+        },
+        {
+          "authors": "Sample et al.",
+          "year": 2019,
+          "journal": "Nat Biotechnol",
+          "pmid": "31267113",
+          "pmcid": "PMC7100133",
+          "doi": "10.1038/s41587-019-0164-5"
+        },
+        {
+          "authors": "Castillo-Hair et al.",
+          "year": 2024,
+          "journal": "Nat Commun",
+          "pmid": "38902240",
+          "pmcid": "PMC11189900",
+          "doi": "10.1038/s41467-024-49508-2"
+        }
+      ],
+      "machine_check_key": "feature:utr5_has_g4_false",
+      "enforced_in_generator": true,
+      "failure_modes": [
+        "5'-terminal stems occlude the cap0/cap1 dinucleotide from eIF4E binding and reduce co-transcriptional capping efficiency during T7 IVT."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-5UTR-CLEANCAP-DINUC-005",
+      "legacy_v1_rule_id": null,
+      "title_zh": "T7 启动子 +1/+2 起始二核苷酸与加帽化学精确匹配",
+      "title_en": "Match 5' +1/+2 Initiation Dinucleotide (5'-AG vs 5'-GG) to Capping Chemistry",
+      "modality": [
+        "linear_mrna",
+        "sarna"
+      ],
+      "region": "5'UTR",
+      "chemistries": [
+        "unmodified_u",
+        "pseudouridine",
+        "m1psi"
+      ],
+      "evidence_grade": "mechanistic_heuristic",
+      "effect_size_summary": "Co-transcriptional CleanCap AG (m7GpppAmG) requires a T7 Class III phi6.5 promoter with +1/+2 5'-AG initiation to achieve >94-99% Cap-1 incorporation (vs CleanCap AU 5'-AU for alphavirus saRNA; ARCA/enzymatic capping uses 5'-GG).",
+      "citations": [
+        {
+          "authors": "Henderson et al.",
+          "year": 2021,
+          "journal": "Curr Protoc",
+          "pmid": "33524237",
+          "pmcid": null,
+          "doi": "10.1002/cpz1.39"
+        }
+      ],
+      "machine_check_key": "advisory:adv_cap_cleancap_ag",
+      "enforced_in_generator": true,
+      "failure_modes": [
+        "Mismatched +1/+2 dinucleotide causes uncapped 5'-ppp-RNA slippage transcripts that potently activate cytosolic RIG-I and IFIT1."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-5UTR-LENGTH-WINDOW-006",
+      "legacy_v1_rule_id": null,
+      "title_zh": "5'UTR 长度控制在紧凑扫描窗口 (35–150 nt)",
+      "title_en": "Maintain Compact 5'UTR Scanning Length Window (35–150 nt)",
+      "modality": [
+        "linear_mrna"
+      ],
+      "region": "5'UTR",
+      "chemistries": [
+        "unmodified_u",
+        "pseudouridine",
+        "m1psi"
+      ],
+      "evidence_grade": "conditional",
+      "effect_size_summary": "Clinical mRNA leaders cluster at 37–78 nt (HBA1 37 nt, Moderna 47–57 nt, BNT162b2 54 nt, HBB 50 nt); GSM4084997 varying-length MPRA (25–100 nt) shows ultra-short leaders (<20 nt) suffer 43S cap-to-AUG steric clash while >200 nt leaders accumulate inhibitory stems and cryptic CUG/GUG TIS.",
+      "citations": [
+        {
+          "authors": "Sample et al.",
+          "year": 2019,
+          "journal": "Nat Biotechnol",
+          "pmid": "31267113",
+          "pmcid": "PMC7100133",
+          "doi": "10.1038/s41587-019-0164-5"
+        },
+        {
+          "authors": "Cao et al.",
+          "year": 2021,
+          "journal": "Nat Commun",
+          "pmid": "34230498",
+          "pmcid": "PMC8260622",
+          "doi": "10.1038/s41467-021-24436-7"
+        }
+      ],
+      "machine_check_key": "registry:utr5_length_bounds",
+      "enforced_in_generator": true,
+      "failure_modes": [
+        "Leaders <20 nt cause leaky scanning past the first AUG; overly long leaders (>250 nt) increase hydrolytic target length without proportional MRL gain."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-CDS-CSC-GC3-STAB-007",
+      "legacy_v1_rule_id": "RUL-CC-CDS-CODON-OPT-STAB-003",
+      "title_zh": "人源最优密码子稳定系数 (CSC) 与第三位 GC3 提升胞内半衰期",
+      "title_en": "Enrich Optimal Human Codon Stabilization Coefficients (CSC) and Wobble GC3",
+      "modality": [
+        "linear_mrna"
+      ],
+      "region": "CDS",
+      "chemistries": [
+        "unmodified_u",
+        "m1psi"
+      ],
+      "evidence_grade": "conditional",
+      "effect_size_summary": "Wu et al. 2019 eLife 45396 endogenous decay: HEK293T CAI rho=+0.1042 (N=13,079, p=6.76e-33) and K562 SLAM-seq GC3 rho=+0.1346 (N=8,789, p=8.21e-37); corroborated by Hia et al. 2019 EMBO Rep showing GC3-ending codons stabilize human mRNAs relative to AU3-ending codons via ILF2/DDX6 axes.",
+      "citations": [
+        {
+          "authors": "Wu et al.",
+          "year": 2019,
+          "journal": "eLife",
+          "pmid": "31012849",
+          "pmcid": "PMC6529216",
+          "doi": "10.7554/elife.45396"
+        },
+        {
+          "authors": "Hia et al.",
+          "year": 2019,
+          "journal": "EMBO Rep",
+          "pmid": "31482640",
+          "pmcid": "PMC6831995",
+          "doi": "10.15252/embr.201948220"
+        },
+        {
+          "authors": "Presnyak et al.",
+          "year": 2015,
+          "journal": "Cell",
+          "pmid": "25768907",
+          "pmcid": "PMC4359748",
+          "doi": "10.1016/j.cell.2015.02.029"
+        }
+      ],
+      "machine_check_key": "objective:cds_stability_pred",
+      "enforced_in_generator": true,
+      "failure_modes": [
+        "High AU3 codon density accelerates CCR4-NOT-dependent co-translational mRNA decay; however, pushing C-enrichment >=65% over wild-type triggers CureVac US10898584B2 method-FTO gate."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-CDS-BICODON-HOMEOSTASIS-008",
+      "legacy_v1_rule_id": "RUL-CC-CDS-BICODON-CSC-010",
+      "title_zh": "全长连续双密码子 (Bicodon) 稳定性优化与内源 GC 稳态约束",
+      "title_en": "Optimize Adjacent Bicodon Stability Pairs Under Human GC Homeostasis (52–60%)",
+      "modality": [
+        "linear_mrna",
+        "circrna",
+        "sarna"
+      ],
+      "region": "CDS",
+      "chemistries": [
+        "unmodified_u",
+        "m1psi"
+      ],
+      "evidence_grade": "conditional",
+      "effect_size_summary": "Across 13,642 human GENCODE v49 genes mapped to Saluki 39-study PC1 half-life: top stabilizing codons AUC (+0.1796), GUG (+0.1736), GUC (+0.1445) vs destabilizing AGU (-0.1719), CAU (-0.1667), UCA (-0.1619); destabilizing bicodons CAU-ACU (-3.66 log2) and GAA-UGU (-3.38 log2) strongly deplete top-decile half-life transcripts.",
+      "citations": [
+        {
+          "authors": "Agarwal & Kelley",
+          "year": 2022,
+          "journal": "Genome Biol",
+          "pmid": "36419176",
+          "pmcid": "PMC9684954",
+          "doi": "10.1186/s13059-022-02811-x"
+        },
+        {
+          "authors": "Wu et al.",
+          "year": 2019,
+          "journal": "eLife",
+          "pmid": "31012849",
+          "pmcid": "PMC6529216",
+          "doi": "10.7554/elife.45396"
+        }
+      ],
+      "machine_check_key": "proposer:propose_non_partitioned_bicodon_cds",
+      "enforced_in_generator": true,
+      "failure_modes": [
+        "Ignoring adjacent codon-pair context leaves ribosome-collision stall pairs intact; two-zone 5'-initiation/body hard partitioning violates CN119265214B method-FTO boundary."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-CDS-M1PSI-SLIPPERY-009",
+      "legacy_v1_rule_id": "RUL-CC-M1PSI-FRAMESHIFT-009",
+      "title_zh": "m1Psi/Psi 修饰 CDS 强制同义消除 U{4,} 与 UUUC 核糖体 +1 移码基序",
+      "title_en": "Deterministically Eliminate Slippery U{4,} Runs and UUUC Motifs in m1Psi/Psi CDS",
+      "modality": [
+        "linear_mrna"
+      ],
+      "region": "CDS",
+      "chemistries": [
+        "pseudouridine",
+        "m1psi"
+      ],
+      "evidence_grade": "conditional",
+      "effect_size_summary": "Mulroney et al. 2024 Nature (Fig 2b +1FS T-cell ELISpot 249.1 vs 19.1 SFU/10^6) and Poulis & Rodnina 2026 Nat Commun (HEK293T dual-fluorescence m1Psi/U recoding ratios up to 3.162x at U3238-C3241 across 6 sites; synonymous UUUC->UUCC reduces ratio to 1.048x, Mann-Whitney p=5.04e-4). Held conditional biologically per A-W11 C5 while enforced deterministically as a zero-AA-change engineering gate.",
+      "citations": [
+        {
+          "authors": "Mulroney et al.",
+          "year": 2024,
+          "journal": "Nature",
+          "pmid": "38057663",
+          "pmcid": "PMC10764286",
+          "doi": "10.1038/s41586-023-06800-3"
+        },
+        {
+          "authors": "Poulis, Rodnina et al.",
+          "year": 2026,
+          "journal": "Nat Commun",
+          "pmid": "42805987",
+          "pmcid": "PMC13620113",
+          "doi": "10.1038/s41467-026-77796-3"
+        }
+      ],
+      "machine_check_key": "gate_m1psi_frameshift:m1psi_slippery_free",
+      "enforced_in_generator": true,
+      "failure_modes": [
+        "Unremediated UUUU / UUUUU / UUUC stretches in m1Psi IVT mRNA cause aminoacyl-tRNA slippage (+1 frameshifting), producing off-frame neoepitopes and premature termination products."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-CDS-HYDROLYSIS-AUP-ORTHOGONAL-010",
+      "legacy_v1_rule_id": "RUL-CC-CDS-AUP-HYDROLYSIS-005",
+      "title_zh": "降低平均未配对概率 (AUP) 减缓体外溶液水解并与胞内半衰期分轴优化",
+      "title_en": "Reduce Average Unpaired Probability (AUP) for Shelf Stability Orthogonal to Cellular Half-Life",
+      "modality": [
+        "linear_mrna",
+        "circrna",
+        "sarna"
+      ],
+      "region": "CDS",
+      "chemistries": [
+        "unmodified_u",
+        "pseudouridine",
+        "m1psi"
+      ],
+      "evidence_grade": "conditional",
+      "effect_size_summary": "Leppek et al. 2022 Nat Commun (GSE173083): EternaFold predicted AUP strongly anticorrelates with in-solution hydrolysis half-life across 24 CDS designs (Spearman rho=-0.7617, p=1.53e-5), whereas in-solution half-life vs cellular PERSIST-seq half-life across N=191 constructs is uncorrelated (rho=-0.1243, p=0.0866).",
+      "citations": [
+        {
+          "authors": "Leppek et al.",
+          "year": 2022,
+          "journal": "Nat Commun",
+          "pmid": "35318324",
+          "pmcid": "PMC8940940",
+          "doi": "10.1038/s41467-022-28776-w"
+        },
+        {
+          "authors": "Zhang et al.",
+          "year": 2023,
+          "journal": "Nature",
+          "pmid": "37130545",
+          "pmcid": "PMC10499610",
+          "doi": "10.1038/s41586-023-06127-z"
+        },
+        {
+          "authors": "Wayment-Steele et al.",
+          "year": 2022,
+          "journal": "Nat Methods",
+          "pmid": "36192461",
+          "pmcid": "PMC9839360",
+          "doi": "10.1038/s41592-022-01605-0"
+        }
+      ],
+      "machine_check_key": "pareto_axis:in_solution_aup_vs_cellular_halflife",
+      "enforced_in_generator": false,
+      "failure_modes": [
+        "Flexible single-stranded loops allow 2'-OH nucleophilic inline attack on the phosphodiester backbone during LNP storage/shipping, causing full-length RNA fragmentation."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-CDS-CHEM-M1PSI-STRUCT-SHIFT-011",
+      "legacy_v1_rule_id": "RUL-CC-CHEM-M1PSI-STRUCT-SHIFT-006",
+      "title_zh": "按尿苷修饰化学体系 (U vs 5moU vs m1Psi) 路由二级结构预测探针",
+      "title_en": "Route Secondary-Structure Scoring to Chemistry-Specific Probes (m1Psi vs Unmodified U)",
+      "modality": [
+        "linear_mrna"
+      ],
+      "region": "CDS",
+      "chemistries": [
+        "unmodified_u",
+        "5mou",
+        "m1psi"
+      ],
+      "evidence_grade": "conditional",
+      "effect_size_summary": "Mauger et al. 2019 PNAS (GSE139176, 39 synonymous fLuc constructs x 3 chemistries): m1Psi stabilizes base stacking (median per-nt SHAPE reactivity drops from U=0.3572 to m1Psi=0.3324) and breaks construct-mean reactivity rank concordance (Spearman rho=-0.0686); native m1Psi-trained structRFM probe reaches OOD rho=0.5918 vs 0.5124 when transferring a U-trained probe.",
+      "citations": [
+        {
+          "authors": "Mauger et al.",
+          "year": 2019,
+          "journal": "PNAS",
+          "pmid": "31712433",
+          "pmcid": "PMC6883848",
+          "doi": "10.1073/pnas.1908052116"
+        },
+        {
+          "authors": "Zhu et al.",
+          "year": 2026,
+          "journal": "Nature",
+          "pmid": "42983082",
+          "pmcid": null,
+          "doi": "10.1038/s41586-026-11210-2"
+        }
+      ],
+      "machine_check_key": "evaluator:structrfm_shapemap_mpU_probe",
+      "enforced_in_generator": false,
+      "failure_modes": [
+        "Applying unmodified-U Turner parameters blindly to m1Psi constructs misranks local stem stability and underpredicts G:m1Psi wobble/stacking stabilization."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-CDS-CODONTRANSFORMER-PARTNER-012",
+      "legacy_v1_rule_id": "RUL-CC-CDS-CODONTRANSFORMER-M1PSI-FILTER-012",
+      "title_zh": "上下文神经密码子生成 (CodonTransformer) 须与结构/稳定性评估头及滑移门联用",
+      "title_en": "Pair Neural Context-Aware CDS Generation (CodonTransformer) with Structure Heads and Slippery-Run Filtering",
+      "modality": [
+        "linear_mrna"
+      ],
+      "region": "CDS",
+      "chemistries": [
+        "unmodified_u",
+        "m1psi"
+      ],
+      "evidence_grade": "conditional",
+      "effect_size_summary": "Wave 10 RC-005 shootout: CodonTransformer v1.0 (Homo sapiens) zero-shot log-likelihood beats CAI on Leppek24 cellular expression (6h rho=+0.5052 vs +0.0191; 24h +0.4365 vs +0.1930) and all 4 Wu 2019 human cell lines (|rho|=0.151–0.190), but anticorrelates with in-solution hydrolysis (rho=-0.2765) and emits 1–3 U{4,5} runs on 550-aa FLuc without post-filtering.",
+      "citations": [
+        {
+          "authors": "Fallahpour et al.",
+          "year": 2025,
+          "journal": "Nat Commun",
+          "pmid": "40180930",
+          "pmcid": "PMC11968976",
+          "doi": "10.1038/s41467-025-58588-7"
+        },
+        {
+          "authors": "Leppek et al.",
+          "year": 2022,
+          "journal": "Nat Commun",
+          "pmid": "35318324",
+          "pmcid": "PMC8940940",
+          "doi": "10.1038/s41467-022-28776-w"
+        },
+        {
+          "authors": "Wu et al.",
+          "year": 2019,
+          "journal": "eLife",
+          "pmid": "31012849",
+          "pmcid": "PMC6529216",
+          "doi": "10.7554/elife.45396"
+        }
+      ],
+      "machine_check_key": "rc005:m1psi_uuuc_u4_slippery_free+partner_head",
+      "enforced_in_generator": true,
+      "failure_modes": [
+        "Standalone masked-LM codon sampling optimizes evolutionary host mimicry rather than IVT chemical stability or m1Psi ribosomal fidelity."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-CDS-M1PSI-INNATE-SILENCING-013",
+      "legacy_v1_rule_id": "RUL-CC-M1PSI-INNATE-ISG-SUPPRESSION-018",
+      "title_zh": "m1Psi 替换联合尿苷减量与纯化协同抑制 TLR7/8 与 RIG-I/MDA5 先天免疫激活",
+      "title_en": "Combine m1Psi Substitution and U-Depletion to Suppress TLR7/8 and Cytosolic RLR/ISG Activation",
+      "modality": [
+        "linear_mrna"
+      ],
+      "region": "CDS",
+      "chemistries": [
+        "unmodified_u",
+        "m1psi"
+      ],
+      "evidence_grade": "conditional",
+      "effect_size_summary": "Kuzmin et al. 2024 Nat Commun (THP-1 human monocytes, 34-gene panel): full m1Psi substitution shifts innate sensor/ISG induction back to mock baseline (+5.19 Ct RIG-I, +4.33 Ct MDA5, +6.12 Ct IFNB, +7.46 Ct IFIT1, +7.34 Ct MX1); corroborated by Andries et al. 2015 and Nelson et al. 2020 showing m1Psi + low-dsRNA process minimizes IFN-beta translational shutdown.",
+      "citations": [
+        {
+          "authors": "Kuzmin et al.",
+          "year": 2024,
+          "journal": "Nat Commun",
+          "pmid": "39080316",
+          "pmcid": "PMC11289437",
+          "doi": "10.1038/s41467-024-50774-3"
+        },
+        {
+          "authors": "Andries et al.",
+          "year": 2015,
+          "journal": "J Control Release",
+          "pmid": "26342664",
+          "pmcid": null,
+          "doi": "10.1016/j.jconrel.2015.08.051"
+        },
+        {
+          "authors": "Nelson et al.",
+          "year": 2020,
+          "journal": "Sci Adv",
+          "pmid": "32637598",
+          "pmcid": "PMC7314518",
+          "doi": "10.1126/sciadv.aaz6893"
+        }
+      ],
+      "machine_check_key": "intent:chemistry_lock",
+      "enforced_in_generator": true,
+      "failure_modes": [
+        "Unmodified uridine-rich linear mRNAs activate endosomal TLR7/8 and cytosolic PKR/OAS, triggering eIF2alpha phosphorylation and rapid RNase L cleavage in non-vaccine protein-replacement therapies."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-CDS-DSRNA-LOOPBACK-T7-014",
+      "legacy_v1_rule_id": null,
+      "title_zh": "阻断分子内 >=25 bp 完美双链茎、3' 端回折自引物延伸及 T7 II 类终止信号",
+      "title_en": "Block >=25 bp Intramolecular Perfect Duplexes, 3' Loop-Back Self-Priming, and Class II T7 Terminators",
+      "modality": [
+        "linear_mrna",
+        "circrna",
+        "sarna"
+      ],
+      "region": "CDS",
+      "chemistries": [
+        "unmodified_u",
+        "pseudouridine",
+        "m1psi"
+      ],
+      "evidence_grade": "mechanistic_heuristic",
+      "effect_size_summary": "T7 RNA polymerase undergoes RNA-templated 3'-end foldback extension when the 3'-OH terminus base-pairs upstream (>=8–10 bp), generating antisense dsRNA >30–40 bp that activates MDA5; Class II pause/termination motif AUCUGUU (DNA ATCTGTT) induces premature IVT truncation.",
+      "citations": [
+        {
+          "authors": "Gholamalipour, Karunanayake Mudiyanselage & Martin",
+          "year": 2018,
+          "journal": "Nucleic Acids Res",
+          "pmid": "30219859",
+          "pmcid": "PMC6182178",
+          "doi": "10.1093/nar/gky796"
+        },
+        {
+          "authors": "Baiersdorfer et al.",
+          "year": 2019,
+          "journal": "Mol Ther Nucleic Acids",
+          "pmid": "30933724",
+          "pmcid": "PMC6444222",
+          "doi": "10.1016/j.omtn.2019.02.018"
+        },
+        {
+          "authors": "Karikó et al.",
+          "year": 2011,
+          "journal": "Nucleic Acids Res",
+          "pmid": "21890902",
+          "pmcid": "PMC3241667",
+          "doi": "10.1093/nar/gkr695"
+        }
+      ],
+      "machine_check_key": "gate_dsrna_and_loopback+gate_t7_terminator",
+      "enforced_in_generator": true,
+      "failure_modes": [
+        "Self-templated 3' extension produces full-length double-stranded contaminants resistant to standard spin-column cleanup, requiring cellulose/RP-HPLC purification."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-CDS-COTRANSLATIONAL-SLOWDOWN-015",
+      "legacy_v1_rule_id": null,
+      "title_zh": "跨结构域连接区与信号肽酶切位点保留适度延伸速率以保障共翻译折叠",
+      "title_en": "Preserve Moderate Elongation Codons at Domain Boundaries and Signal-Peptide Junctions",
+      "modality": [
+        "linear_mrna",
+        "circrna",
+        "sarna"
+      ],
+      "region": "CDS",
+      "chemistries": [
+        "unmodified_u",
+        "pseudouridine",
+        "m1psi"
+      ],
+      "evidence_grade": "mechanistic_heuristic",
+      "effect_size_summary": "Conserved non-optimal codon clusters ~30–40 aa downstream of structured domain boundaries (matching the ~35-aa ribosomal exit tunnel) coordinate SRP recognition and co-translational folding fidelity in multi-domain transmembrane and bispecific antibody constructs.",
+      "citations": [
+        {
+          "authors": "Pechmann, Willmund & Frydman",
+          "year": 2013,
+          "journal": "Mol Cell",
+          "pmid": "23583075",
+          "pmcid": "PMC3886275",
+          "doi": "10.1016/j.molcel.2013.03.010"
+        },
+        {
+          "authors": "Mauger et al.",
+          "year": 2019,
+          "journal": "PNAS",
+          "pmid": "31712433",
+          "pmcid": "PMC6883848",
+          "doi": "10.1073/pnas.1908052116"
+        }
+      ],
+      "machine_check_key": "generator:slowdown_codon_ranges",
+      "enforced_in_generator": true,
+      "failure_modes": [
+        "Uniformly maximizing elongation speed across multi-domain scFv/TCE or transmembrane proteins causes ER aggregation, misfolding, and reduced functional secreted titer despite high total mRNA."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-CDS-HOMOPOLYMER-TYPEIIS-CMC-016",
+      "legacy_v1_rule_id": null,
+      "title_zh": "消除 >7 nt 均聚物与质粒线性化 Type IIS 内切酶识别位点",
+      "title_en": "Eliminate >7 nt Non-Tail Homopolymers and Internal Type IIS Linearization Sites (BspQI/BsaI/BsmBI)",
+      "modality": [
+        "linear_mrna",
+        "circrna",
+        "sarna"
+      ],
+      "region": "CDS",
+      "chemistries": [
+        "unmodified_u",
+        "pseudouridine",
+        "m1psi"
+      ],
+      "evidence_grade": "mechanistic_heuristic",
+      "effect_size_summary": "Homopolymer runs >=8 nt (A8/C8/G8/U8) elevate T7 transcriptional indel error rates and synthesis drop-off; internal BspQI (GCUCUUC/GAAGAGC), BsaI (GGUCUC/GAGACC), or BsmBI (CGUCUC/GAGACG) sites cleave the DNA template internally during runoff linearization.",
+      "citations": [
+        {
+          "authors": "Henderson et al.",
+          "year": 2021,
+          "journal": "Curr Protoc",
+          "pmid": "33524237",
+          "pmcid": null,
+          "doi": "10.1002/cpz1.39"
+        },
+        {
+          "authors": "Thess et al.",
+          "year": 2015,
+          "journal": "Mol Ther",
+          "pmid": "26050989",
+          "pmcid": "PMC4817881",
+          "doi": "10.1038/mt.2015.103"
+        }
+      ],
+      "machine_check_key": "gate_homopolymer_max+gate_type_iis_restriction",
+      "enforced_in_generator": true,
+      "failure_modes": [
+        "Internal Type IIS cleavage truncates the IVT DNA template mid-ORF, completely abolishing full-length drug substance synthesis."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-3UTR-ARE-DECAY-017",
+      "legacy_v1_rule_id": "RUL-CC-3UTR-ARE-DECAY-004",
+      "title_zh": "剔除 3'UTR 富含 AU 元件 (ARE: AUUUA / UUAUUUAUU) 阻断快速去腺苷酸化降解",
+      "title_en": "Deplete 3'UTR AU-Rich Elements (AUUUA / UUAUUUAUU) to Prevent Accelerated mRNA Decay",
+      "modality": [
+        "linear_mrna",
+        "circrna"
+      ],
+      "region": "3'UTR",
+      "chemistries": [
+        "unmodified_u",
+        "pseudouridine",
+        "m1psi"
+      ],
+      "evidence_grade": "cross_lab_verified",
+      "effect_size_summary": "Verified across TWO independent CC-BY-4.0 labs and assay modalities with zero overlap: (1) Wu et al. 2019 eLife 45396 endogenous HEK293T decay (N=13,079): 3'UTR ARE count Spearman rho=-0.1911 (p=8.08e-108); (2) Siegel et al. 2022 G3 fastUTR 160-nt 3'UTR MPRA: BEAS-2B rho=-0.1831 (N=7,613, p=2.18e-58), Jurkat rho=-0.1918 (N=30,253, p=1.98e-248), plus causal single-ARE deletion stabilizing 74.8% (BEAS-2B, p=4.76e-17) and 68.1% (Jurkat, p=1.35e-97) of pairs.",
+      "citations": [
+        {
+          "authors": "Wu et al.",
+          "year": 2019,
+          "journal": "eLife",
+          "pmid": "31012849",
+          "pmcid": "PMC6529216",
+          "doi": "10.7554/elife.45396"
+        },
+        {
+          "authors": "Siegel et al.",
+          "year": 2022,
+          "journal": "G3 (Bethesda)",
+          "pmid": "34849835",
+          "pmcid": "PMC8728028",
+          "doi": "10.1093/g3journal/jkab404"
+        }
+      ],
+      "machine_check_key": "feature:utr3_are_auuua_cnt_eq_0",
+      "enforced_in_generator": true,
+      "failure_modes": [
+        "AUUUA pentamers and UUAUUUAUU nonamers recruit ZFP36 (TTP) and AUF1, triggering rapid CCR4-NOT deadenylation and decapping."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-3UTR-PUMILIO-CDE-RBP-018",
+      "legacy_v1_rule_id": null,
+      "title_zh": "规避 3'UTR Pumilio (UGUANAUA) 与 Roquin CDE 降解基序并保留 PCBP 富 C 稳定区",
+      "title_en": "Avoid Destabilizing Pumilio/Roquin 3'UTR Motifs While Preserving C-Rich alpha-CP (PCBP1/2) Sites",
+      "modality": [
+        "linear_mrna"
+      ],
+      "region": "3'UTR",
+      "chemistries": [
+        "unmodified_u",
+        "m1psi"
+      ],
+      "evidence_grade": "conditional",
+      "effect_size_summary": "Saluki 13,642-gene mammalian degradation model identifies Pumilio (UGUANAUA) and m6A/ARE sites among the strongest negative half-life determinants, whereas HBA1/HBA2 C-rich pyrimidine tracts bind PCBP1/2 (alpha-CP) to block erythroid/somatic endonucleolytic cleavage.",
+      "citations": [
+        {
+          "authors": "Agarwal & Kelley",
+          "year": 2022,
+          "journal": "Genome Biol",
+          "pmid": "36419176",
+          "pmcid": "PMC9684954",
+          "doi": "10.1186/s13059-022-02811-x"
+        },
+        {
+          "authors": "Giudice et al.",
+          "year": 2016,
+          "journal": "Database (Oxford)",
+          "pmid": "27055826",
+          "pmcid": "PMC4823821",
+          "doi": "10.1093/database/baw035"
+        },
+        {
+          "authors": "Orlandini von Niessen et al.",
+          "year": 2019,
+          "journal": "Mol Ther",
+          "pmid": "30638957",
+          "pmcid": "PMC6453560",
+          "doi": "10.1016/j.ymthe.2018.12.011"
+        }
+      ],
+      "machine_check_key": "feature:utr3_pumilio_cnt_and_c_rich_tracts",
+      "enforced_in_generator": true,
+      "failure_modes": [
+        "Cryptic UGUAAAUA Pumilio boxes introduced during 3'UTR assembly or spacer insertion cause deadenylase recruitment across somatic human tissues."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-3UTR-MIRNA-DETARGET-CASSETTE-019",
+      "legacy_v1_rule_id": null,
+      "title_zh": "3'UTR 串联 2–4 拷贝内源器官高表达 miRNA 完美互补靶点实现组织去靶向",
+      "title_en": "Insert 2–4 Copies of 22-nt Perfect-Complement Tissue miRNA Sites in 3'UTR for Organ Detargeting",
+      "modality": [
+        "linear_mrna"
+      ],
+      "region": "3'UTR",
+      "chemistries": [
+        "unmodified_u",
+        "pseudouridine",
+        "m1psi"
+      ],
+      "evidence_grade": "conditional",
+      "effect_size_summary": "Brown et al. 2006 Nat Med demonstrated >100-fold hematopoietic APC/myeloid suppression via 4x miR-142-3p sites; FANTOM5 human atlas confirms extreme organ enrichment for liver miR-122-5p (117,673 CPM, tau=0.934), CNS miR-124-3p (990 CPM, tau=0.971), endothelial miR-126-3p/5p (17,374–65,250 CPM), and clinical validation in Moderna mRNA-3705/mRNA-3927 (3x miR-142-3p sites in 3'UTR).",
+      "citations": [
+        {
+          "authors": "Brown et al.",
+          "year": 2006,
+          "journal": "Nat Med",
+          "pmid": "16633348",
+          "pmcid": null,
+          "doi": "10.1038/nm1398"
+        },
+        {
+          "authors": "de Rie et al.",
+          "year": 2017,
+          "journal": "Nat Biotechnol",
+          "pmid": "28829439",
+          "pmcid": "PMC5767576",
+          "doi": "10.1038/nbt.3947"
+        }
+      ],
+      "machine_check_key": "controller:assemble_detargeted_3utr",
+      "enforced_in_generator": true,
+      "failure_modes": [
+        "Placing miRNA sites <15 nt from the stop codon causes terminating-ribosome steric masking; selecting a miRNA expressed >500 CPM in the target tissue silences on-target therapeutic efficacy; burying target sites in local hairpins blocks RISC seed nucleation."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-3UTR-ORTHOLOG-HALFLIFE-020",
+      "legacy_v1_rule_id": "RUL-CC-ORTHOLOG-HALFLIFE-008",
+      "title_zh": "人鼠 1:1 直系同源 mRNA 内源半衰期排序高度保守支持临床前方向性先验",
+      "title_en": "Conserved Human-Mouse 1:1 Ortholog Half-Life Ranking Supports Preclinical Stability Priors",
+      "modality": [
+        "linear_mrna"
+      ],
+      "region": "3'UTR",
+      "chemistries": [
+        "unmodified_u"
+      ],
+      "evidence_grade": "conditional",
+      "effect_size_summary": "Across 10,955 human-mouse 1:1 ortholog pairs in Saluki (39 human studies vs 27 mouse studies): PC1 half-life Spearman rho=+0.7643 (Pearson r=+0.7754, p<1e-300).",
+      "citations": [
+        {
+          "authors": "Agarwal & Kelley",
+          "year": 2022,
+          "journal": "Genome Biol",
+          "pmid": "36419176",
+          "pmcid": "PMC9684954",
+          "doi": "10.1186/s13059-022-02811-x"
+        }
+      ],
+      "machine_check_key": "evaluator:saluki_consensus_halflife_pure_seq_lgbm",
+      "enforced_in_generator": false,
+      "failure_modes": [
+        "Species-specific miRNA seeds or LNP hepatocyte/splenic tropism differences between mouse and human can still invert in vivo protein AUC despite conserved intrinsic RNA decay rank."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-3UTR-COMPOSITE-SCAFFOLD-FTO-021",
+      "legacy_v1_rule_id": null,
+      "title_zh": "高稳定性内源/串联 3'UTR 骨架优选与已授权组合专利 FTO 强制隔离",
+      "title_en": "Select Validated High-Stability Human 3'UTR Scaffolds Subject to Patent Composition FTO Guards",
+      "modality": [
+        "linear_mrna"
+      ],
+      "region": "3'UTR",
+      "chemistries": [
+        "unmodified_u",
+        "pseudouridine",
+        "m1psi"
+      ],
+      "evidence_grade": "conditional",
+      "effect_size_summary": "Holtkamp et al. 2006 showed 2x head-to-tail HBB 3'UTR boosts mRNA half-life and DC antigen expression; Orlandini von Niessen et al. 2019 cell-SELEX identified AES-mtRNR1 (FI) outperforming 2xHBB; mRNAx v2 curates 200 commercial-clean human 3'UTRs (<0.78 identity to US11547673B1/US11492628B2 AES-mtRNR1, US10106800B2 2xHBB, and US9447431B2 CureVac histone stem-loop).",
+      "citations": [
+        {
+          "authors": "Holtkamp et al.",
+          "year": 2006,
+          "journal": "Blood",
+          "pmid": "16940422",
+          "pmcid": null,
+          "doi": "10.1182/blood-2006-04-015024"
+        },
+        {
+          "authors": "Orlandini von Niessen et al.",
+          "year": 2019,
+          "journal": "Mol Ther",
+          "pmid": "30638957",
+          "pmcid": "PMC6453560",
+          "doi": "10.1016/j.ymthe.2018.12.011"
+        },
+        {
+          "authors": "Agarwal & Kelley",
+          "year": 2022,
+          "journal": "Genome Biol",
+          "pmid": "36419176",
+          "pmcid": "PMC9684954",
+          "doi": "10.1186/s13059-022-02811-x"
+        }
+      ],
+      "machine_check_key": "fto:patent_fto_guard_v2",
+      "enforced_in_generator": true,
+      "failure_modes": [
+        "Copying BNT162b2's 278-nt AES-mtRNR1 3'UTR or CureVac's histone stem-loop into a commercial product triggers direct granted sequence/genus patent infringement."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-POLYA-LENGTH-PABP-022",
+      "legacy_v1_rule_id": "RUL-CC-POLYA-COMPOSITION-AND-LENGTH-017",
+      "title_zh": "模板编码 90–120 nt Poly(A) 尾长最大化 PABPC1 协同结合与闭环翻译",
+      "title_en": "Encode 90–120 nt Poly(A) Tail Length to Maximize Cooperative PABPC1 Binding and Closed-Loop Synergy",
+      "modality": [
+        "linear_mrna",
+        "sarna"
+      ],
+      "region": "Poly(A)",
+      "chemistries": [
+        "unmodified_u",
+        "pseudouridine",
+        "m1psi"
+      ],
+      "evidence_grade": "conditional",
+      "effect_size_summary": "Holtkamp et al. 2006 demonstrated A120 consistently increases mRNA stability and protein yield over A64/shorter tails; Fuhrmann et al. 2026 nanopore dRNA-seq measured uninfected human steady-state medians of 83.86 nt (NHDF), 95.52 nt (A549), and 100.55 nt (MeWo); Gumińska et al. 2025 measured mRNA-1273 input median at 99.80 nt (n=58,083 reads).",
+      "citations": [
+        {
+          "authors": "Holtkamp et al.",
+          "year": 2006,
+          "journal": "Blood",
+          "pmid": "16940422",
+          "pmcid": null,
+          "doi": "10.1182/blood-2006-04-015024"
+        },
+        {
+          "authors": "Fuhrmann et al.",
+          "year": 2026,
+          "journal": "PLOS Pathog",
+          "pmid": "42302084",
+          "pmcid": "PMC13271517",
+          "doi": "10.1371/journal.ppat.1014341"
+        },
+        {
+          "authors": "Gumińska et al.",
+          "year": 2025,
+          "journal": "Nat Commun",
+          "pmid": "40102414",
+          "pmcid": "PMC11920217",
+          "doi": "10.1038/s41467-025-57787-6"
+        }
+      ],
+      "machine_check_key": "scaffold:polya_length_90_to_120nt",
+      "enforced_in_generator": true,
+      "failure_modes": [
+        "Poly(A) tails <60 nt bind <=2 PABPC1 monomers and rapidly fall below the ~25-nt deadenylation decay threshold; plasmid poly(dA:dT) >130 nt suffers severe E. coli clonal deletion."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-POLYA-IVT-NONA-DECORATION-023",
+      "legacy_v1_rule_id": "RUL-CC-POLYA-COMPOSITION-AND-LENGTH-017",
+      "title_zh": "管控体外转录酶与胞内 TENT4A/B 对 Poly(A) 尾内部非 A 碱基修饰率",
+      "title_en": "Control IVT Polymerase and Cellular Non-Adenosine (G/C/U) Incorporation in Poly(A) Tails",
+      "modality": [
+        "linear_mrna"
+      ],
+      "region": "Poly(A)",
+      "chemistries": [
+        "unmodified_u",
+        "m1psi"
+      ],
+      "evidence_grade": "conditional",
+      "effect_size_summary": "Gumińska et al. 2025 Nat Commun (Ninetails nanopore dataset, 101,138 reads): IVT polymerase strongly shifts reads carrying >=1 non-A residue (mutant T7 2.98% vs WT T7 9.58% vs enzymatic PAP+ATP 5.62% vs PAP+rNTPs 79.56%), and murine BMDMs remodel mRNA-1273 tails from 99.80 nt (4.61% non-A) at 0h to 115.24 nt (13.72% non-A) at 24h via TENT4A/B.",
+      "citations": [
+        {
+          "authors": "Gumińska et al.",
+          "year": 2025,
+          "journal": "Nat Commun",
+          "pmid": "40102414",
+          "pmcid": "PMC11920217",
+          "doi": "10.1038/s41467-025-57787-6"
+        },
+        {
+          "authors": "Fuhrmann et al.",
+          "year": 2026,
+          "journal": "PLOS Pathog",
+          "pmid": "42302084",
+          "pmcid": "PMC13271517",
+          "doi": "10.1371/journal.ppat.1014341"
+        }
+      ],
+      "machine_check_key": "advisory:polya_ivt_polymerase_purity",
+      "enforced_in_generator": false,
+      "failure_modes": [
+        "Uncontrolled enzymatic PAP tailing in mixed rNTP buffers incorporates random U/C/G tracts that alter deadenylation kinetics and batch-to-batch CMC tail homogeneity."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-POLYA-SEGMENTED-FTO-BOUNDARY-024",
+      "legacy_v1_rule_id": null,
+      "title_zh": "分段式 Poly(A) 降低大肠杆菌质粒重组但受 BioNTech 授权通式专利硬门限制",
+      "title_en": "Segmented Poly(A) Reduces Plasmid Recombination but Triggers BioNTech Granted Genus Patent Block in Commercial Clean",
+      "modality": [
+        "linear_mrna"
+      ],
+      "region": "Poly(A)",
+      "chemistries": [
+        "unmodified_u",
+        "pseudouridine",
+        "m1psi"
+      ],
+      "evidence_grade": "mechanistic_heuristic",
+      "effect_size_summary": "Trepotec et al. 2019 RNA showed splitting A120 into A60-spacer-A60 or A40x3 reduces E. coli recombination from >50% to <20% while preserving translation; HOWEVER, BioNTech granted family 51220548 (US10717982B2 / US12054723B2 / EP3167059B1) claims A{20,}-linker-A{20,} broadly, so mRNAx commercial_clean blocks regex A{20,}[UCG][ACGU]*?A{20,} and routes to uninterrupted A100–A120 on linear/Rec-stabilized DNA templates.",
+      "citations": [
+        {
+          "authors": "Trepotec et al.",
+          "year": 2019,
+          "journal": "RNA",
+          "pmid": "30647100",
+          "pmcid": "PMC6426288",
+          "doi": "10.1261/rna.069286.118"
+        }
+      ],
+      "machine_check_key": "fto:BNT_FAMILY_51220548_SEGMENTED_POLYA_GENUS",
+      "enforced_in_generator": true,
+      "failure_modes": [
+        "Emitting A30-GCAUAUGACU-A70 or any A>=20-nonA-A>=20 tail in a commercial construct violates granted US/EP composition claims."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-POLYA-SCARLESS-3PRIME-END-025",
+      "legacy_v1_rule_id": null,
+      "title_zh": "采用外切型 Type IIS 线性化产生无非 A 悬突的精确 3'-OH Poly(A) 末端",
+      "title_en": "Use Outward-Facing Type IIS Template Linearization for Scarless 3'-Terminal Adenosine",
+      "modality": [
+        "linear_mrna",
+        "sarna"
+      ],
+      "region": "Poly(A)",
+      "chemistries": [
+        "unmodified_u",
+        "pseudouridine",
+        "m1psi"
+      ],
+      "evidence_grade": "mechanistic_heuristic",
+      "effect_size_summary": "Holtkamp et al. 2006 Blood showed unmasked free-ending 3' poly(A) templates linearized via outward-cleaving Type IIS enzymes (SapI/BspQI/BsaI) yield higher translational efficiency in human DCs than restriction-overhang masked 3' ends.",
+      "citations": [
+        {
+          "authors": "Holtkamp et al.",
+          "year": 2006,
+          "journal": "Blood",
+          "pmid": "16940422",
+          "pmcid": null,
+          "doi": "10.1182/blood-2006-04-015024"
+        },
+        {
+          "authors": "Henderson et al.",
+          "year": 2021,
+          "journal": "Curr Protoc",
+          "pmid": "33524237",
+          "pmcid": null,
+          "doi": "10.1002/cpz1.39"
+        }
+      ],
+      "machine_check_key": "gate_type_iis_restriction:type_iis_restriction_free",
+      "enforced_in_generator": true,
+      "failure_modes": [
+        "Leaving long non-adenosine restriction scars downstream of poly(A) reduces functional PABP/3'-end recognition and provides single-stranded anchors for T7 3' loop-back extension."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-CIRCRNA-IRES-RANKING-026",
+      "legacy_v1_rule_id": "RUL-CC-CIRCRNA-CHANG-IRES-HAIRPIN-ARE-016",
+      "title_zh": "circRNA 优先选用跨人源细胞系高活性的 I 型肠道/鼻病毒 IRES (iHRV-B3 / iEV-B107 / iEV-A71 / iCVB3)",
+      "title_en": "Prioritize High-Output Type-I Enteroviral/Rhinoviral IRESs Over EMCV in Circular RNA",
+      "modality": [
+        "circrna"
+      ],
+      "region": "circRNA",
+      "chemistries": [
+        "unmodified_u"
+      ],
+      "evidence_grade": "conditional",
+      "effect_size_summary": "Chen et al. 2023 Nat Biotechnol (PMC9931579, Fig 5a n=39 viral IRESs across HeLa, HepG2, HEK293T): cross-cell translation rank is highly conserved (Spearman rho=0.737–0.890, p<1e-7), with iEV-B107 (9.2x–22.6x vs iCVB3), iHRV-B3 (6.2x–19.8x), and iEV-A71 (2.4x–4.5x) vastly outperforming iEMCV (0.08x HeLa, 0.35x HEK293T) and iCrPV (0.01x–0.05x).",
+      "citations": [
+        {
+          "authors": "Chen et al.",
+          "year": 2023,
+          "journal": "Nat Biotechnol",
+          "pmid": "35851375",
+          "pmcid": "PMC9931579",
+          "doi": "10.1038/s41587-022-01393-0"
+        },
+        {
+          "authors": "Wesselhoeft et al.",
+          "year": 2018,
+          "journal": "Nat Commun",
+          "pmid": "29980667",
+          "pmcid": "PMC6035260",
+          "doi": "10.1038/s41467-018-05096-6"
+        }
+      ],
+      "machine_check_key": "scaffold:circrna_ires_ranking",
+      "enforced_in_generator": false,
+      "failure_modes": [
+        "Defaulting to plasmid bicistronic EMCV IRES in therapeutic circRNA sacrifices >10–50x translational output in human epithelial and embryonic kidney cells; note GSE178718 overlaps structRFM training tasks."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-CIRCRNA-IRES-CARGO-INSULATION-027",
+      "legacy_v1_rule_id": null,
+      "title_zh": "通过非结构化 polyAC 间隔区与同义密码子去配对阻断 CDS 载荷对 IRES 结构的干扰",
+      "title_en": "Insulate Viral IRES Folding from Antisense CDS-Cargo Base Pairing via Spacers and Synonymous Uncoupling",
+      "modality": [
+        "circrna"
+      ],
+      "region": "circRNA",
+      "chemistries": [
+        "unmodified_u"
+      ],
+      "evidence_grade": "conditional",
+      "effect_size_summary": "Huang et al. 2026 Cell Res (PMC13092624, 9 full 674-nt SV-A IRES SHAPE profiles across cargos/mutants) proved cargo-sequence base-pairing directly misfolds IRES functional domains and that targeted synonymous CDS uncoupling mutations (mut216) restore native IRES SHAPE reactivity and translation; Wesselhoeft et al. 2018 showed unstructured 50-nt polyAC spacers insulate PIE exon scars from IRES/ribozyme cores.",
+      "citations": [
+        {
+          "authors": "Huang et al.",
+          "year": 2026,
+          "journal": "Cell Res",
+          "pmid": "41748751",
+          "pmcid": "PMC13092624",
+          "doi": "10.1038/s41422-026-01233-9"
+        },
+        {
+          "authors": "Wesselhoeft et al.",
+          "year": 2018,
+          "journal": "Nat Commun",
+          "pmid": "29980667",
+          "pmcid": "PMC6035260",
+          "doi": "10.1038/s41467-018-05096-6"
+        }
+      ],
+      "machine_check_key": "check:circrna_ires_cds_cross_pairing",
+      "enforced_in_generator": false,
+      "failure_modes": [
+        "Optimizing circRNA CDS codons in isolation without checking IRES-CDS cross-hybridization allows GC-rich CDS segments to invade IRES domain IV/V stems and abolish cap-independent initiation."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-CIRCRNA-EIF4G-PABP-RBP-028",
+      "legacy_v1_rule_id": "RUL-CC-CIRCRNA-YEO-RBP-MODULATORS-015",
+      "title_zh": "利用 5' PABP 结合元件、eIF4G 适配体与专属激活型 RBP 协同放大 circRNA 翻译",
+      "title_en": "Boost circRNA Translation via 5' PABP Motifs, Domain-V eIF4G Aptamers, and circRNA-Specific RBP Steering",
+      "modality": [
+        "circrna"
+      ],
+      "region": "circRNA",
+      "chemistries": [
+        "unmodified_u"
+      ],
+      "evidence_grade": "conditional",
+      "effect_size_summary": "Chen et al. 2023 (PMC9931579 Fig 5e) showed combining 5' PABP spacer + HBA1 3'UTR + iHRV-B3 + proximal Apt-eIF4G increases circRNA output ~25.9-fold (214.1 vs 8.28); Yu et al. 2026 NSMB (PMC13759317, 846 RBP isoforms) showed circRNA RBP effects diverge from linear mRNA (rho=0.229), identifying strong activators DDX52 (+2.70 log2FC), DDX19A (+2.05) and repressors TOB2 (-2.52), CNOT7 (-2.21), RBM15 (-2.02).",
+      "citations": [
+        {
+          "authors": "Chen et al.",
+          "year": 2023,
+          "journal": "Nat Biotechnol",
+          "pmid": "35851375",
+          "pmcid": "PMC9931579",
+          "doi": "10.1038/s41587-022-01393-0"
+        },
+        {
+          "authors": "Yu et al.",
+          "year": 2026,
+          "journal": "Nat Struct Mol Biol",
+          "pmid": "42983073",
+          "pmcid": "PMC13759317",
+          "doi": "10.1038/s41594-026-01911-7"
+        }
+      ],
+      "machine_check_key": "scaffold:circrna_pabp_eif4g_rbp_enhancers",
+      "enforced_in_generator": false,
+      "failure_modes": [
+        "Applying linear-mRNA 3'UTR RBP rankings directly to circRNA fails (circ-vs-linear correlation only 0.23); recruiting RBM15/YTHDF m6A-reader or CNOT7 deadenylase complexes destabilizes or silences circular transcripts."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-CIRCRNA-PIE-HOMOLOGY-IMMUNO-029",
+      "legacy_v1_rule_id": null,
+      "title_zh": "PIE I 型内含子同源臂促环化须配对严格去昵口/去 5'-ppp 纯化与化学修饰兼容边界",
+      "title_en": "Enforce External/Internal Homology Arms in Group-I PIE Splicing, Strict HPLC Linear-Byproduct Removal, and Unmodified-U Ribozyme Compatibility",
+      "modality": [
+        "circrna"
+      ],
+      "region": "circRNA",
+      "chemistries": [
+        "unmodified_u"
+      ],
+      "evidence_grade": "conditional",
+      "effect_size_summary": "Wesselhoeft et al. 2018 (PMC6035260) showed 18–20 nt external + internal homology arms boost PIE Anabaena/T4 td splicing efficiency on multi-kb cargos; Wesselhoeft et al. 2019 (PMC6724735) showed RIG-I sensing of PIE circRNA preparations arises from residual 5'-ppp linear precursors/nicked circles eliminated by phosphatase + RNase R + SEC-HPLC, while full m1Psi substitution abolishes Group-I ribozyme self-splicing and viral IRES activity.",
+      "citations": [
+        {
+          "authors": "Wesselhoeft et al.",
+          "year": 2018,
+          "journal": "Nat Commun",
+          "pmid": "29980667",
+          "pmcid": "PMC6035260",
+          "doi": "10.1038/s41467-018-05096-6"
+        },
+        {
+          "authors": "Wesselhoeft et al.",
+          "year": 2019,
+          "journal": "Mol Cell",
+          "pmid": "30902547",
+          "pmcid": "PMC6724735",
+          "doi": "10.1016/j.molcel.2019.02.015"
+        },
+        {
+          "authors": "Puttaraju & Been",
+          "year": 1992,
+          "journal": "Nucleic Acids Res",
+          "pmid": "1279519",
+          "pmcid": "PMC334342",
+          "doi": "10.1093/nar/20.20.5357"
+        }
+      ],
+      "machine_check_key": "guard:circrna_pie_unmodified_u_and_purity",
+      "enforced_in_generator": false,
+      "failure_modes": [
+        "Attempting 100% m1Psi co-transcriptional IVT on a PIE Group-I intron + viral IRES construct inactivates ribozyme catalytic folding and collapses IRES translation."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-SARNA-CSE-SGP-IMMUTABLE-030",
+      "legacy_v1_rule_id": null,
+      "title_zh": "甲病毒 saRNA 锁定 5'帽近端发夹 (5'-AU)、nsP1 51-nt CSE、26S 亚基因组启动子与 3' 19-nt CSE",
+      "title_en": "Lock Immutable Alphavirus cis-Replication Elements (5'-AU Leader, nsP1 51-nt CSE, 26S SGP, and 3' 19-nt CSE)",
+      "modality": [
+        "sarna"
+      ],
+      "region": "saRNA",
+      "chemistries": [
+        "unmodified_u"
+      ],
+      "evidence_grade": "mechanistic_heuristic",
+      "effect_size_summary": "Alphavirus replicons (VEEV NC_001449.1 / TC-83 L01443.1, SINV NC_001547.1) require exact preservation of: (1) 5'-AU cap1 start + 5'UTR stem-loop (evades human IFIT1 restriction of non-2'-O-methylated viral caps), (2) 51-nt dual stem-loop CSE inside N-terminal nsP1 (~nt 135–185), (3) 26S subgenomic promoter junction driving >10x subgenomic mRNA amplification, and (4) 3' 19-nt CSE immediately upstream of poly(A).",
+      "citations": [
+        {
+          "authors": "Vogel et al.",
+          "year": 2018,
+          "journal": "Mol Ther",
+          "pmid": "29275847",
+          "pmcid": "PMC5835025",
+          "doi": "10.1016/j.ymthe.2017.11.017"
+        },
+        {
+          "authors": "Beissert et al.",
+          "year": 2020,
+          "journal": "Mol Ther",
+          "pmid": "31624015",
+          "pmcid": "PMC6953774",
+          "doi": "10.1016/j.ymthe.2019.09.009"
+        },
+        {
+          "authors": "Blakney, Ip & Geall",
+          "year": 2021,
+          "journal": "Vaccines (Basel)",
+          "pmid": "33525396",
+          "pmcid": "PMC7911542",
+          "doi": "10.3390/vaccines9020097"
+        }
+      ],
+      "machine_check_key": "lock:sarna_cis_replication_elements",
+      "enforced_in_generator": false,
+      "failure_modes": [
+        "Running global synonymous codon optimization across nsP1 destroys the 51-nt CSE secondary structure and completely abolishes minus-strand RNA replication; inserting 5'-GG instead of native 5'-AU disrupts authentic 5' minus-strand promoter synthesis and IFIT1 evasion."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-SARNA-DOSE-INNATE-PARETO-031",
+      "legacy_v1_rule_id": "RUL-CC-SARNA-DOSESPARING-INNATE-AXIS-019",
+      "title_zh": "saRNA 低剂量复制放大与双链复制中间体先天免疫反应原性双轴权衡",
+      "title_en": "Balance saRNA Sub-Microgram Dose-Sparing Potency Against dsRNA Replication-Intermediate Innate Sensing",
+      "modality": [
+        "sarna"
+      ],
+      "region": "saRNA",
+      "chemistries": [
+        "unmodified_u"
+      ],
+      "evidence_grade": "conditional",
+      "effect_size_summary": "Vijayan et al. 2024 Nat Commun (PMC11564874, 1,881 measurements): unmodified SMARRT.RSV.preF saRNA saturates in vitro antigen expression at 6.25–25 ng (86.7%–94.9% RSV.F+ cells) while eliciting measurable 0h->24h NHP innate cytokines; Vogel et al. 2018 (PMC5835025) demonstrated equivalent mouse influenza protection at 64-fold lower RNA dose (1.25 ug saRNA vs 80 ug mRNA).",
+      "citations": [
+        {
+          "authors": "Vijayan et al.",
+          "year": 2024,
+          "journal": "Nat Commun",
+          "pmid": "39543172",
+          "pmcid": "PMC11564874",
+          "doi": "10.1038/s41467-024-54289-9"
+        },
+        {
+          "authors": "Vogel et al.",
+          "year": 2018,
+          "journal": "Mol Ther",
+          "pmid": "29275847",
+          "pmcid": "PMC5835025",
+          "doi": "10.1016/j.ymthe.2017.11.017"
+        }
+      ],
+      "machine_check_key": "pareto_axis:sarna_potency_vs_innate_reactogenicity",
+      "enforced_in_generator": false,
+      "failure_modes": [
+        "Excessive initial saRNA dose triggers hyper-acute IFN-I/PKR activation that shuts down host translation of nsP1–4 before replicase complexes assemble, yielding an inverted bell-shaped dose-response."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-SARNA-M1PSI-RDRP-BLOCK-032",
+      "legacy_v1_rule_id": null,
+      "title_zh": "标准单链甲病毒 saRNA 禁用 100% m1Psi/Psi 替换以免失活 nsP4 复制酶识别",
+      "title_en": "Avoid 100% m1Psi/Psi Substitution in Standard cis-Replicating Alphavirus saRNA Backbones",
+      "modality": [
+        "sarna"
+      ],
+      "region": "saRNA",
+      "chemistries": [
+        "unmodified_u"
+      ],
+      "evidence_grade": "conditional",
+      "effect_size_summary": "Across alphavirus replicon platforms (including regulatory-approved ARCT-154 / Zapomeran 11,847-nt unmodified U saRNA and Vijayan 2024 SMARRT), 100% m1Psi substitution impairs nsP4 RdRp promoter recognition and RNA amplification; nucleotide modification is instead routed to 5-methylcytidine (5mC) or to the separate non-replicating replicase mRNA in trans-amplifying RNA (taRNA) architectures (Beissert et al. 2020).",
+      "citations": [
+        {
+          "authors": "Vijayan et al.",
+          "year": 2024,
+          "journal": "Nat Commun",
+          "pmid": "39543172",
+          "pmcid": "PMC11564874",
+          "doi": "10.1038/s41467-024-54289-9"
+        },
+        {
+          "authors": "Beissert et al.",
+          "year": 2020,
+          "journal": "Mol Ther",
+          "pmid": "31624015",
+          "pmcid": "PMC6953774",
+          "doi": "10.1016/j.ymthe.2019.09.009"
+        },
+        {
+          "authors": "Blakney, Ip & Geall",
+          "year": 2021,
+          "journal": "Vaccines (Basel)",
+          "pmid": "33525396",
+          "pmcid": "PMC7911542",
+          "doi": "10.3390/vaccines9020097"
+        }
+      ],
+      "machine_check_key": "guard:sarna_forbid_full_m1psi_substitution",
+      "enforced_in_generator": false,
+      "failure_modes": [
+        "Applying linear-mRNA default m1Psi chemistry to a VEEV/SINV cis-saRNA construct suppresses subgenomic RNA amplification by orders of magnitude."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-MYTH-NAIVE-MAX-CAI-033",
+      "legacy_v1_rule_id": null,
+      "title_zh": "【证伪误区】盲目追求 CAI=1.0 极值会导致 5' 翻译起始塌缩、高 GC 二级结构死锁及专利踩雷",
+      "title_en": "[Debunked Myth] Naive Max-CAI (CAI=1.0) Collapses 5' Initiation Accessibility and Triggers Patent/CMC Failures",
+      "modality": [
+        "linear_mrna",
+        "circrna",
+        "sarna"
+      ],
+      "region": "CDS",
+      "chemistries": [
+        "unmodified_u",
+        "pseudouridine",
+        "m1psi"
+      ],
+      "evidence_grade": "debunked_myth",
+      "effect_size_summary": "FALSIFIED BY MULTI-LAB EVIDENCE: (1) Kudla et al. 2009 Science (154 synonymous GFP genes) showed 5' mRNA folding energy around the start codon, NOT global CAI, dominates protein yield; (2) Leppek et al. 2022 CDS24 6h cellular expression vs classical CAI is near-zero (Spearman rho=+0.0191, ns, vs CodonTransformer +0.5052); (3) Mauger et al. 2019 PNAS showed synonymous high-CAI variants vary >3–5x in protein output depending on 5' openness vs CDS secondary structure; (4) greedy human max-CAI converts >80% of wild-type codons to C-rich codons, violating CureVac US10898584B2 (>=65% gate).",
+      "citations": [
+        {
+          "authors": "Kudla et al.",
+          "year": 2009,
+          "journal": "Science",
+          "pmid": "19359587",
+          "pmcid": "PMC3902468",
+          "doi": "10.1126/science.1170160"
+        },
+        {
+          "authors": "Mauger et al.",
+          "year": 2019,
+          "journal": "PNAS",
+          "pmid": "31712433",
+          "pmcid": "PMC6883848",
+          "doi": "10.1073/pnas.1908052116"
+        },
+        {
+          "authors": "Leppek et al.",
+          "year": 2022,
+          "journal": "Nat Commun",
+          "pmid": "35318324",
+          "pmcid": "PMC8940940",
+          "doi": "10.1038/s41467-022-28776-w"
+        }
+      ],
+      "machine_check_key": "anti_pattern:forbid_greedy_max_cai_1.0",
+      "enforced_in_generator": true,
+      "failure_modes": [
+        "Greedy CAI=1.0 creates >70% GC tracts, base-pairs N-terminal CDS codons onto the 5'UTR Kozak region, depletes single isoacceptor tRNAs via repetitive CUG/GCC runs, and fails commercial FTO."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-MYTH-GLOBAL-MFE-MINIMIZATION-034",
+      "legacy_v1_rule_id": null,
+      "title_zh": "【证伪误区】无约束最小化全长 MFE 会锁死 5' 核糖体加载区并诱发长双链 dsRNA 先天免疫风暴",
+      "title_en": "[Debunked Myth] Unconstrained Global MFE Minimization Ignores Initiation Accessibility and Induces dsRNA Sensing",
+      "modality": [
+        "linear_mrna",
+        "circrna"
+      ],
+      "region": "CDS",
+      "chemistries": [
+        "unmodified_u",
+        "pseudouridine",
+        "m1psi"
+      ],
+      "evidence_grade": "debunked_myth",
+      "effect_size_summary": "FALSIFIED BY REGIONAL STRUCTURE EXPERIMENTS: Mauger et al. 2019 PNAS demonstrated diametrically opposite regional effects — secondary structure in the 5'UTR/first ~30 nt of CDS strongly REPRESSES translation initiation, whereas moderate structure in the remainder of CDS/3'UTR extends functional half-life; furthermore, unconstrained MFE minimization generates >=25–30 bp uninterrupted stems that activate MDA5/PKR (Nelson et al. 2020) and faces LinearDesign JP7367090B2 / US20240394558A1 scalar MFE+lambda*CAI patent risk.",
+      "citations": [
+        {
+          "authors": "Mauger et al.",
+          "year": 2019,
+          "journal": "PNAS",
+          "pmid": "31712433",
+          "pmcid": "PMC6883848",
+          "doi": "10.1073/pnas.1908052116"
+        },
+        {
+          "authors": "Castillo-Hair et al.",
+          "year": 2024,
+          "journal": "Nat Commun",
+          "pmid": "38902240",
+          "pmcid": "PMC11189900",
+          "doi": "10.1038/s41467-024-49508-2"
+        },
+        {
+          "authors": "Nelson et al.",
+          "year": 2020,
+          "journal": "Sci Adv",
+          "pmid": "32637598",
+          "pmcid": "PMC7314518",
+          "doi": "10.1126/sciadv.aaz6893"
+        }
+      ],
+      "machine_check_key": "anti_pattern:forbid_unconstrained_global_mfe_min+gate_dsrna_and_loopback",
+      "enforced_in_generator": true,
+      "failure_modes": [
+        "Pushing global MFE maximally negative without 5' TIS openness and max-stem-length gates produces tightly folded 'brick' transcripts that survive in buffer yet fail to load 43S ribosomes in cells."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-MYTH-SINGLE-LAB-JOINT-UTR-OVERCLAIM-035",
+      "legacy_v1_rule_id": "RUL-CC-UTR-JOINT-SURROGATE-NOISEFLOOR-013",
+      "title_zh": "【证伪误区】单一实验室 5'UTR+3'UTR 代理模型打分差不能直接宣称跨载荷与体内等效或优效",
+      "title_en": "[Debunked Myth] Single-Lab Joint-UTR Surrogate Score Gains Do Not Guarantee Cross-CDS or In Vivo Superiority",
+      "modality": [
+        "linear_mrna"
+      ],
+      "region": "5'UTR",
+      "chemistries": [
+        "unmodified_u",
+        "m1psi"
+      ],
+      "evidence_grade": "debunked_myth",
+      "effect_size_summary": "FALSIFIED ON FACTORIAL BENCHMARK: On Medjmedj et al. 2025 3x3=9 full-factorial 5'UTR x 3'UTR benchmark (PMC12355064), all 8 non-reference pairs are ANOVA non-significant vs hAg-AES in HeLa, yet pure-sequence surrogates output apparent score spreads of 0.9083 (utr5_mrl), 1.2962 (saluki_nluc), and 2.1510 (saluki_fluc); critically, Saluki ranks UTR3-AES #1 on FLuc even though switching cargo from NLuc to FLuc caused a 10-fold in vivo BALB/c expression drop.",
+      "citations": [
+        {
+          "authors": "Medjmedj et al.",
+          "year": 2025,
+          "journal": "Mol Ther Nucleic Acids",
+          "pmid": "40822034",
+          "pmcid": "PMC12355064",
+          "doi": "10.1016/j.omtn.2025.102648"
+        },
+        {
+          "authors": "Agarwal & Kelley",
+          "year": 2022,
+          "journal": "Genome Biol",
+          "pmid": "36419176",
+          "pmcid": "PMC9684954",
+          "doi": "10.1186/s13059-022-02811-x"
+        }
+      ],
+      "machine_check_key": "advisory:dual_utr_surrogate_noisefloor_caution",
+      "enforced_in_generator": true,
+      "failure_modes": [
+        "Over-interpreting small additive 5'UTR+3'UTR surrogate score deltas (<1.0 unit) without checking UTR-CDS junction folding and target-cell wet-lab validation leads to false-positive 'winner' constructs that collapse upon cargo swap."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-MYTH-UTR-SNV-UNIVERSAL-CELL-TRANSFER-036",
+      "legacy_v1_rule_id": "RUL-CC-UTR-VARIANT-CROSSCELL-TRANSFER-014",
+      "title_zh": "【证伪误区】HEK293T 中测得的单碱基 UTR 变异效应不能假定跨组织细胞系通用迁移",
+      "title_en": "[Debunked Myth] Single-Nucleotide UTR Variant Effects in HEK293T Do Not Transfer Universally Across Cell Types",
+      "modality": [
+        "linear_mrna"
+      ],
+      "region": "3'UTR",
+      "chemistries": [
+        "unmodified_u"
+      ],
+      "evidence_grade": "debunked_myth",
+      "effect_size_summary": "FALSIFIED ON 5,072-PAIR MPRA: In Su et al. 2025 eLife 97682 (PMC11835390, fixed EGFP), empirical cross-cell half-life log2FC correlation across n=2,335 paired UTR variants between HEK293T and neuronal SH-SY5Y is rho=+0.0786 (p=1.45e-4, only 53.96% concordant sign), and strict gene-grouped 5-fold OOD LightGBM/Ridge models score rho=-0.0364 (HEK293T) and -0.0176 (SH-SY5Y).",
+      "citations": [
+        {
+          "authors": "Su et al.",
+          "year": 2025,
+          "journal": "eLife",
+          "pmid": "39964837",
+          "pmcid": "PMC11835390",
+          "doi": "10.7554/elife.97682"
+        }
+      ],
+      "machine_check_key": "advisory:utr_variant_celltype_domain_guard",
+      "enforced_in_generator": true,
+      "failure_modes": [
+        "Deploying a HEK293T-trained SNV delta model to optimize neuronal, muscular, or myeloid UTR point mutations introduces random noise because cell-type-specific RBPs and miRNAs dominate subtle cis-variant effects."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-MYTH-BUFFER-HYDROLYSIS-EQUALS-CELLULAR-HALFLIFE-037",
+      "legacy_v1_rule_id": "RUL-CC-CDS-AUP-HYDROLYSIS-005",
+      "title_zh": "【证伪误区】体外缓冲液化学抗水解半衰期不能替代细胞内功能性 mRNA 半衰期",
+      "title_en": "[Debunked Myth] In-Solution Chemical Hydrolysis Stability Does Not Predict Intracellular mRNA Persistence",
+      "modality": [
+        "linear_mrna"
+      ],
+      "region": "CDS",
+      "chemistries": [
+        "unmodified_u",
+        "pseudouridine",
+        "m1psi"
+      ],
+      "evidence_grade": "debunked_myth",
+      "effect_size_summary": "FALSIFIED BY PAIRED PERSIST-SEQ: Across N=191 paired mRNA constructs measured in both high-pH/Mg2+ solution degradation and HEK293 intracellular PERSIST-seq in Leppek et al. 2022 (GSE173083 Table S1, PMC8940940), rank correlation is slightly negative and non-significant (Spearman rho=-0.1243, p=0.0866).",
+      "citations": [
+        {
+          "authors": "Leppek et al.",
+          "year": 2022,
+          "journal": "Nat Commun",
+          "pmid": "35318324",
+          "pmcid": "PMC8940940",
+          "doi": "10.1038/s41467-022-28776-w"
+        }
+      ],
+      "machine_check_key": "anti_pattern:decouple_shelf_hydrolysis_from_cellular_decay",
+      "enforced_in_generator": true,
+      "failure_modes": [
+        "Optimizing solely for low AUP (shelf-life proxy) ignores codon optimality (CSC), ARE/Pumilio RBP decay, and ribosome translocation dynamics that govern 80%+ of intracellular mRNA turnover."
+      ]
+    },
+    {
+      "rule_id": "RUL-V2-MYTH-POOLED-NT-AUP-EQUALS-CONSTRUCT-RANK-038",
+      "legacy_v1_rule_id": "RUL-CC-STRUCT-UNPAIRED-REACTIVITY-011",
+      "title_zh": "【证伪误区】逐核苷酸化学探测相关性 (rho~0.52) 不等于全构建体均值排序或跨 m1Psi 迁移能力",
+      "title_en": "[Debunked Myth] Pooled Per-Nucleotide Probing Correlation (~0.52) Does Not Establish Construct-Level Ranking or m1Psi Transfer",
+      "modality": [
+        "linear_mrna",
+        "circrna"
+      ],
+      "region": "CDS",
+      "chemistries": [
+        "unmodified_u",
+        "m1psi"
+      ],
+      "evidence_grade": "debunked_myth",
+      "effect_size_summary": "FALSIFIED BY ECOLOGICAL/UNIT AUDIT (A-W11 C4): On Mauger et al. 2019 39 synonymous fLuc mRNAs (68,531 nt), EternaFold v1.3.1 achieves pooled per-nucleotide Spearman rho=+0.5237 against unmodified-U SHAPE-MaP, YET construct-level mean AUP vs construct-mean SHAPE reactivity is completely null (rho=+0.0346, p=0.834, n=39), degrades by -0.099 on m1Psi, and construct-level m1Psi-vs-U empirical SHAPE rank is rho=-0.0686.",
+      "citations": [
+        {
+          "authors": "Mauger et al.",
+          "year": 2019,
+          "journal": "PNAS",
+          "pmid": "31712433",
+          "pmcid": "PMC6883848",
+          "doi": "10.1073/pnas.1908052116"
+        },
+        {
+          "authors": "Wayment-Steele et al.",
+          "year": 2022,
+          "journal": "Nat Methods",
+          "pmid": "36192461",
+          "pmcid": "PMC9839360",
+          "doi": "10.1038/s41592-022-01605-0"
+        },
+        {
+          "authors": "Huang et al.",
+          "year": 2026,
+          "journal": "Cell Res",
+          "pmid": "41748751",
+          "pmcid": "PMC13092624",
+          "doi": "10.1038/s41422-026-01233-9"
+        }
+      ],
+      "machine_check_key": "anti_pattern:forbid_pooled_nt_to_construct_mean_overclaim",
+      "enforced_in_generator": true,
+      "failure_modes": [
+        "Citing nucleotide-pooled p-values (N>10^5 correlated positions) as proof of construct-level ranking inflates statistical confidence by orders of magnitude and misleads candidate selection."
+      ]
+    }
+  ]
+}

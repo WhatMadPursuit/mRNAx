@@ -93,7 +93,18 @@ def test_mcp_stdio_subprocess_full_commercial_clean_lifecycle_and_web_contract_p
     assert by_id[1]["result"]["serverInfo"]["name"] == "mrnax-v2-mcp"
     assert by_id[99]["result"] == {}
     listed_tools = {t["name"]: t for t in by_id[2]["result"]["tools"]}
-    assert len(listed_tools) == 9
+    assert len(listed_tools) == 14
+    assert {
+        "search_protein_assets",
+        "audit_construct",
+        "design_constructs",
+        "refine_construct",
+        "compare_bundles",
+        "ingest_experiment",
+        "explain_tradeoffs",
+        "get_job_status",
+        "export_bundle",
+    }.issubset(set(listed_tools))
     assert "random_seed" in listed_tools["design_constructs"]["inputSchema"]["properties"]
     seed_prop = listed_tools["design_constructs"]["inputSchema"]["properties"]["random_seed"]
     assert seed_prop["minimum"] == 0 and seed_prop["maximum"] == 2147483647
@@ -621,7 +632,7 @@ def test_mcp_stdio_subprocess_full_commercial_clean_lifecycle_and_web_contract_p
         assert parse_err["error"]["code"] == -32700
 
         list_tools = json.loads(handle_jsonrpc_line(tb_probe, '{"jsonrpc":"2.0","id":2,"method":"tools/list"}') or "")["result"]["tools"]
-        assert len(list_tools) == 9
+        assert len(list_tools) == 14
         for t_spec in list_tools:
             assert t_spec["inputSchema"].get("additionalProperties") is False
         dc_props = next(t["inputSchema"]["properties"] for t in list_tools if t["name"] == "design_constructs")

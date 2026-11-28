@@ -7,9 +7,9 @@ import json
 import math
 from typing import Any, Literal, Self
 
-from pydantic import Field, field_serializer, field_validator, model_validator
+from pydantic import Field, SerializerFunctionWrapHandler, field_serializer, field_validator, model_serializer, model_validator
 
-from mrnax.schemas.common import ComplianceProfile, ConstraintScope, SegmentScope, UridineChemistry
+from mrnax.schemas.common import ComplianceProfile, ConstraintScope, Modality, SegmentScope, UridineChemistry
 from mrnax.schemas.construct_bundle import FrozenSchemaModel, ProteinTargetSpec, SegmentSpan
 
 
@@ -146,6 +146,19 @@ class DesignIntent(FrozenSchemaModel):
         ]
     ] = Field(default_factory=lambda: ["exploratory_pareto"])
     runtime_policy: RuntimePolicySpec = Field(default_factory=RuntimePolicySpec)
+    modality: Modality = "linear_mrna"
+    scaffold_id: str | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9_-]{1,63}$")
+
+    @model_serializer(mode="wrap")
+    def _omit_default_modality_and_scaffold(
+        self, handler: SerializerFunctionWrapHandler
+    ) -> dict[str, Any]:
+        out: dict[str, Any] = handler(self)
+        if out.get("modality") == "linear_mrna":
+            out.pop("modality", None)
+        if out.get("scaffold_id") is None:
+            out.pop("scaffold_id", None)
+        return out
 
     def digest(self) -> str:
         def _canon(obj: Any) -> Any:
