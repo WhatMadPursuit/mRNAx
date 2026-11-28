@@ -1276,6 +1276,7 @@ def test_gate_b_r2_round4_worker_fixes(
             assert conn.execute("SELECT COUNT(*) FROM executions").fetchone()[0] == before_loop_count
 
         # Round-7 Addl: caller-supplied --sealed-file-id without Drive client OR pointing to different output bytes rejects BEFORE commit
+        monkeypatch.delenv("MRNAX_DRIVE_ACCESS_TOKEN", raising=False)
         with pytest.raises(ValueError, match="requires a Drive client"):
             worker_mod.run_worker(
                 protein_seq=egfp_prot,

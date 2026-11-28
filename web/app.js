@@ -3731,17 +3731,45 @@ function parseDeterministicRefineFallback(utterance) {
     changed = true;
   }
 
-  const wantsLinearSwitch =
-    /(?:切回|改回|换成|改为|switch(?:\s+from\s+[\w\s-]+)?(?:\s+back)?\s+to|back\s+to|convert(?:\s+from\s+[\w\s-]+)?\s+to)\s*(?:linear|线性)\s*m?rna/i.test(raw) ||
-    (/(?:\blinear\s*m?rna\b|线性\s*m?rna)/i.test(raw) && !/(?:to|换成|改为|切换)\s*(?:circrna|sarna|环状|自扩增)/i.test(raw));
-  const mentionsCirc = /\bcircrna\b|环状\s*rna|\banabaena\b|\bt4\s*_?\s*td\b|\b(?:hrv-?b3|cvb3)\b|circular\s+scaffold/i.test(raw);
-  const preserveScaffold = /\b(?:keep|preserve|retain|unchanged)\b|保留|维持|不变/i.test(raw);
+  const destLinearRe =
+    /(?:切回|改回|换成|改为|切换(?:为|回|成|到)?|(?:switch|convert|change)(?:\s+from\s+[\w\s-]+?)?(?:\s+back)?\s+to|back\s+to|replace\s+[\w\s-]+?\s+with)\s*(?:an?\s+|the\s+)?(?:linear|线性)\s*m?rna(?:\s+scaffold)?/i;
+  const destCircRe =
+    /(?:切回|改回|换成|改为|切换(?:为|回|成|到)?|(?:switch|convert|change)(?:\s+from\s+[\w\s-]+?)?(?:\s+back)?\s+to|back\s+to|replace\s+[\w\s-]+?\s+with)\s*(?:an?\s+|the\s+)?(?:\bcircrna\b|circular\s*(?:rna|scaffold)?|环状\s*rna|\banabaena\b|\bt4\s*_?\s*td\b|\b(?:hrv-?b3|cvb3)\b)/i;
+  const destSarnaRe =
+    /(?:切回|改回|换成|改为|切换(?:为|回|成|到)?|(?:switch|convert|change)(?:\s+from\s+[\w\s-]+?)?(?:\s+back)?\s+to|back\s+to|replace\s+[\w\s-]+?\s+with)\s*(?:an?\s+|the\s+)?(?:\bsarna\b|self[- ]amplifying|自扩增|\bveev\b|\bsinv\b|sindbis)/i;
+
+  const preserveScaffold =
+    /(?:keep|preserve|retain)(?:\s+(?:the|my|our|this|current|existing))?\s+(?:(?:linear|circular|circrna|sarna)\s+)?(?:scaffold|backbone|utr|ires|pie)|(?:scaffold|backbone|utr|ires|pie)\s+(?:unchanged|as[- ]is)|(?:保留|维持)(?:当前|现有|原|既有)?(?:环状|线性|自扩增)?(?:骨架|模板|UTR|IRES|PIE)/i.test(
+      raw
+    );
+  const explicitLinearPart = /\bcap1_\w+|\bminimal\s*(?:5'?utr|3'?utr|structured)|\bhba1\b|\baes\b|\bhbb\b/i.test(raw);
   const explicitCircPart = /\banabaena\b|\bt4\s*_?\s*td\b|\b(?:hrv-?b3|cvb3)\b/i.test(raw);
-  if (wantsLinearSwitch) {
+  const explicitSarnaPart = /\bveev\b|\bsinv\b|sindbis/i.test(raw);
+
+  let targetModality = null;
+  if (destCircRe.test(raw)) {
+    targetModality = "circrna";
+  } else if (destSarnaRe.test(raw)) {
+    targetModality = "sarna";
+  } else if (destLinearRe.test(raw)) {
+    targetModality = "linear_mrna";
+  } else if (/\bcircrna\b|环状\s*rna|\banabaena\b|\bt4\s*_?\s*td\b|\b(?:hrv-?b3|cvb3)\b|circular\s+scaffold/i.test(raw)) {
+    targetModality = "circrna";
+  } else if (/\bsarna\b|自扩增|\bveev\b|\bsinv\b|sindbis/i.test(raw)) {
+    targetModality = "sarna";
+  } else if (/\blinear\s*m?rna\b|线性\s*m?rna|linear\s+scaffold/i.test(raw)) {
+    targetModality = "linear_mrna";
+  }
+
+  if (targetModality === "linear_mrna") {
     payload.modality = "linear_mrna";
-    payload.scaffold_id = "cap1_hba1_aes_mt_a30l70";
+    if (!preserveScaffold || explicitLinearPart) {
+      payload.scaffold_id = /\bminimal\b|极简/i.test(raw)
+        ? "cap1_minimal_structured_3utr"
+        : "cap1_hba1_aes_mt_a30l70";
+    }
     changed = true;
-  } else if (mentionsCirc) {
+  } else if (targetModality === "circrna") {
     payload.modality = "circrna";
     payload.uridine_chemistry = "unmodified_u";
     if (!preserveScaffold || explicitCircPart) {
@@ -3753,16 +3781,30 @@ function parseDeterministicRefineFallback(utterance) {
       }
     }
     changed = true;
-  } else if (/\bsarna\b|自扩增|veev|\bsinv\b|sindbis/i.test(raw)) {
+  } else if (targetModality === "sarna") {
     payload.modality = "sarna";
     payload.uridine_chemistry = "unmodified_u";
-    if (!preserveScaffold || /\bsinv\b|sindbis|veev/i.test(raw)) {
+    if (!preserveScaffold || explicitSarnaPart) {
       payload.scaffold_id = /\bsinv\b|sindbis/i.test(raw) ? "sarna_sinv" : "sarna_veev_tc83";
     }
     changed = true;
   }
 
   return changed ? payload : null;
+}
+
+function defaultScaffoldForModality(modality) {
+  if (modality === "circrna") return "circ_t4td_hrvb3";
+  if (modality === "sarna") return "sarna_veev_tc83";
+  return "cap1_hba1_aes_mt_a30l70";
+}
+
+function scaffoldMatchesModality(scaffoldId, modality) {
+  if (!scaffoldId) return false;
+  const scaf = String(scaffoldId).toLowerCase();
+  if (modality === "circrna") return scaf.startsWith("circ_");
+  if (modality === "sarna") return scaf.startsWith("sarna_");
+  return scaf.startsWith("cap1_");
 }
 
 function classifyDeterministicComposerIntent(
@@ -3952,7 +3994,9 @@ async function runInitialTurn(customUtterance = null, meta = {}) {
     parsedInit && typeof parsedInit.detarget_liver === "boolean" ? parsedInit.detarget_liver : detarget;
   const rawScaffoldVal = (document.getElementById("sel-scaffold") && document.getElementById("sel-scaffold").value) || null;
   const effModality = (parsedInit && parsedInit.modality) || state.modality || "linear_mrna";
-  const effScaffold = (parsedInit && parsedInit.scaffold_id) || rawScaffoldVal || null;
+  const effScaffold =
+    (parsedInit && parsedInit.scaffold_id) ||
+    (scaffoldMatchesModality(rawScaffoldVal, effModality) ? rawScaffoldVal : defaultScaffoldForModality(effModality));
   const effInitChem =
     effModality === "circrna" || effModality === "sarna" ? "unmodified_u" : effChem;
   const defaultProt = (state.presets?.egfp_reporter?.protein_sequence) || FALLBACK_EGFP;

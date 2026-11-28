@@ -2568,7 +2568,7 @@ def test_round8_final_fixes_deadline_provenance_journal_p42212_and_multichain(
     assert intent_egfp.protein_targets[0].accession_or_source == "GenBank:U55762.1"
     assert intent_egfp.protein_targets[0].entry_version == "AAB02572.1"
 
-    # 3. Journal compaction bounds terminal rejected_422 rows to <= max_entries
+    # 3. Journal compaction bounds rejected_422 independently without evicting newer completed receipts
     j_dir = tmp_path / "proj_r8_journal"
     j_dir.mkdir(parents=True, exist_ok=True)
     reqs = {
@@ -2578,6 +2578,19 @@ def test_round8_final_fixes_deadline_provenance_journal_p42212_and_multichain(
     _save_agent_chat_requests(j_dir, reqs, max_entries=50)
     loaded, _, _ = _load_agent_chat_requests(j_dir)
     assert len(loaded) == 50
+
+    j_up_dir = tmp_path / "proj_r8_journal_upgrade"
+    j_up_dir.mkdir(parents=True, exist_ok=True)
+    reqs_upgrade = {
+        **{f"old_rej_{idx:03d}": {"status": "rejected_422", "error_detail": f"rej #{idx}"} for idx in range(50)},
+        **{f"new_ok_{idx:03d}": {"status": "completed", "intent_version": idx + 1} for idx in range(50)},
+        "active_1": {"status": "in_progress"},
+    }
+    _save_agent_chat_requests(j_up_dir, reqs_upgrade, max_entries=50)
+    loaded_up, _, _ = _load_agent_chat_requests(j_up_dir)
+    assert sum(1 for v in loaded_up.values() if v.get("status") == "completed") == 50
+    assert sum(1 for v in loaded_up.values() if v.get("status") == "rejected_422") == 50
+    assert sum(1 for v in loaded_up.values() if v.get("status") == "in_progress") == 1
 
     # 4. Offline UniProt P42212 resolves 238-aa wild-type GFP cleanly (distinct from 239-aa eGFP)
     ev = ExternalEvidenceAdapterV2()

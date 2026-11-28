@@ -1656,9 +1656,23 @@ test("Gate B-R2 Round 2 (#10a, #10c, #12): agent structured track/modality forwa
 });
 
 test("Gate B-R2 Round 3 (#10): syncControlsFromIntent resets linear modality/scaffold after circular turn and starter-commercial clears imported accession", async () => {
+  let resolveCalls = 0;
   const calls = [];
   const { run, document } = app({
     fetch: async (url, init) => {
+      if (String(url).includes("/api/v1/evidence/resolve")) {
+        resolveCalls += 1;
+        return response(200, {
+          protein: {
+            matched: true,
+            gene_symbol: "EGFP",
+            accession_or_source: "GenBank:U55762.1",
+            aa_length: 239,
+            starts_with_met: true,
+            protein_sequence: "MVSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPTLVTTLTYGVQCFSRYPDHMKQHDFFKSAMPEGYVQERTIFFK",
+          },
+        });
+      }
       calls.push({ url, init: init || {} });
       return response(200, {
         status: "COMPLETED",
@@ -1791,42 +1805,48 @@ test("Gate B-R2 Round 3 (#10): syncControlsFromIntent resets linear modality/sca
   assert.equal(scBody.accession_or_source, "UniProt:P00001");
   assert.equal(scBody.additional_protein_sequences, undefined);
 
-  // Round-8 Fixes 4 & 5: Studio Import reads accession_or_source AND NL refine handles back-to-linear & keep-scaffold cleanly
+  // Round-8 & Final-v2 Fixes: NL destination vs source, preserve scaffold only on explicit scaffold keep, compatible initial scaffold, and real VM /evidence/resolve import
   const backLinear = run('parseDeterministicRefineFallback("Switch from circRNA back to linear mRNA")');
   assert.equal(backLinear.modality, "linear_mrna");
   assert.equal(backLinear.scaffold_id, "cap1_hba1_aes_mt_a30l70");
+
+  const linToCirc = run('parseDeterministicRefineFallback("Switch from linear mRNA to a circRNA scaffold")');
+  assert.equal(linToCirc.modality, "circrna");
+  assert.equal(linToCirc.scaffold_id, "circ_t4td_hrvb3");
+
+  const linToSarna = run('parseDeterministicRefineFallback("Replace linear mRNA with saRNA")');
+  assert.equal(linToSarna.modality, "sarna");
+  assert.equal(linToSarna.scaffold_id, "sarna_veev_tc83");
+
+  const keepLin = run('parseDeterministicRefineFallback("keep existing linear scaffold and change to commercial_clean")');
+  assert.equal(keepLin.modality, "linear_mrna");
+  assert.equal(keepLin.compliance_track, "commercial_clean");
+  assert.equal(keepLin.scaffold_id, undefined);
 
   const keepCirc = run('parseDeterministicRefineFallback("keep existing circular scaffold and switch to commercial_clean")');
   assert.equal(keepCirc.modality, "circrna");
   assert.equal(keepCirc.compliance_track, "commercial_clean");
   assert.equal(keepCirc.scaffold_id, undefined);
 
+  // Initial turn from default linear form with "Switch to circRNA and keep the protein unchanged" must pick circ_t4td_hrvb3
+  run(`
+    state.modality = "linear_mrna";
+    document.getElementById("sel-scaffold").value = "cap1_hba1_aes_mt_a30l70";
+  `);
+  calls.length = 0;
+  await run(`runInitialTurn("Switch to circRNA and keep the protein unchanged", { fromForm: false })`);
+  const circInitCall = calls.find((c) => c.url.includes("/turn"));
+  assert.ok(circInitCall);
+  const circInitBody = JSON.parse(circInitCall.init.body);
+  assert.equal(circInitBody.modality, "circrna");
+  assert.equal(circInitBody.scaffold_id, "circ_t4td_hrvb3");
+
   run(`
     state.apiBase = "http://localhost";
   `);
-  const prevFetchR8 = globalThis.window?.fetch || globalThis.fetch;
-  globalThis.fetch = async (url) => {
-    if (String(url).includes("/api/v1/evidence/resolve")) {
-      return {
-        ok: true,
-        status: 200,
-        headers: { get: () => "application/json" },
-        text: async () => JSON.stringify({
-          protein: {
-            matched: true,
-            gene_symbol: "EGFP",
-            uniprot_accession: "P42212",
-            accession_or_source: "GenBank:U55762.1",
-            aa_length: 239,
-            starts_with_met: true,
-            protein_sequence: "MVSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPTLVTTLTYGVQCFSRYPDHMKQHDFFKSAMPEGYVQERTIFFK"
-          }
-        }),
-      };
-    }
-    return prevFetchR8(url);
-  };
   await run('resolveTargetProteinInHub("eGFP")');
+  assert.equal(resolveCalls, 1);
+  assert.match(document.getElementById("dh-target-result").innerHTML, /GenBank:U55762\.1/);
   const impBtnListeners = listenerMap.get("btn-import-resolved-protein");
   assert.ok(impBtnListeners && typeof impBtnListeners.click === "function");
   impBtnListeners.click();
