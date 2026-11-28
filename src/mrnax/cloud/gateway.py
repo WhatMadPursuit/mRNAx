@@ -899,6 +899,7 @@ def _sanitize_journal_entry(entry: dict[str, Any], *, extra_secrets: tuple[str, 
     protected_top = (
         "status",
         "request_digest",
+        "provider_explicit",
         "turn_id_prefix",
         "baseline_intent_id",
         "baseline_intent_count",
@@ -2388,7 +2389,9 @@ def create_control_plane_app(
                 prior_req_record = None
             if prior_req_record:
                 prior_digest = prior_req_record.get("request_digest")
-                if prior_digest and prior_digest not in accepted_digests:
+                is_legacy_record = "provider_explicit" not in prior_req_record
+                valid_digests = accepted_digests if (is_legacy_record or not prior_req_record.get("provider_explicit")) else {req_digest}
+                if prior_digest and prior_digest not in valid_digests:
                     raise HTTPException(
                         status_code=409,
                         detail="Idempotency conflict: client_request_id reused with a different request payload.",
@@ -2494,6 +2497,7 @@ def create_control_plane_app(
                     requests_map[req_key] = {
                         "status": "completed",
                         "request_digest": req_digest,
+                        "provider_explicit": bool(explicit_provider),
                         "response": dict(chat_out),
                     }
                     _save_agent_chat_requests(
@@ -2693,6 +2697,7 @@ def create_control_plane_app(
                             requests_map[req_key] = {
                                 "status": "partial_mutating_committed",
                                 "request_digest": req_digest,
+                                "provider_explicit": bool(explicit_provider),
                                 "turn_id_prefix": turn_id_prefix,
                                 "baseline_intent_id": baseline_intent_id,
                                 "baseline_intent_count": baseline_intent_count,
@@ -2778,6 +2783,7 @@ def create_control_plane_app(
                         requests_map[req_key] = {
                             "status": "partial_mutating_committed" if prior_mutating else "partial_readonly_only",
                             "request_digest": req_digest,
+                            "provider_explicit": bool(explicit_provider),
                             "turn_id_prefix": turn_id_prefix,
                             "baseline_intent_id": baseline_intent_id,
                             "baseline_intent_count": baseline_intent_count,
@@ -2915,6 +2921,7 @@ def create_control_plane_app(
                     requests_map[req_key] = {
                         "status": "partial_mutating_committed" if has_mutated else "partial_readonly_only",
                         "request_digest": req_digest,
+                        "provider_explicit": bool(explicit_provider),
                         "turn_id_prefix": turn_id_prefix,
                         "baseline_intent_id": baseline_intent_id,
                         "baseline_intent_count": baseline_intent_count,
@@ -2937,6 +2944,7 @@ def create_control_plane_app(
                 requests_map[req_key] = {
                     "status": "in_progress",
                     "request_digest": req_digest,
+                    "provider_explicit": bool(explicit_provider),
                     "turn_id_prefix": turn_id_prefix,
                     "baseline_intent_id": baseline_intent_id,
                     "baseline_intent_count": baseline_intent_count,
@@ -3117,6 +3125,7 @@ def create_control_plane_app(
                 requests_map[req_key] = {
                     "status": "completed",
                     "request_digest": req_digest,
+                    "provider_explicit": bool(explicit_provider),
                     "response": dict(chat_out),
                 }
                 _save_agent_chat_requests(

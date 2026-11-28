@@ -574,7 +574,7 @@ function extractSandboxedText(val) {
     .trim();
 }
 
-function parseMarkupMarkerClient(raw, low, ltIdx) {
+function parseMarkupMarkerClient(raw, ltIdx) {
   const n = raw.length;
   const isWs = (ch) => ch === " " || ch === "\t" || ch === "\r" || ch === "\n" || ch === "\f" || ch === "\v";
   let p = ltIdx + 1;
@@ -587,7 +587,7 @@ function parseMarkupMarkerClient(raw, low, ltIdx) {
     while (p < n && isWs(raw[p])) p += 1;
     if (p >= n) return null;
   }
-  if (low.startsWith("tool_call", p)) {
+  if (raw.slice(p, p + 9).toLowerCase() === "tool_call") {
     const endKw = p + 9;
     if (endKw < n && /[A-Za-z0-9_]/.test(raw[endKw])) return null;
     const gt = raw.indexOf(">", endKw);
@@ -598,15 +598,15 @@ function parseMarkupMarkerClient(raw, low, ltIdx) {
   if (raw[p] !== "|" && raw[p] !== "｜") return null;
   while (p < n && (raw[p] === "|" || raw[p] === "｜")) p += 1;
   while (p < n && isWs(raw[p])) p += 1;
-  if (!low.startsWith("dsml", p)) return null;
+  if (raw.slice(p, p + 4).toLowerCase() !== "dsml") return null;
   p += 4;
   if (p < n && raw[p] !== "|" && raw[p] !== "｜" && !isWs(raw[p]) && raw[p] !== ">" && raw[p] !== "/") return null;
   while (p < n && isWs(raw[p])) p += 1;
   while (p < n && (raw[p] === "|" || raw[p] === "｜")) p += 1;
   while (p < n && isWs(raw[p])) p += 1;
   const nameStart = p;
-  while (p < n && /[a-z0-9_-]/.test(low[p])) p += 1;
-  const tagName = low.slice(nameStart, p);
+  while (p < n && /[A-Za-z0-9_-]/.test(raw[p])) p += 1;
+  const tagName = raw.slice(nameStart, p).toLowerCase();
   const gt = raw.indexOf(">", p);
   if (gt === -1) return { kind: "dsml", isClose, tagName, afterPos: n, unclosed: true };
   const selfClose = gt >= 1 && raw[gt - 1] === "/" && !isClose;
@@ -617,11 +617,11 @@ function parseMarkupMarkerClient(raw, low, ltIdx) {
 function stripLeakedMarkupClient(rawText) {
   const raw = rawText == null ? "" : String(rawText);
   if (!raw || !raw.includes("<")) return raw.trim();
-  const low = raw.toLowerCase();
   const out = [];
   let pos = 0;
   const n = raw.length;
   const dsmlStack = [];
+  const dsmlCounts = Object.create(null);
   let toolDepth = 0;
   while (pos < n) {
     const ltIdx = raw.indexOf("<", pos);
@@ -629,7 +629,7 @@ function stripLeakedMarkupClient(rawText) {
       if (!dsmlStack.length && toolDepth === 0) out.push(raw.slice(pos));
       break;
     }
-    const marker = parseMarkupMarkerClient(raw, low, ltIdx);
+    const marker = parseMarkupMarkerClient(raw, ltIdx);
     if (!marker) {
       let adv = ltIdx + 1;
       while (adv < n && (raw[adv] === " " || raw[adv] === "\t" || raw[adv] === "\r" || raw[adv] === "\n")) adv += 1;
@@ -658,15 +658,21 @@ function stripLeakedMarkupClient(rawText) {
     if (marker.unclosed) break;
     if (marker.isClose) {
       if (dsmlStack.length) {
-        if (marker.tagName && dsmlStack.includes(marker.tagName)) {
-          const idx = dsmlStack.lastIndexOf(marker.tagName);
-          dsmlStack.splice(idx);
+        if (marker.tagName && dsmlCounts[marker.tagName] > 0) {
+          while (dsmlStack.length) {
+            const popped = dsmlStack.pop();
+            dsmlCounts[popped] = Math.max(0, (dsmlCounts[popped] || 0) - 1);
+            if (popped === marker.tagName) break;
+          }
         } else {
-          dsmlStack.pop();
+          const popped = dsmlStack.pop();
+          dsmlCounts[popped] = Math.max(0, (dsmlCounts[popped] || 0) - 1);
         }
       }
     } else {
-      dsmlStack.push(marker.tagName || "");
+      const k = marker.tagName || "";
+      dsmlStack.push(k);
+      dsmlCounts[k] = (dsmlCounts[k] || 0) + 1;
     }
     pos = marker.afterPos;
   }

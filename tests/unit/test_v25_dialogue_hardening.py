@@ -55,11 +55,16 @@ def test_strip_leaked_tool_markup_and_fallback_reply() -> None:
 
     nested = "Start <|DSML| calls>first<|DSML | calls>second</|DSML| calls></|DSML| calls> End"
     assert _strip_leaked_tool_markup(nested) == "Start  End"
+    assert _strip_leaked_tool_markup("İ <|DSML| calls>hidden</|DSML| calls> End") == "İ  End"
 
     import time as _pytime
     spaced = "<" + (" " * 4000) + "x>"
     t_s = _pytime.perf_counter()
     assert _strip_leaked_tool_markup(spaced) == spaced
+    deep = ("<|DSML| calls>" * 1000) + ("</|DSML| nomatch>" * 1000) + "tail"
+    assert _strip_leaked_tool_markup(deep) == "tail"
+    deep_unclosed = ("<|DSML| calls>" * 1000) + ("</|DSML| nomatch>" * 999) + "tail"
+    assert _strip_leaked_tool_markup(deep_unclosed) == ""
     assert (_pytime.perf_counter() - t_s) < 0.05
 
     fb_zh = _build_tool_trace_fallback_reply(
@@ -301,11 +306,35 @@ def test_system_status_honors_mrnax_default_llm_provider(tmp_path: Path, monkeyp
     r_omitted = client.post(
         "/v1/projects/proj_default_srv/agent-chat",
         headers={"X-MRNAX-Access-Token": "tok_gw_def"},
-        json={"message": "请设计 eGFP"},
+        json={"message": "请设计 eGFP", "client_request_id": "idem_omitted_1"},
     )
     assert r_omitted.status_code == 200
     assert seen_providers == ["openai"]
     assert r_omitted.json()["provider"] == "openai"
+
+    # Flipping default provider preserves idempotency replay for omitted-provider request
+    monkeypatch.setenv("MRNAX_DEFAULT_LLM_PROVIDER", "deepseek")
+    r_omitted_replay = client.post(
+        "/v1/projects/proj_default_srv/agent-chat",
+        headers={"X-MRNAX-Access-Token": "tok_gw_def"},
+        json={"message": "请设计 eGFP", "client_request_id": "idem_omitted_1"},
+    )
+    assert r_omitted_replay.status_code == 200
+    assert len(seen_providers) == 1
+
+    # Explicit deepseek journal entry must reject an omitted-provider collision with 409
+    r_explicit = client.post(
+        "/v1/projects/proj_default_srv/agent-chat",
+        headers={"X-MRNAX-Access-Token": "tok_gw_def"},
+        json={"message": "同一消息", "provider": "deepseek", "client_request_id": "idem_exp_only"},
+    )
+    assert r_explicit.status_code == 200
+    r_collide = client.post(
+        "/v1/projects/proj_default_srv/agent-chat",
+        headers={"X-MRNAX-Access-Token": "tok_gw_def"},
+        json={"message": "同一消息", "client_request_id": "idem_exp_only"},
+    )
+    assert r_collide.status_code == 409
 
 
 def test_audit_hardening_dsml_interrupted_intermediate_retry_after_and_fallback(

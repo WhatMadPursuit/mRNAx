@@ -620,8 +620,8 @@ def _skip_ascii_ws(s: str, idx: int) -> int:
     return idx
 
 
-def _parse_markup_marker_at(raw: str, low: str, lt_idx: int) -> tuple[str, bool, str, int, bool] | None:
-    """Parse a DSML or `<tool_call>` tag strictly from `lt_idx` in O(tag_len) without backtracking.
+def _parse_markup_marker_at(raw: str, lt_idx: int) -> tuple[str, bool, str, int, bool] | None:
+    """Parse a DSML or `<tool_call>` tag strictly from `lt_idx` in O(tag_len) without Unicode offset shifts.
 
     Returns `(kind, is_close, tag_name, after_pos, unclosed_angle)` or None if `<` starts normal text.
     """
@@ -636,7 +636,7 @@ def _parse_markup_marker_at(raw: str, low: str, lt_idx: int) -> tuple[str, bool,
         if p >= n:
             return None
 
-    if low.startswith("tool_call", p):
+    if raw[p : p + 9].lower() == "tool_call":
         end_kw = p + 9
         if end_kw < n and (raw[end_kw].isalnum() or raw[end_kw] == "_"):
             return None
@@ -651,7 +651,7 @@ def _parse_markup_marker_at(raw: str, low: str, lt_idx: int) -> tuple[str, bool,
     while p < n and raw[p] in _DSML_PIPE_CHARS:
         p += 1
     p = _skip_ascii_ws(raw, p)
-    if not low.startswith("dsml", p):
+    if raw[p : p + 4].lower() != "dsml":
         return None
     p += 4
     # Must end DSML token at pipe, whitespace, '>', '/', or EOF
@@ -662,9 +662,9 @@ def _parse_markup_marker_at(raw: str, low: str, lt_idx: int) -> tuple[str, bool,
         p += 1
     p = _skip_ascii_ws(raw, p)
     name_start = p
-    while p < n and (low[p].isalnum() or low[p] in "_-"):
+    while p < n and raw[p].isascii() and (raw[p].isalnum() or raw[p] in "_-"):
         p += 1
-    tag_name = low[name_start:p]
+    tag_name = raw[name_start:p].lower()
     gt = raw.find(">", p)
     if gt == -1:
         return ("dsml", is_close, tag_name, n, True)
@@ -673,15 +673,15 @@ def _parse_markup_marker_at(raw: str, low: str, lt_idx: int) -> tuple[str, bool,
 
 
 def _strip_leaked_tool_markup(text: str) -> str:
-    """Strict O(N) depth-aware removal of leaked XML/DSML tool-call markup."""
+    """Strict amortized O(N) depth-aware removal of leaked XML/DSML tool-call markup."""
     raw = str(text or "")
     if not raw or "<" not in raw:
         return raw.strip()
-    low = raw.lower()
     out: list[str] = []
     pos = 0
     n = len(raw)
     dsml_stack: list[str] = []
+    dsml_counts: dict[str, int] = {}
     tool_depth = 0
 
     while pos < n:
@@ -690,7 +690,7 @@ def _strip_leaked_tool_markup(text: str) -> str:
             if not dsml_stack and tool_depth == 0:
                 out.append(raw[pos:])
             break
-        marker = _parse_markup_marker_at(raw, low, lt_idx)
+        marker = _parse_markup_marker_at(raw, lt_idx)
         if marker is None:
             adv = _skip_ascii_ws(raw, lt_idx + 1)
             if adv == lt_idx + 1:
@@ -725,15 +725,19 @@ def _strip_leaked_tool_markup(text: str) -> str:
             break
         if is_close:
             if dsml_stack:
-                if tag_name and tag_name in dsml_stack:
-                    idx = len(dsml_stack) - 1
-                    while idx >= 0 and dsml_stack[idx] != tag_name:
-                        idx -= 1
-                    del dsml_stack[idx:]
+                if tag_name and dsml_counts.get(tag_name, 0) > 0:
+                    while dsml_stack:
+                        popped = dsml_stack.pop()
+                        dsml_counts[popped] = max(0, dsml_counts.get(popped, 0) - 1)
+                        if popped == tag_name:
+                            break
                 else:
-                    dsml_stack.pop()
+                    popped = dsml_stack.pop()
+                    dsml_counts[popped] = max(0, dsml_counts.get(popped, 0) - 1)
         else:
-            dsml_stack.append(tag_name or "")
+            key = tag_name or ""
+            dsml_stack.append(key)
+            dsml_counts[key] = dsml_counts.get(key, 0) + 1
         pos = after_pos
 
     return "".join(out).strip()

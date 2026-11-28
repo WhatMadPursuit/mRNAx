@@ -2192,6 +2192,7 @@ test("v2.5.3 upgrades: rich markdown tables/headings, DSML strip, target import 
   assert.ok(thTdCount <= 1000 && thTdCount >= 900, `Expected bounded cells <= 1000, got ${thTdCount}`);
   assert.equal(run('stripLeakedMarkupClient("Hi <|DSML")'), "Hi");
   assert.equal(run('stripLeakedMarkupClient("Start <|DSML| calls>first<|DSML | calls>second</|DSML| calls></|DSML| calls> End")'), "Start  End");
+  assert.equal(run('stripLeakedMarkupClient("İ <|DSML| calls>hidden</|DSML| calls> End")'), "İ  End");
   assert.equal(run('stripLeakedMarkupClient("<" + " ".repeat(4000) + "x>")').length, 4003);
 
   // 8b. Legacy gateway-advertised model (deepseek-reasoner) restores once status loads catalog, and manual override clears pendingStoredModel
