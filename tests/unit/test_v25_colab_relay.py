@@ -1146,6 +1146,48 @@ def test_gate_b_r2_round4_worker_fixes(
                 work_dir=tmp_path / "w_empty_int",
             )
         assert cas_store.get_execution(eid_empty).lease_epoch == 0
+
+        # Round-5 Item 5 & 6: _paths_alias rejects case-aliases on Linux too, and whitespace-only sealed_file_id fails before CAS submit
+        with monkeypatch.context() as mp:
+            mp.setattr(sys, "platform", "linux")
+            assert worker_mod._paths_alias(tmp_path / "LinuxCase.json", tmp_path / "linuxcase.json") is True
+        with pytest.raises(ValueError, match="empty or whitespace"):
+            worker_mod.run_worker(
+                protein_seq=egfp_prot,
+                lineardesign_tar=ld_tar,
+                gateway_url="https://149-248-39-200.sslip.io:8443",
+                sealed_file_id="   ",
+                sealed_sha256="a" * 64,
+            )
+
+        # Round-5 Item 1: explicit empty or whitespace intent_id preserves verbatim 35c925e7 request_digest parity
+        exp_ws_dig = hashlib.sha256(
+            json.dumps(
+                {
+                    "protein": egfp_prot,
+                    "lambdas": [1.0],
+                    "ef": False,
+                    "track": "research_max",
+                    "intent_id": "  ",
+                    "ld_sha": ld_sha,
+                    "ef_sha": None,
+                },
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+        res_ws = worker_mod.run_worker(
+            protein_seq=egfp_prot,
+            compliance_track="research_max",
+            lambdas=(1.0,),
+            lineardesign_tar=ld_tar,
+            intent_id="  ",
+            gateway_url=f"http://127.0.0.1:{port}",
+            drive_runs_root_id=runs_root_id,
+            drive_client=drive_client,
+            output_json=tmp_path / "tar_ws_r5.json",
+            work_dir=tmp_path / "w_tar_ws_r5",
+        )
+        assert cas_store.get_execution(res_ws["execution_id"]).request_digest == exp_ws_dig
     finally:
         server.should_exit = True
         srv_thread.join(timeout=5.0)

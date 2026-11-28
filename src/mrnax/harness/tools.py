@@ -1259,8 +1259,12 @@ class AtomicToolbox:
             eff_acc = accession_or_source
         elif llm_switched_primary:
             eff_acc = "user_supplied"
+        elif self.default_accession_or_source:
+            eff_acc = self.default_accession_or_source
+        elif self.default_protein_sequence is not None or self.default_additional_protein_sequences:
+            eff_acc = "user_supplied"
         else:
-            eff_acc = self.default_accession_or_source or accession_or_source
+            eff_acc = accession_or_source
         eff_mod = modality if modality is not None else self.default_modality
         eff_scaf = (
             scaffold_id

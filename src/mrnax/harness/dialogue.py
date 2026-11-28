@@ -337,7 +337,7 @@ class _PinnedHostHTTPTransport(httpx.BaseTransport):
             rem = deadline - _time.monotonic()
             if rem <= 0.0:
                 raise httpx.ReadTimeout("Upstream LLM response exceeded overall deadline", request=request)
-            return max(0.05, rem)
+            return max(1e-4, rem)
 
         conn: http.client.HTTPSConnection | None = None
         raw_sock: socket.socket | None = None
@@ -515,6 +515,11 @@ def _post_json_bounded(
                 content=err_body,
                 request=stream_resp.request,
             )
+            if _time.monotonic() > deadline:
+                raise httpx.ReadTimeout(
+                    "Upstream LLM error response exceeded overall deadline",
+                    request=stream_resp.request,
+                )
             err_resp.raise_for_status()
             return err_resp
 

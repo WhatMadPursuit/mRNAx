@@ -2578,6 +2578,20 @@ def create_control_plane_app(
                             raise ValueError("Tool arguments must decode to a JSON object")
                         parsed_args = redact_secrets_in_obj(decoded, extra_secrets=active_secrets)
                         res = toolbox.dispatch_tool_call(fn_name, parsed_args)
+                    except PermissionError as exc:
+                        pending_batch.pop(0)
+                        if req_key and req_key in requests_map:
+                            requests_map[req_key]["pending_batch_tool_calls"] = [dict(x) for x in pending_batch]
+                            _save_agent_chat_requests(
+                                proj_dir,
+                                requests_map,
+                                legacy_hex=legacy_hex_map,
+                                extra_secrets=active_secrets,
+                            )
+                        raise HTTPException(
+                            status_code=422,
+                            detail=redact_secrets_in_text(str(exc), extra_secrets=active_secrets)[:240],
+                        ) from exc
                     except (json.JSONDecodeError, ValueError, KeyError, TypeError) as exc:
                         err_msg = redact_secrets_in_text(str(exc), extra_secrets=active_secrets)
                         if "Concurrent revision conflict" in err_msg:
@@ -2886,6 +2900,15 @@ def create_control_plane_app(
                 return _handle_agent_failure(f"Upstream LLM network error ({type(exc).__name__}).")
             except (TimeoutError, OSError) as exc:
                 if isinstance(exc, PermissionError):
+                    exec_tracker["pending_batch"] = []
+                    if req_key and req_key in requests_map:
+                        requests_map[req_key]["pending_batch_tool_calls"] = []
+                        _save_agent_chat_requests(
+                            proj_dir,
+                            requests_map,
+                            legacy_hex=legacy_hex_map,
+                            extra_secrets=active_secrets,
+                        )
                     raise HTTPException(
                         status_code=422,
                         detail=redact_secrets_in_text(str(exc), extra_secrets=active_secrets)[:240],

@@ -1978,6 +1978,154 @@ def test_gate_b_r2_round4_dialogue_record_and_deadline_precision(
         agent2.send_user_message("check rules near boundary", max_tool_rounds=1)
 
 
+def test_gate_b_r2_round5_remaining_fixes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import shutil
+    from mrnax.engine.lineardesign_adapter import enforce_local_heavy_binaries_policy
+    from mrnax.engine.pareto_director import run_design_pipeline
+    from mrnax.harness import dialogue as dlg_mod
+    from mrnax.schemas.construct_bundle import ProteinTargetSpec
+    from mrnax.schemas.design_intent import DesignIntent, ObjectiveSpec, RuntimePolicySpec
+
+    alt_prot = "MVLSPADKTNVKAAWGKVGAHAGEYGAEALERMFLSFPTTKTYFPHFDLSHGSAQVKGHGKKV"
+
+    # Additional Finding B: default_protein_sequence without default_accession_or_source must yield 'user_supplied', NEVER GenBank:U55762.1 / AAB02572.1
+    sess_b = ProjectHarnessSession(project_id="proj_r5_acc", store_dir=tmp_path / "proj_r5_acc", seed_dir=SEED_DIR)
+    tb_b = AtomicToolbox(
+        sess_b,
+        default_compliance_track="commercial_clean",
+        default_protein_sequence=alt_prot,
+        default_accession_or_source=None,
+    )
+    with enforce_local_heavy_binaries_policy(True):
+        des_b = tb_b.design_constructs(user_utterance="Design custom human chain")
+    intent_b = sess_b.intent_for_bundle(des_b["recommended_bundle_ids"][0])
+    assert intent_b.protein_targets[0].accession_or_source == "user_supplied"
+    assert intent_b.protein_targets[0].entry_version != "AAB02572.1"
+
+    # Additional Finding D: disabled surrogate_v2 skips v2 manifest check even when unused v2 manifest has artifacts=null
+    seed_copy = tmp_path / "seed_bad_v2"
+    shutil.copytree(SEED_DIR, seed_copy)
+    v2_manifest = seed_copy / "checkpoints" / "surrogate_v2" / "TRAINING_PROVENANCE_MANIFEST.json"
+    if v2_manifest.is_file():
+        mdoc = json.loads(v2_manifest.read_text(encoding="utf-8"))
+        mdoc["artifacts"] = None
+        v2_manifest.write_text(json.dumps(mdoc), encoding="utf-8")
+    intent_no_v2 = intent_b.model_copy_validated(
+        runtime_policy=RuntimePolicySpec(enabled_evaluators=["surrogate_v1_clean"])
+    )
+    with enforce_local_heavy_binaries_policy(True):
+        pipe_out = run_design_pipeline(intent_no_v2, seed_dir=seed_copy)
+    bnds_no_v2, rep_no_v2 = pipe_out[0], pipe_out[1]
+    assert rep_no_v2 is not None and len(bnds_no_v2) >= 1
+
+    # Additional Finding C: retrying a PermissionError-rejected agent tool keeps returning 422 cleanly (never 500)
+    projects_root = tmp_path / "gw_r5_perm"
+    admin_tok = "tok_r5_perm_admin"
+    app_p = create_control_plane_app(
+        ExecutionCASStore(tmp_path / "cas_r5.sqlite3"),
+        projects_root=projects_root,
+        seed_dir=SEED_DIR,
+        access_token=admin_tok,
+    )
+    client_p = TestClient(app_p, headers={"X-MRNAX-Access-Token": admin_tok})
+
+    def _mock_perm_tool_llm(self: httpx.Client, url: str, headers: dict[str, str], json: dict[str, Any]) -> Any:
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={
+                "choices": [
+                    {
+                        "finish_reason": "tool_calls",
+                        "message": {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [
+                                {
+                                    "id": "tc_perm_r5",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "design_constructs",
+                                        "arguments": '{"user_utterance":"try research","compliance_track":"research_max"}',
+                                    },
+                                }
+                            ],
+                        },
+                    }
+                ]
+            },
+            request=httpx.Request("POST", url),
+        )
+
+    with monkeypatch.context() as mp:
+        mp.setattr(httpx.Client, "post", _mock_perm_tool_llm)
+        r_perm1 = client_p.post(
+            "/v1/projects/proj_r5_perm/agent-chat",
+            json={
+                "message": "design",
+                "compliance_track": "commercial_clean",
+                "protein_sequence": alt_prot,
+                "client_request_id": "req_perm_retry_r5",
+            },
+        )
+        assert r_perm1.status_code == 422
+        r_perm2 = client_p.post(
+            "/v1/projects/proj_r5_perm/agent-chat",
+            json={
+                "message": "design",
+                "compliance_track": "commercial_clean",
+                "protein_sequence": alt_prot,
+                "client_request_id": "req_perm_retry_r5",
+            },
+        )
+        assert r_perm2.status_code == 422
+
+    # Round-5 Item 9: HTTP 503 error response arriving past 90s budget raises ReadTimeout instead of HTTPStatusError
+    fake_now = [3000.0]
+    monkeypatch.setattr(dlg_mod._time, "monotonic", lambda: fake_now[0])
+    tb_dlg = AtomicToolbox(sess_b)
+    orig_disp = tb_dlg.dispatch_tool_call
+    monkeypatch.setattr(tb_dlg, "dispatch_tool_call", lambda n, a: (fake_now.__setitem__(0, fake_now[0] + 89.99), orig_disp(n, a))[1])
+    calls_503 = 0
+
+    def _mock_503_late(_req: httpx.Request) -> httpx.Response:
+        nonlocal calls_503
+        calls_503 += 1
+        if calls_503 == 1:
+            return httpx.Response(
+                200,
+                headers={"Content-Type": "application/json"},
+                json={
+                    "choices": [
+                        {
+                            "finish_reason": "tool_calls",
+                            "message": {
+                                "role": "assistant",
+                                "content": "",
+                                "tool_calls": [
+                                    {"id": "c_503", "type": "function", "function": {"name": "query_design_rules", "arguments": "{}"}}
+                                ],
+                            },
+                        }
+                    ]
+                },
+            )
+        fake_now[0] += 0.04
+        return httpx.Response(503, content=b"")
+
+    ag_503 = LiveDialogueAgent(
+        tb_dlg,
+        provider="deepseek",
+        transport=httpx.MockTransport(_mock_503_late),
+        overall_timeout_sec=90.0,
+    )
+    with pytest.raises(httpx.ReadTimeout, match="overall"):
+        ag_503.send_user_message("late 503 check", max_tool_rounds=1)
+
+
+
 
 
 

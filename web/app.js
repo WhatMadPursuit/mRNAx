@@ -3207,6 +3207,11 @@ function syncControlsFromIntent(intent) {
     }
   }
   if (Array.isArray(intent.protein_targets) && intent.protein_targets.length > 0) {
+    const primaryTarget = intent.protein_targets[0];
+    state.proteinAccession =
+      primaryTarget && typeof primaryTarget.accession_or_source === "string" && primaryTarget.accession_or_source.trim()
+        ? primaryTarget.accession_or_source.trim()
+        : null;
     const seqs = intent.protein_targets.map((t) => String(t?.protein_sequence || "").trim()).filter(Boolean);
     if (seqs.length >= 2 && seqs.every((s) => s.length >= 10)) {
       const protEl = document.getElementById("input-protein");

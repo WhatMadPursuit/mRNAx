@@ -910,6 +910,8 @@ def _paths_alias(p1: Path, p2: Path) -> bool:
             pass
     if sys.platform in ("darwin", "win32") and str(r1).lower() == str(r2).lower():
         return True
+    if str(r1).lower() == str(r2).lower():
+        return True
     return False
 
 
@@ -1001,9 +1003,13 @@ def run_worker(
     if eff_drive_client is None and eff_drive_runs_root and drive_token:
         eff_drive_client = _StdlibDriveRestClient(drive_token)
 
-    if sealed_file_id and not sealed_sha256:
+    clean_sealed_file_id = (sealed_file_id or "").strip() or None
+    clean_sealed_sha256 = (sealed_sha256 or "").strip().lower() or None
+    if sealed_file_id is not None and not clean_sealed_file_id:
+        raise ValueError("--sealed-file-id must not be empty or whitespace")
+    if clean_sealed_file_id and not clean_sealed_sha256:
         raise ValueError("--sealed-file-id requires matching --sealed-sha256 of the uploaded SEALED.json")
-    if sealed_sha256 and not _SHA256_HEX_RE.fullmatch(sealed_sha256.strip().lower()):
+    if clean_sealed_sha256 and not _SHA256_HEX_RE.fullmatch(clean_sealed_sha256):
         raise ValueError("--sealed-sha256 must be a 64-char lowercase hex SHA-256 digest")
     if (
         output_json is not None
@@ -1016,7 +1022,7 @@ def run_worker(
 
     if cas_client is not None and not defer_commit and not cas_client.is_loopback:
         has_drive_dest = eff_drive_client is not None and eff_drive_runs_root is not None
-        has_explicit_seal = bool(sealed_file_id and sealed_sha256)
+        has_explicit_seal = bool(clean_sealed_file_id and clean_sealed_sha256)
         if not (has_drive_dest or has_explicit_seal):
             raise ValueError(
                 "Remote HTTPS gateway commit requires Drive sealing (--drive-runs-root-id + MRNAX_DRIVE_ACCESS_TOKEN "
@@ -1025,7 +1031,7 @@ def run_worker(
             )
 
     eff_exec_id = (execution_id or "").strip() or None
-    eff_intent_id = (intent_id or "").strip() or "int_colab_sota"
+    digest_intent_id = "int_colab_sota" if intent_id is None else intent_id
     ld_identity = (
         PINNED_LINEARDESIGN_TAR_SHA256
         if lineardesign_tar is not None
@@ -1042,7 +1048,7 @@ def run_worker(
         "lambdas": list(lambdas),
         "ef": include_eternafold,
         "track": compliance_track,
-        "intent_id": eff_intent_id,
+        "intent_id": digest_intent_id,
         "ld_sha": ld_identity,
         "ef_sha": ef_identity,
     }
@@ -1056,7 +1062,7 @@ def run_worker(
         sub_row = cas_client.submit_execution(
             submission_id=eff_sub_id,
             request_digest=eff_req_dig,
-            intent_id=eff_intent_id,
+            intent_id=digest_intent_id,
         )
         eff_exec_id = str(sub_row["execution_id"])
         if str(sub_row.get("status") or "") == "COMMITTED":
@@ -1076,7 +1082,7 @@ def run_worker(
                 f"Execution '{eff_exec_id}' request_digest mismatch: stored '{existing_exec.get('request_digest')}', "
                 f"got '{request_digest.strip()}'"
             )
-        if intent_id is not None and str(existing_exec.get("intent_id") or "") != intent_id.strip():
+        if intent_id is not None and str(existing_exec.get("intent_id") or "").strip() != intent_id.strip():
             raise ValueError(
                 f"Execution '{eff_exec_id}' intent_id mismatch: stored '{existing_exec.get('intent_id')}', "
                 f"got '{intent_id.strip()}'"

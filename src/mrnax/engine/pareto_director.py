@@ -1221,9 +1221,13 @@ def run_design_pipeline(
 
     use_surrogate_v2 = "surrogate_v2" in intent.runtime_policy.enabled_evaluators
     v2_ready = (
-        has_surrogate_v2_artifacts(seed_dir, allow_sandbox_override=True)
-        if isolated_sandbox_override
-        else has_surrogate_v2_artifacts(seed_dir)
+        (
+            has_surrogate_v2_artifacts(seed_dir, allow_sandbox_override=True)
+            if isolated_sandbox_override
+            else has_surrogate_v2_artifacts(seed_dir)
+        )
+        if use_surrogate_v2
+        else False
     )
     if use_surrogate_v2 and not v2_ready:
         return unavailable(

@@ -364,9 +364,12 @@ def _verify_manifest_artifact(
     manifest = json.loads(manifest_bytes.decode("utf-8"))
     if not isinstance(manifest, dict):
         raise ValueError(f"Refusing to deserialize '{filename}': provenance manifest must be a JSON object")
+    raw_artifacts = manifest.get("artifacts", [])
+    if not isinstance(raw_artifacts, list):
+        raise ValueError(f"Refusing to deserialize '{filename}': provenance manifest 'artifacts' must be a list")
     by_name = {
         str(item["filename"]): item
-        for item in manifest.get("artifacts", [])
+        for item in raw_artifacts
         if isinstance(item, dict) and "filename" in item
     }
     if filename not in by_name:

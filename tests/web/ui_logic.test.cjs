@@ -1735,4 +1735,21 @@ test("Gate B-R2 Round 3 (#10): syncControlsFromIntent resets linear modality/sca
   run(`state.proteinAccession = "UniProt:P01588";`);
   listenerMap.get("preset-egfp").click();
   assert.equal(run("state.proteinAccession"), "GenBank:U55762.1");
+
+  // Round-5 Finding A: server-returned multi-chain intent updates state.proteinAccession so GenBank:U55762.1 never leaks
+  run(`
+    state.proteinAccession = "GenBank:U55762.1";
+    syncControlsFromIntent({
+      intent_id: "i_mc_r5",
+      intent_version: 3,
+      status: "ready",
+      compliance_track: "commercial_clean",
+      protein_targets: [
+        { protein_sequence: "MVLSPADKTNVKAAWGKV", accession_or_source: "user_supplied" },
+        { protein_sequence: "MHLTPEEKSAVTALWGKV", accession_or_source: "user_supplied" }
+      ],
+      locked_scopes: {}
+    });
+  `);
+  assert.equal(run("state.proteinAccession"), "user_supplied");
 });
