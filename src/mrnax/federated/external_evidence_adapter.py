@@ -909,7 +909,7 @@ class ExternalEvidenceAdapterV2:
     _OFFLINE_BENCHMARK_ALIASES: dict[str, str] = {
         "egfp": "EGFP",
         "gfp": "EGFP",
-        "p42212": "EGFP",
+        "p42212": "P42212",
         "u55762": "EGFP",
         "u55762.1": "EGFP",
         "aab02572.1": "EGFP",
@@ -960,6 +960,26 @@ class ExternalEvidenceAdapterV2:
             "transmembrane_coords_1based": [],
             "ensembl_gene_ids": [],
             "subcellular_locations": ["Cytosol", "Nucleoplasm"],
+            "is_secreted_or_membrane": False,
+            "license_spdx": "CC-BY-4.0",
+        },
+        "P42212": {
+            "gene_symbol": "GFP",
+            "uniprot_accession": "P42212",
+            "accession_or_source": "UniProt:P42212",
+            "entry_version": "196",
+            "protein_name": "Green fluorescent protein (Aequorea victoria wild-type P42212)",
+            "organism": "Aequorea victoria",
+            "protein_sequence": (
+                "MSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPTLVTTFSYGVQCFSRYPDHMKQHDFFKSAMPEGYVQERTIFFK"
+                "DDGNYKTRAEVKFEGDTLVNRIELKGIDFKEDGNILGHKLEYNYNSHNVYIMADKQKNGIKVNFKIRHNIEDGSVQLADHYQQNTPIGDGPVLLPDNHYLST"
+                "QSALSKDPNEKRDHMVLLEFVTAAGITHGMDELYK"
+            ),
+            "has_signal_peptide": False,
+            "signal_peptide_coords_1based": [],
+            "transmembrane_coords_1based": [],
+            "ensembl_gene_ids": [],
+            "subcellular_locations": ["Cytoplasm"],
             "is_secreted_or_membrane": False,
             "license_spdx": "CC-BY-4.0",
         },

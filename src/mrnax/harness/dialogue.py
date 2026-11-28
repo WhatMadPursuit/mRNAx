@@ -350,7 +350,7 @@ class _PinnedHostHTTPTransport(httpx.BaseTransport):
             rem = deadline - _time.monotonic()
             if rem <= 0.0:
                 raise httpx.ReadTimeout("Upstream LLM response exceeded overall deadline", request=request)
-            return max(1e-4, rem)
+            return rem
 
         init_rem = _rem_timeout()
 
@@ -419,6 +419,8 @@ class _PinnedHostHTTPTransport(httpx.BaseTransport):
                         )
                     yield blk
 
+            if deadline_exceeded.is_set() or _time.monotonic() >= deadline:
+                raise httpx.ReadTimeout("Upstream LLM response exceeded overall deadline", request=request)
             decoded_body = _decode_bounded_http_chunks(
                 _iter_http_resp(),
                 resp.getheader("Content-Encoding"),

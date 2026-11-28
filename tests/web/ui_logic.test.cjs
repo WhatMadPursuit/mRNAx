@@ -1790,4 +1790,45 @@ test("Gate B-R2 Round 3 (#10): syncControlsFromIntent resets linear modality/sca
   assert.equal(scBody.protein_sequence, "MKTLLL");
   assert.equal(scBody.accession_or_source, "UniProt:P00001");
   assert.equal(scBody.additional_protein_sequences, undefined);
+
+  // Round-8 Fixes 4 & 5: Studio Import reads accession_or_source AND NL refine handles back-to-linear & keep-scaffold cleanly
+  const backLinear = run('parseDeterministicRefineFallback("Switch from circRNA back to linear mRNA")');
+  assert.equal(backLinear.modality, "linear_mrna");
+  assert.equal(backLinear.scaffold_id, "cap1_hba1_aes_mt_a30l70");
+
+  const keepCirc = run('parseDeterministicRefineFallback("keep existing circular scaffold and switch to commercial_clean")');
+  assert.equal(keepCirc.modality, "circrna");
+  assert.equal(keepCirc.compliance_track, "commercial_clean");
+  assert.equal(keepCirc.scaffold_id, undefined);
+
+  run(`
+    state.apiBase = "http://localhost";
+  `);
+  const prevFetchR8 = globalThis.window?.fetch || globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes("/api/v1/evidence/resolve")) {
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => "application/json" },
+        text: async () => JSON.stringify({
+          protein: {
+            matched: true,
+            gene_symbol: "EGFP",
+            uniprot_accession: "P42212",
+            accession_or_source: "GenBank:U55762.1",
+            aa_length: 239,
+            starts_with_met: true,
+            protein_sequence: "MVSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPTLVTTLTYGVQCFSRYPDHMKQHDFFKSAMPEGYVQERTIFFK"
+          }
+        }),
+      };
+    }
+    return prevFetchR8(url);
+  };
+  await run('resolveTargetProteinInHub("eGFP")');
+  const impBtnListeners = listenerMap.get("btn-import-resolved-protein");
+  assert.ok(impBtnListeners && typeof impBtnListeners.click === "function");
+  impBtnListeners.click();
+  assert.equal(run("state.proteinAccession"), "GenBank:U55762.1");
 });

@@ -966,6 +966,7 @@ def _verify_supplied_drive_seal(
     attempt_id: str,
     lease_epoch: int,
     expected_result_sha256: str,
+    expected_result_md5: str | None = None,
 ) -> tuple[str, str]:
     """Ensure a caller-supplied SEALED.json binds the exact current attempt and computed result digest."""
     if hasattr(drive_client, "transport") and hasattr(drive_client.transport, "download_bytes"):
@@ -980,15 +981,20 @@ def _verify_supplied_drive_seal(
             f"Supplied SEALED.json digest mismatch: expected {expected_sealed_sha256}, got {actual_seal_sha}"
         )
     doc = json.loads(raw_seal.decode("utf-8"))
+    raw_epoch = doc.get("lease_epoch")
     if (
         doc.get("execution_id") != execution_id
         or doc.get("attempt_id") != attempt_id
-        or int(doc.get("lease_epoch", -1)) != lease_epoch
+        or isinstance(raw_epoch, bool)
+        or not isinstance(raw_epoch, int)
+        or raw_epoch != lease_epoch
     ):
         raise ValueError("Supplied SEALED.json metadata does not match active execution/attempt/epoch")
     arts = doc.get("artifacts")
     if not isinstance(arts, list) or not any(
-        isinstance(a, dict) and str(a.get("sha256") or "").lower() == expected_result_sha256
+        isinstance(a, dict)
+        and str(a.get("sha256") or "").lower() == expected_result_sha256
+        and (expected_result_md5 is None or str(a.get("md5") or "").lower() == expected_result_md5)
         for a in arts
     ):
         raise ValueError(
@@ -1052,10 +1058,6 @@ def run_worker(
 
     cas_client = VultrCASClient(gateway_url, access_token=access_token) if gateway_url else None
     eff_drive_runs_root = (drive_runs_root_id or os.environ.get("MRNAX_DRIVE_RUNS_ROOT_ID", "")).strip() or None
-    eff_drive_client = drive_client
-    if eff_drive_client is None and eff_drive_runs_root and drive_token:
-        eff_drive_client = _StdlibDriveRestClient(drive_token)
-
     clean_sealed_file_id = (sealed_file_id or "").strip() or None
     clean_sealed_sha256 = (sealed_sha256 or "").strip().lower() or None
     if sealed_file_id is not None and not clean_sealed_file_id:
@@ -1064,6 +1066,9 @@ def run_worker(
         raise ValueError("--sealed-file-id requires matching --sealed-sha256 of the uploaded SEALED.json")
     if clean_sealed_sha256 and not _SHA256_HEX_RE.fullmatch(clean_sealed_sha256):
         raise ValueError("--sealed-sha256 must be a 64-char lowercase hex SHA-256 digest")
+    eff_drive_client = drive_client
+    if eff_drive_client is None and drive_token and (eff_drive_runs_root or clean_sealed_file_id):
+        eff_drive_client = _StdlibDriveRestClient(drive_token)
     eff_receipt_target = commit_receipt_json or (
         output_json.with_name(f"{output_json.stem}.commit_receipt.json")
         if output_json is not None
@@ -1310,6 +1315,7 @@ def run_worker(
                     attempt_id=eff_attempt_id,
                     lease_epoch=int(grant_snapshot["lease_epoch"]),
                     expected_result_sha256=result_sha256,
+                    expected_result_md5=hashlib.md5(immutable_bytes).hexdigest(),
                 )
             elif eff_drive_client is not None and eff_drive_runs_root is not None:
                 eff_sealed_id, eff_sealed_sha256 = _seal_to_drive(

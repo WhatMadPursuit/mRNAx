@@ -1054,9 +1054,10 @@ def _save_hashed_requests(
             continue
         hashed_k = k if _SHA256_HEX_RE.fullmatch(k) else _hash_client_request_id(k)
         normalized[hashed_k] = v
-    unresolved = [(k, v) for k, v in normalized.items() if v.get("status") != "completed"]
-    completed = [(k, v) for k, v in normalized.items() if v.get("status") == "completed"]
-    kept_items = completed[-max_entries:] + unresolved
+    terminal_statuses = ("completed", "rejected_422")
+    unresolved = [(k, v) for k, v in normalized.items() if v.get("status") not in terminal_statuses]
+    terminal = [(k, v) for k, v in normalized.items() if v.get("status") in terminal_statuses]
+    kept_items = terminal[-max_entries:] + unresolved
     sanitized = {
         k: _sanitize_journal_entry(v, extra_secrets=extra_secrets)
         for k, v in kept_items

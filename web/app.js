@@ -3731,21 +3731,34 @@ function parseDeterministicRefineFallback(utterance) {
     changed = true;
   }
 
-  const mentionsCirc = /\bcircrna\b|环状\s*rna|\banabaena\b|\bt4\s*_?\s*td\b|\b(?:hrv-?b3|cvb3)\b/i.test(raw);
-  if (mentionsCirc) {
+  const wantsLinearSwitch =
+    /(?:切回|改回|换成|改为|switch(?:\s+from\s+[\w\s-]+)?(?:\s+back)?\s+to|back\s+to|convert(?:\s+from\s+[\w\s-]+)?\s+to)\s*(?:linear|线性)\s*m?rna/i.test(raw) ||
+    (/(?:\blinear\s*m?rna\b|线性\s*m?rna)/i.test(raw) && !/(?:to|换成|改为|切换)\s*(?:circrna|sarna|环状|自扩增)/i.test(raw));
+  const mentionsCirc = /\bcircrna\b|环状\s*rna|\banabaena\b|\bt4\s*_?\s*td\b|\b(?:hrv-?b3|cvb3)\b|circular\s+scaffold/i.test(raw);
+  const preserveScaffold = /\b(?:keep|preserve|retain|unchanged)\b|保留|维持|不变/i.test(raw);
+  const explicitCircPart = /\banabaena\b|\bt4\s*_?\s*td\b|\b(?:hrv-?b3|cvb3)\b/i.test(raw);
+  if (wantsLinearSwitch) {
+    payload.modality = "linear_mrna";
+    payload.scaffold_id = "cap1_hba1_aes_mt_a30l70";
+    changed = true;
+  } else if (mentionsCirc) {
     payload.modality = "circrna";
     payload.uridine_chemistry = "unmodified_u";
-    const backbone = /\banabaena\b/i.test(raw) ? "anabaena" : "t4td";
-    if (/\bcvb3\b/i.test(raw)) {
-      payload.scaffold_id = `circ_${backbone}_cvb3`;
-    } else {
-      payload.scaffold_id = `circ_${backbone}_hrvb3`;
+    if (!preserveScaffold || explicitCircPart) {
+      const backbone = /\banabaena\b/i.test(raw) ? "anabaena" : "t4td";
+      if (/\bcvb3\b/i.test(raw)) {
+        payload.scaffold_id = `circ_${backbone}_cvb3`;
+      } else {
+        payload.scaffold_id = `circ_${backbone}_hrvb3`;
+      }
     }
     changed = true;
   } else if (/\bsarna\b|自扩增|veev|\bsinv\b|sindbis/i.test(raw)) {
     payload.modality = "sarna";
     payload.uridine_chemistry = "unmodified_u";
-    payload.scaffold_id = /\bsinv\b|sindbis/i.test(raw) ? "sarna_sinv" : "sarna_veev_tc83";
+    if (!preserveScaffold || /\bsinv\b|sindbis|veev/i.test(raw)) {
+      payload.scaffold_id = /\bsinv\b|sindbis/i.test(raw) ? "sarna_sinv" : "sarna_veev_tc83";
+    }
     changed = true;
   }
 
@@ -5091,7 +5104,8 @@ async function resolveTargetProteinInHub(customQuery = null) {
   if (!box) return;
   const pName = extractSandboxedText(prot.protein_name_sandboxed || prot.protein_name_quarantined || prot.gene_symbol);
   const afMean = prot.alphafold_summary?.mean_plddt;
-  const resolvedAccBadge = prot.accession_source || (prot.uniprot_accession ? `UniProt:${prot.uniprot_accession}` : "verified");
+  const resolvedAccBadge =
+    prot.accession_or_source || prot.accession_source || (prot.uniprot_accession ? `UniProt:${prot.uniprot_accession}` : "verified");
   box.innerHTML = `
     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
       <div>
@@ -5121,6 +5135,7 @@ async function resolveTargetProteinInHub(customQuery = null) {
         protField.value = state.resolvedTarget.protein_sequence;
         state.additionalProteinSequences = [];
         state.proteinAccession =
+          state.resolvedTarget.accession_or_source ||
           state.resolvedTarget.accession_source ||
           (state.resolvedTarget.uniprot_accession ? `UniProt:${state.resolvedTarget.uniprot_accession}` : "user_supplied");
         state.userEditedProtein = true;

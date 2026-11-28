@@ -1124,13 +1124,15 @@ class ProjectHarnessSession:
         prot_status = "confirmed"
         intent_status = "ready"
 
-        if not prot_clean.startswith("M") or is_secreted_without_sp:
-            prot_status = "needs_protein_confirmation"
+        missing_met_extra = any(not extra_aa.startswith("M") for extra_aa in (norm_additional or ()))
+        if not prot_clean.startswith("M") or missing_met_extra or is_secreted_without_sp:
             intent_status = "needs_protein_confirmation"
             blocking_q.append(
                 "Provided protein sequence lacks an N-terminal initiator Methionine ('M') or signal peptide. "
                 "Please confirm whether to prepend initiator 'M', attach a specific signal peptide, or evaluate as-is."
             )
+            if not prot_clean.startswith("M") or is_secreted_without_sp:
+                prot_status = "needs_protein_confirmation"
         elif conflicting_single_pick:
             intent_status = "needs_conflict_clarification"
             blocking_q.append(
@@ -1153,7 +1155,9 @@ class ProjectHarnessSession:
                         protein_sequence=extra_aa,
                         transl_table=1,
                         accession_or_source=f"{accession_or_source}:chain_{idx}",
-                        confirmation_status="confirmed",
+                        confirmation_status=(
+                            "needs_protein_confirmation" if not extra_aa.startswith("M") else "confirmed"
+                        ),
                     )
                     for idx, extra_aa in enumerate(norm_additional, start=2)
                 ],

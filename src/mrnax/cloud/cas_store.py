@@ -438,10 +438,13 @@ class ExecutionCASStore:
                 f"Drive seal sha256 mismatch: expected {sealed_sha256}, got {actual_sha}"
             )
         doc = json.loads(raw_seal.decode("utf-8"))
+        raw_epoch = doc.get("lease_epoch")
         if (
             doc.get("execution_id") != execution_id
             or doc.get("attempt_id") != attempt_id
-            or int(doc.get("lease_epoch", -1)) != lease_epoch
+            or isinstance(raw_epoch, bool)
+            or not isinstance(raw_epoch, int)
+            or raw_epoch != lease_epoch
         ):
             raise StaleLeaseConflictError("Drive seal metadata does not match execution/attempt/epoch")
         arts = doc.get("artifacts")

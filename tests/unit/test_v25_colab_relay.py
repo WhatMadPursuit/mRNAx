@@ -1327,6 +1327,120 @@ def test_gate_b_r2_round4_worker_fixes(
                     work_dir=tmp_path / "w_r7_stale_seal",
                 )
         assert cas_store.get_execution(eid_seal).status == "RUNNING"
+
+        # Round-8 fixes: token-only --sealed-file-id constructs Drive client without --drive-runs-root-id,
+        # strict integer lease_epoch rejects float/bool, and MD5+SHA256 binds result bytes
+        monkeypatch.setenv("MRNAX_DRIVE_ACCESS_TOKEN", "ya29.round8_token_only_12345")
+        monkeypatch.delenv("MRNAX_DRIVE_RUNS_ROOT_ID", raising=False)
+        out_tok_only = tmp_path / "r8_tok_only.json"
+        captured_drive_clients: list[Any] = []
+        orig_std_client = worker_mod._StdlibDriveRestClient
+
+        def _track_std_client(token: str) -> Any:
+            inst = orig_std_client(token)
+            captured_drive_clients.append(inst)
+            return inst
+
+        monkeypatch.setattr(worker_mod, "_StdlibDriveRestClient", _track_std_client)
+        # Verify Drive client was constructed from MRNAX_DRIVE_ACCESS_TOKEN cleanly without --drive-runs-root-id
+        with monkeypatch.context() as mp_r8:
+            mp_r8.setattr(
+                worker_mod,
+                "_verify_supplied_drive_seal",
+                lambda *a, **kw: ("file_r8_tok", stale_seal.sha256),
+            )
+            mp_r8.setattr(
+                worker_mod.VultrCASClient,
+                "acquire_or_renew_lease",
+                lambda self, *args, **kwargs: dict(lease_s),
+            )
+            mp_r8.setattr(
+                worker_mod.VultrCASClient,
+                "commit_attempt",
+                lambda self, **kw: {"status": "COMMITTED", **kw},
+            )
+            res_tok_only = worker_mod.run_worker(
+                protein_seq=egfp_prot,
+                lineardesign_tar=ld_tar,
+                gateway_url=f"http://127.0.0.1:{port}",
+                execution_id=eid_seal,
+                attempt_id=lease_s["attempt_id"],
+                worker_id="pre_w",
+                sealed_file_id=stale_seal.file_id,
+                sealed_sha256=stale_seal.sha256,
+                output_json=out_tok_only,
+                work_dir=tmp_path / "w_r8_tok_only",
+            )
+            assert res_tok_only["status"] == "COMMITTED"
+        assert len(captured_drive_clients) == 1
+
+        # Strict integer lease_epoch (reject float 1.9 and bool True) & result MD5+SHA256 mismatch
+        class _MemDrive:
+            def __init__(self, payload: bytes) -> None:
+                self._payload = payload
+
+            def download_bytes(self, _fid: str) -> bytes:
+                return self._payload
+
+        good_res_bytes = out_tok_only.read_bytes()
+        good_sha = hashlib.sha256(good_res_bytes).hexdigest()
+        good_md5 = hashlib.md5(good_res_bytes).hexdigest()
+
+        from mrnax.cloud.cas_store import StaleLeaseConflictError
+
+        for bad_epoch in (1.9, True):
+            seal_bad_ep = json.dumps(
+                {
+                    "execution_id": "exec_1",
+                    "attempt_id": "att_1",
+                    "lease_epoch": bad_epoch,
+                    "artifacts": [{"sha256": good_sha, "md5": good_md5}],
+                }
+            ).encode("utf-8")
+            bad_ep_sha = hashlib.sha256(seal_bad_ep).hexdigest()
+            with pytest.raises(ValueError, match="epoch"):
+                worker_mod._verify_supplied_drive_seal(
+                    _MemDrive(seal_bad_ep),
+                    sealed_file_id="fid_1",
+                    expected_sealed_sha256=bad_ep_sha,
+                    execution_id="exec_1",
+                    attempt_id="att_1",
+                    lease_epoch=1,
+                    expected_result_sha256=good_sha,
+                    expected_result_md5=good_md5,
+                )
+            cas_bad_ep = ExecutionCASStore(
+                tmp_path / f"cas_bad_ep_{type(bad_epoch).__name__}.sqlite3",
+                drive_verifier=type("_DV", (), {"transport": _MemDrive(seal_bad_ep)})(),
+            )
+            with pytest.raises(StaleLeaseConflictError, match="epoch"):
+                cas_bad_ep._verify_drive_seal_before_commit(
+                    execution_id="exec_1",
+                    attempt_id="att_1",
+                    lease_epoch=1,
+                    sealed_file_id="fid_1",
+                    sealed_sha256=bad_ep_sha,
+                )
+
+        seal_bad_md5 = json.dumps(
+            {
+                "execution_id": "exec_1",
+                "attempt_id": "att_1",
+                "lease_epoch": 1,
+                "artifacts": [{"sha256": good_sha, "md5": "0" * 32}],
+            }
+        ).encode("utf-8")
+        with pytest.raises(ValueError, match="does not bind"):
+            worker_mod._verify_supplied_drive_seal(
+                _MemDrive(seal_bad_md5),
+                sealed_file_id="fid_1",
+                expected_sealed_sha256=hashlib.sha256(seal_bad_md5).hexdigest(),
+                execution_id="exec_1",
+                attempt_id="att_1",
+                lease_epoch=1,
+                expected_result_sha256=good_sha,
+                expected_result_md5=good_md5,
+            )
     finally:
         server.should_exit = True
         srv_thread.join(timeout=5.0)

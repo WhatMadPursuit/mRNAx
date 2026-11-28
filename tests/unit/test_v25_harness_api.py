@@ -2481,6 +2481,126 @@ def test_gate_b_r2_round5_remaining_fixes(
         ag_stacked.send_user_message("late stacked encoding", allow_tools=False)
 
 
+def test_round8_final_fixes_deadline_provenance_journal_p42212_and_multichain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import socket as _socket
+    import ssl as _ssl
+    from mrnax.cloud.gateway import _load_agent_chat_requests, _save_agent_chat_requests
+    from mrnax.harness.dialogue import _PinnedHostHTTPTransport
+
+    # 1. Production pinned transport checks overall deadline BEFORE decoding stacked Content-Encoding
+    class _FakeTlsSock:
+        def __init__(self, raw_http: bytes, tick_cb: Any) -> None:
+            self._buf = raw_http
+            self._tick_cb = tick_cb
+
+        def settimeout(self, _t: float) -> None:
+            return None
+
+        def sendall(self, _data: bytes) -> None:
+            return None
+
+        def makefile(self, mode: str = "rb", buffering: int = -1) -> Any:
+            self._tick_cb()
+            return io.BytesIO(self._buf)
+
+        def shutdown(self, _how: int) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    class _FakeRawSock:
+        def settimeout(self, _t: float) -> None:
+            return None
+
+        def shutdown(self, _how: int) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    fake_now = [8000.0]
+    import mrnax.harness.dialogue as dlg_mod
+
+    monkeypatch.setattr(dlg_mod._time, "monotonic", lambda: fake_now[0])
+    raw_resp = (
+        b"HTTP/1.1 200 OK\r\n"
+        b"Content-Encoding: gzip, br\r\n"
+        b"Content-Length: 3\r\n"
+        b"Connection: close\r\n\r\n"
+        b"bad"
+    )
+    monkeypatch.setattr(_socket, "create_connection", lambda *a, **kw: _FakeRawSock())
+    fake_ctx = type("_Ctx", (), {"wrap_socket": lambda self, s, server_hostname=None: _FakeTlsSock(raw_resp, lambda: fake_now.__setitem__(0, 8000.2))})()
+    monkeypatch.setattr(_ssl, "create_default_context", lambda: fake_ctx)
+
+    tr_pinned = _PinnedHostHTTPTransport(
+        expected_host="api.example.test",
+        pinned_ip="93.184.216.34",
+        pinned_port=443,
+        timeout_sec=0.05,
+        abs_deadline=8000.05,
+    )
+    with pytest.raises(httpx.ReadTimeout, match="deadline"):
+        tr_pinned.handle_request(httpx.Request("POST", "https://api.example.test/v1/chat/completions", json={"x": 1}))
+
+    # 2. Form-submitted exact 239-aa eGFP retains GenBank:U55762.1 provenance
+    from mrnax.engine.lineardesign_adapter import enforce_local_heavy_binaries_policy
+
+    snap = json.loads((SEED_DIR / "egfp_reporter_snapshot.json").read_text(encoding="utf-8"))
+    egfp_239 = snap["mammalian_reporter_egfp"]["protein_sequence"].strip()
+    sess_f = ProjectHarnessSession(
+        project_id="proj_r8_egfp_form",
+        store_dir=tmp_path / "proj_r8_egfp_form",
+        seed_dir=SEED_DIR,
+    )
+    tb_f = AtomicToolbox(
+        sess_f,
+        default_compliance_track="commercial_clean",
+        default_protein_sequence=egfp_239,
+        default_accession_or_source=None,
+    )
+    with enforce_local_heavy_binaries_policy(True):
+        res_egfp = tb_f.design_constructs(user_utterance="Optimize exact eGFP reporter")
+    intent_egfp = sess_f.intent_for_bundle(res_egfp["recommended_bundle_ids"][0])
+    assert intent_egfp.protein_targets[0].accession_or_source == "GenBank:U55762.1"
+    assert intent_egfp.protein_targets[0].entry_version == "AAB02572.1"
+
+    # 3. Journal compaction bounds terminal rejected_422 rows to <= max_entries
+    j_dir = tmp_path / "proj_r8_journal"
+    j_dir.mkdir(parents=True, exist_ok=True)
+    reqs = {
+        f"req_{idx:03d}": {"status": "rejected_422", "error_detail": f"denied #{idx}"}
+        for idx in range(60)
+    }
+    _save_agent_chat_requests(j_dir, reqs, max_entries=50)
+    loaded, _, _ = _load_agent_chat_requests(j_dir)
+    assert len(loaded) == 50
+
+    # 4. Offline UniProt P42212 resolves 238-aa wild-type GFP cleanly (distinct from 239-aa eGFP)
+    ev = ExternalEvidenceAdapterV2()
+    res_p42212 = ev.resolve_target_protein("P42212", allow_network=False)
+    assert res_p42212["matched"] is True
+    assert res_p42212["uniprot_accession"] == "P42212"
+    assert res_p42212["accession_or_source"] == "UniProt:P42212"
+    assert res_p42212["aa_length"] == 238
+    assert res_p42212["protein_sequence"].startswith("MSKGEELFT")
+
+    # 5. Chain-2 lacking initiator M triggers needs_protein_confirmation just like Chain-1
+    intent_mc = sess_f.create_turn_intent_canonical(
+        user_utterance="Design dual chain with truncated second chain",
+        protein_sequence="MVSKGEELFTGVV",
+        additional_protein_sequences=["VSKGEELFTGVV"],
+    )
+    assert intent_mc.status == "needs_protein_confirmation"
+    assert intent_mc.protein_targets[0].confirmation_status == "confirmed"
+    assert intent_mc.protein_targets[1].confirmation_status == "needs_protein_confirmation"
+    assert any("initiator Methionine" in q for q in intent_mc.blocking_questions)
+
+
+
 
 
 
