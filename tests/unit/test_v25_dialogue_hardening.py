@@ -467,3 +467,233 @@ def test_audit_hardening_dsml_interrupted_intermediate_retry_after_and_fallback(
         )
     assert ok_resp.status_code == 200
     assert sleeps2 == [2.0]
+
+
+def test_resolve_target_protein_human_qualifier_normalization(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import time
+    import mrnax.federated.external_evidence_adapter as ext_mod
+    from mrnax.federated.external_evidence_adapter import (
+        CleanRoomPolicyError,
+        ExternalEvidenceAdapterV2,
+        resolve_target_protein,
+    )
+    from mrnax.harness.state_machine import ProjectHarnessSession
+    from mrnax.harness.tools import AtomicToolbox
+
+    # 1. Positive human-qualified queries resolve cleanly while preserving original query text
+    for q_str, exp_sym, exp_len in [
+        ("human FGF21", "FGF21", 209),
+        ("Homo sapiens EPO", "EPO", 193),
+        ("人源 FGF21 蛋白", "FGF21", 209),
+        ("FGF21 (human)", "FGF21", 209),
+        ("Human HER2", "ERBB2", 1255),
+    ]:
+        res = resolve_target_protein(q_str, allow_network=False)
+        assert res["matched"] is True, f"Failed human-qualified lookup for {q_str}"
+        assert res["query"] == q_str
+        assert res["gene_symbol"] == exp_sym
+        assert res["aa_length"] == exp_len
+
+    # 2. Negative guardrails: offline AND live paths must never match non-human/generic phrases or human P42212
+    neg_queries = [
+        "mouse FGF21",
+        "mouse FGF21 protein",
+        "human complement protein C",
+        "human antigen",
+        "human eGFP",
+    ]
+    for bad_q in neg_queries:
+        res_bad = resolve_target_protein(bad_q, allow_network=False)
+        assert res_bad["matched"] is False, f"Unexpected offline match for negative query {bad_q}"
+        assert res_bad["query"] == bad_q
+
+    adapter = ExternalEvidenceAdapterV2(license_track="commercial_clean")
+    with pytest.raises(CleanRoomPolicyError):
+        adapter.resolve_target_protein("hsa-miR-122-5p", allow_network=False)
+
+    # 3. Mocked live UniProt tests (PCSK9 human filter, RefSeq human filter, P42212 non-human rejection, unrelated hit guard)
+    seen_urls: list[str] = []
+
+    def _fake_http_json(url: str, method: str = "GET", payload: dict | None = None, timeout: int = 8):
+        seen_urls.append(url)
+        if "uniprotkb/P42212.json" in url or "uniprotkb/Q9ZZZ9.json" in url:
+            is_q9 = "Q9ZZZ9" in url
+            return {
+                "primaryAccession": "Q9ZZZ9" if is_q9 else "P42212",
+                "uniProtkbId": "MOCK_MOUSE" if is_q9 else "GFP_AEQVI",
+                "organism": {
+                    "scientificName": "Mus musculus" if is_q9 else "Aequorea victoria",
+                    "taxonId": 10090 if is_q9 else 6100,
+                },
+                "genes": [{"geneName": {"value": "MockMouse" if is_q9 else "GFP"}}],
+                "proteinDescription": {"recommendedName": {"fullName": {"value": "Non-human mock protein"}}},
+                "sequence": {"value": "MSKGEELFTGVVPILVELDGDVNGHK", "version": 1},
+                "features": [],
+                "uniProtKBCrossReferences": [],
+            }
+        if "uniprot.org" in url and "gene_exact%3APCSK9" in url:
+            return {"results": []}
+        if "uniprot.org" in url and "gene%3APCSK9" in url:
+            return {
+                "results": [
+                    {
+                        "primaryAccession": "Q8NBP7",
+                        "uniProtkbId": "PCSK9_HUMAN",
+                        "organism": {"scientificName": "Homo sapiens", "taxonId": 9606},
+                        "genes": [{"geneName": {"value": "PCSK9"}}],
+                        "proteinDescription": {
+                            "recommendedName": {"fullName": {"value": "Proprotein convertase subtilisin/kexin type 9"}}
+                        },
+                        "sequence": {"value": "MGTVSSRRSWWPLPLLLLLLLLLGPAGARAQEDEDGDYEELVLALRSEED", "version": 1},
+                        "features": [],
+                        "uniProtKBCrossReferences": [],
+                    }
+                ]
+            }
+        if "uniprot.org" in url and "NP_999999" in url:
+            return {
+                "results": [
+                    {
+                        "primaryAccession": "Q99999",
+                        "uniProtkbId": "MOCK_MOUSE",
+                        "organism": {"scientificName": "Mus musculus", "taxonId": 10090},
+                        "genes": [{"geneName": {"value": "MockMouse"}}],
+                        "proteinDescription": {"recommendedName": {"fullName": {"value": "Mouse mock"}}},
+                        "sequence": {"value": "MAAAAAAAAA", "version": 1},
+                        "features": [],
+                        "uniProtKBCrossReferences": [],
+                    }
+                ]
+            }
+        # Broad/mock trap: return a decoy hit if ANY generic/mouse query slips into HTTP search
+        if "uniprot.org" in url:
+            return {
+                "results": [
+                    {
+                        "primaryAccession": "P00000",
+                        "uniProtkbId": "DECOY_HUMAN",
+                        "organism": {"scientificName": "Homo sapiens", "taxonId": 9606},
+                        "genes": [{"geneName": {"value": "DECOY"}}],
+                        "proteinDescription": {"recommendedName": {"fullName": {"value": "Unrelated Decoy"}}},
+                        "sequence": {"value": "MDDDDDDDDD", "version": 1},
+                        "features": [],
+                        "uniProtKBCrossReferences": [],
+                    }
+                ]
+            }
+        return None
+
+    monkeypatch.setattr(ext_mod, "_http_json", _fake_http_json)
+
+    for bad_q in [*neg_queries, "human P42212", "human Q9ZZZ9", "human NP_999999.1"]:
+        res_live_bad = resolve_target_protein(bad_q, allow_network=True)
+        assert res_live_bad["matched"] is False, f"Unexpected live match for {bad_q}"
+        assert res_live_bad["query"] == bad_q
+
+    # Bare P42212 still resolves cleanly
+    bare_p42212 = resolve_target_protein("P42212", allow_network=True)
+    assert bare_p42212["matched"] is True and bare_p42212["uniprot_accession"] == "P42212"
+
+    assert any("NP_999999" in u and "organism_id%3A9606" in u for u in seen_urls)
+
+    seen_urls.clear()
+    live_res = resolve_target_protein("human PCSK9", allow_network=True)
+    assert live_res["matched"] is True
+    assert live_res["query"] == "human PCSK9"
+    assert live_res["uniprot_accession"] == "Q8NBP7"
+    assert any("gene_exact%3APCSK9" in u and "organism_id%3A9606" in u for u in seen_urls)
+    broad_urls = [u for u in seen_urls if "gene%3APCSK9" in u]
+    assert broad_urls and all("organism_id%3A9606" in u for u in broad_urls)
+
+    # 3b. Compact zero-space qualifiers, h-prefix species constraint, broad unrelated-gene filter, and conflicting taxon
+    for compact_off in ("人源FGF21", "FGF21(human)"):
+        rc = resolve_target_protein(compact_off, allow_network=False)
+        assert rc["matched"] is True and rc["gene_symbol"] == "FGF21" and rc["query"] == compact_off
+
+    for compact_live in ("人源PCSK9", "PCSK9(human)"):
+        seen_urls.clear()
+        rl = resolve_target_protein(compact_live, allow_network=True)
+        assert rl["matched"] is True and rl["uniprot_accession"] == "Q8NBP7" and rl["query"] == compact_live
+        assert any("organism_id%3A9606" in u for u in seen_urls)
+
+    # hPCSK9 strips h-prefix and must enforce organism_id:9606; mocked mouse hit + unrelated gene hit must be rejected
+    def _hp_and_generic_mock(url: str, method: str = "GET", payload: dict | None = None, timeout: int = 8):
+        seen_urls.append(url)
+        if "gene_exact%3A" in url:
+            return {"results": []}
+        if "gene%3APCSK9" in url:
+            return {
+                "results": [
+                    {
+                        "primaryAccession": "Q9ZZM1",
+                        "uniProtkbId": "PCSK9_MOUSE",
+                        "organism": {"scientificName": "Mus musculus", "taxonId": 10090},
+                        "genes": [{"geneName": {"value": "PCSK9"}}],
+                        "proteinDescription": {"recommendedName": {"fullName": {"value": "Mouse PCSK9"}}},
+                        "sequence": {"value": "MGTVSSRRSWW", "version": 1},
+                        "features": [],
+                        "uniProtKBCrossReferences": [],
+                    }
+                ]
+            }
+        if "uniprot.org" in url:
+            return {
+                "results": [
+                    {
+                        "primaryAccession": "P99999",
+                        "uniProtkbId": "OTHER_HUMAN",
+                        "organism": {"scientificName": "Homo sapiens", "taxonId": 9606},
+                        "genes": [{"geneName": {"value": "OTHER"}}],
+                        "proteinDescription": {"recommendedName": {"fullName": {"value": "Unrelated factor"}}},
+                        "sequence": {"value": "MCCCCCCCCCC", "version": 1},
+                        "features": [],
+                        "uniProtKBCrossReferences": [],
+                    }
+                ]
+            }
+        return None
+
+    monkeypatch.setattr(ext_mod, "_http_json", _hp_and_generic_mock)
+    seen_urls.clear()
+    res_hp = resolve_target_protein("hPCSK9", allow_network=True)
+    assert res_hp["matched"] is False
+    assert any("gene%3APCSK9" in u and "organism_id%3A9606" in u for u in seen_urls)
+
+    res_cyt = resolve_target_protein("human cytokine", allow_network=True)
+    assert res_cyt["matched"] is False
+
+    assert (
+        ExternalEvidenceAdapterV2._is_human_uniprot_entry(
+            {"organism": {"taxonId": 10090, "scientificName": "Homo sapiens"}}
+        )
+        is False
+    )
+
+    # 4. Strictly O(N) performance on both mismatched-tail AND pure repeating descriptor chains
+    t0 = time.monotonic()
+    adv = resolve_target_protein("human FGF21" + " protein" * 4000 + "X", allow_network=False)
+    assert adv["matched"] is False
+    assert (time.monotonic() - t0) < 0.05
+
+    t1 = time.monotonic()
+    rep = resolve_target_protein("human FGF21" + " protein" * 8000, allow_network=False)
+    assert rep["matched"] is True and rep["gene_symbol"] == "FGF21"
+    assert (time.monotonic() - t1) < 0.05
+
+    # 5. Tool schema preserves explicit species qualifiers instead of instructing LLM to strip them
+    seed_dir = Path(__file__).resolve().parents[2] / "registry_seed"
+    tb = AtomicToolbox(
+        ProjectHarnessSession(
+            project_id="proj_schema_check",
+            store_dir=tmp_path / "proj_schema_check",
+            seed_dir=seed_dir,
+        )
+    )
+    rtp_spec = next(
+        s["function"]["description"]
+        for s in tb.openai_tool_schemas()
+        if s["function"]["name"] == "resolve_target_protein"
+    )
+    assert "omit species" not in rtp_spec.lower()
+    assert "keep any explicit species qualifier" in rtp_spec.lower()
+

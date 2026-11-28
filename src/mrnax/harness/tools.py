@@ -1804,7 +1804,7 @@ class AtomicToolbox:
             ),
             (
                 "resolve_target_protein",
-                "Resolve gene symbols, UniProt IDs, or RefSeq accessions via UniProt, AlphaFold DB, HPA, GTEx, and ClinicalTrials.gov.",
+                "Resolve human/reporter gene symbols, UniProt IDs, or RefSeq accessions (e.g., 'FGF21', 'EPO', 'Q9NSA1', 'NM_019113.4'; keep any explicit species qualifier if provided) via UniProt, AlphaFold DB, HPA, GTEx, and ClinicalTrials.gov.",
             ),
             (
                 "analyze_structure_and_motifs",

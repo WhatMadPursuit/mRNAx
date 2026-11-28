@@ -1180,6 +1180,153 @@ class ExternalEvidenceAdapterV2:
             "Intracellular/cytosolic target: optimize 5-prime initiation openness [-15, +30 nt] without ER leader peptide.",
         )
 
+    _TARGET_STOP_WORDS: frozenset[str] = frozenset(
+        {
+            "protein",
+            "precursor",
+            "gene",
+            "mrna",
+            "dna",
+            "rna",
+            "human",
+            "antigen",
+            "complement",
+            "antibody",
+            "peptide",
+            "factor",
+            "receptor",
+            "kinase",
+            "enzyme",
+            "domain",
+            "chain",
+            "target",
+        }
+    )
+
+    @classmethod
+    def _strip_trailing_descriptors(cls, text: str) -> str:
+        """Strictly linear-time suffix peeling for trailing target descriptors without regex backtracking."""
+        cur = text.strip()
+        if not cur:
+            return cur
+        low = cur.lower()
+        end = len(cur)
+        while end > 0:
+            while end > 0 and cur[end - 1].isspace():
+                end -= 1
+            if end == 0:
+                break
+            stripped = False
+            for suf in ("protein", "precursor", "gene", "mrna"):
+                if low.endswith(suf, 0, end):
+                    head_len = end - len(suf)
+                    if head_len > 0 and cur[head_len - 1].isspace():
+                        end = head_len
+                        stripped = True
+                        break
+            if stripped:
+                continue
+            for zh_suf in ("蛋白", "前体"):
+                if cur.endswith(zh_suf, 0, end):
+                    head_len = end - len(zh_suf)
+                    if head_len > 0:
+                        end = head_len
+                        stripped = True
+                        break
+            if not stripped:
+                break
+        return cur[:end].strip()
+
+    @staticmethod
+    def _is_human_uniprot_entry(entry: dict[str, Any]) -> bool:
+        org = entry.get("organism") or {}
+        taxon_id = org.get("taxonId")
+        if taxon_id is not None:
+            if isinstance(taxon_id, bool):
+                return False
+            try:
+                return int(taxon_id) == 9606
+            except (TypeError, ValueError):
+                return False
+        sci = str(org.get("scientificName") or "").strip().lower()
+        return sci.startswith("homo sapiens")
+
+    @staticmethod
+    def _uniprot_entry_matches_gene_symbol(entry: dict[str, Any], symbol: str) -> bool:
+        want = symbol.strip().upper()
+        if not want:
+            return False
+        names: set[str] = set()
+        acc = str(entry.get("primaryAccession") or "").strip().upper()
+        if acc:
+            names.add(acc)
+        uid = str(entry.get("uniProtkbId") or "").strip().upper()
+        if uid:
+            names.add(uid)
+            names.add(uid.split("_")[0])
+        for g in entry.get("genes") or []:
+            if not isinstance(g, dict):
+                continue
+            gname = str((g.get("geneName") or {}).get("value") or "").strip().upper()
+            if gname:
+                names.add(gname)
+            for key in ("synonyms", "orderedLocusNames", "orfNames"):
+                for item in g.get(key) or []:
+                    val = str((item.get("value") if isinstance(item, dict) else item) or "").strip().upper()
+                    if val:
+                        names.add(val)
+        return want in names
+
+    @classmethod
+    def _normalize_target_query(cls, cleaned: str) -> tuple[str, bool, bool]:
+        """Normalize explicit human qualifiers; return (lookup_token, had_human_qualifier, is_specific_identifier)."""
+        collapsed = " ".join(cleaned.split())
+        if not collapsed:
+            return collapsed, False, False
+        if collapsed.lower() in cls._OFFLINE_BENCHMARK_ALIASES:
+            return collapsed, False, True
+        if re.fullmatch(r"[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2}", collapsed):
+            return collapsed, False, True
+        if re.fullmatch(r"(?:NM_|NP_|XP_|XM_)[0-9]+(?:\.[0-9]+)?", collapsed, re.I):
+            return collapsed, False, True
+
+        lead_human_re = re.compile(
+            r"^(?:(?:homo\s+sapiens|h\.\s*sapiens|human)\s+|(?:人源|人类)\s*(?=[A-Za-z0-9]))",
+            re.I,
+        )
+        trail_human_re = re.compile(
+            r"(?:\s*\(\s*(?:human|homo\s+sapiens|h\.\s*sapiens|人源|人类)\s*\)|\s+(?:human|homo\s+sapiens))\s*$",
+            re.I,
+        )
+
+        candidate = collapsed
+        had_human = False
+        m_lead = lead_human_re.match(candidate)
+        if m_lead:
+            had_human = True
+            candidate = candidate[m_lead.end() :].strip()
+
+        desc_peeled = cls._strip_trailing_descriptors(candidate)
+        tail_start = max(0, len(desc_peeled) - 24)
+        m_trail = trail_human_re.search(desc_peeled[tail_start:])
+        if m_trail:
+            had_human = True
+            candidate = cls._strip_trailing_descriptors(desc_peeled[: tail_start + m_trail.start()])
+        elif had_human:
+            candidate = desc_peeled
+
+        if not had_human:
+            if not any(ch.isspace() for ch in collapsed):
+                is_generic = collapsed.lower() in cls._TARGET_STOP_WORDS or collapsed in {"人源", "人类"}
+                return collapsed, False, not is_generic
+            return collapsed, False, False
+        if (
+            not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]{1,31}", candidate)
+            or candidate.lower() in cls._TARGET_STOP_WORDS
+        ):
+            return collapsed, True, False
+        return candidate, True, True
+
     def resolve_target_protein(
         self,
         query: str,
@@ -1199,10 +1346,34 @@ class ExternalEvidenceAdapterV2:
 
         from mrnax.harness.sandbox import wrap_untrusted_external_text
 
-        norm_low = cleaned.lower()
+        lookup_tok, had_human_qualifier, is_specific_identifier = self._normalize_target_query(cleaned)
+        if not is_specific_identifier:
+            return {
+                "matched": False,
+                "query": cleaned,
+                "resolution_mode": "unresolved",
+                "note": (
+                    f"Could not resolve verified protein sequence for '{cleaned}'. "
+                    "Please supply a specific gene symbol, amino-acid sequence, or reviewed UniProt / RefSeq accession."
+                ),
+            }
+
+        norm_low = lookup_tok.lower()
         alias_key = self._OFFLINE_BENCHMARK_ALIASES.get(norm_low)
+        offline_bench = self._OFFLINE_VERIFIED_BENCHMARKS.get(alias_key or "")
+        if had_human_qualifier and offline_bench is not None:
+            if not str(offline_bench.get("organism") or "").startswith("Homo sapiens"):
+                return {
+                    "matched": False,
+                    "query": cleaned,
+                    "resolution_mode": "unresolved",
+                    "note": (
+                        f"'{cleaned}' specifies Homo sapiens, whereas '{alias_key}' is "
+                        f"{offline_bench.get('organism')}, not a native human target."
+                    ),
+                }
         # Prefer canonical engineered 239-aa mammalian eGFP reporter when user explicitly asks for eGFP / U55762
-        if norm_low in {"egfp", "u55762", "u55762.1", "aab02572.1"}:
+        if not had_human_qualifier and norm_low in {"egfp", "u55762", "u55762.1", "aab02572.1"}:
             bench = dict(self._OFFLINE_VERIFIED_BENCHMARKS["EGFP"])
             seq = str(bench["protein_sequence"])
             wrapped_name = wrap_untrusted_external_text(bench["protein_name"], source_id="GenBank:U55762.1")
@@ -1239,37 +1410,49 @@ class ExternalEvidenceAdapterV2:
 
         live_entry: dict[str, Any] | None = None
         uniprot_url = ""
+        enforce_human = had_human_qualifier
         if allow_network:
             try:
-                target_tok = cleaned
-                if alias_key and alias_key in self._OFFLINE_VERIFIED_BENCHMARKS and not re.match(r"^(NM_|NP_|XP_)", cleaned, re.I):
+                target_tok = lookup_tok
+                if alias_key and alias_key in self._OFFLINE_VERIFIED_BENCHMARKS and not re.match(r"^(NM_|NP_|XP_)", lookup_tok, re.I):
                     target_tok = self._OFFLINE_VERIFIED_BENCHMARKS[alias_key]["uniprot_accession"]
                 if re.fullmatch(r"[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2}", target_tok):
                     uniprot_url = f"https://rest.uniprot.org/uniprotkb/{urllib.parse.quote(target_tok)}.json"
                     live_entry = _http_json(uniprot_url, timeout=timeout)
                 elif re.match(r"^(NM_|NP_|XP_|XM_)[0-9]+", target_tok, re.I):
                     stem = target_tok.split(".")[0].upper()
-                    q_ref = urllib.parse.quote(f"(xref:RefSeq-{stem} OR {stem}) AND reviewed:true")
+                    ref_org = " AND organism_id:9606" if enforce_human else ""
+                    q_ref = urllib.parse.quote(f"(xref:RefSeq-{stem} OR {stem}){ref_org} AND reviewed:true")
                     uniprot_url = f"https://rest.uniprot.org/uniprotkb/search?query={q_ref}&format=json&size=1"
                     res_u = _http_json(uniprot_url, timeout=timeout)
                     results_u = res_u.get("results") or []
                     if not results_u:
-                        q_any = urllib.parse.quote(f"{stem}")
+                        q_any = urllib.parse.quote(f"{stem}{ref_org}")
                         uniprot_url = f"https://rest.uniprot.org/uniprotkb/search?query={q_any}&format=json&size=1"
                         results_u = (_http_json(uniprot_url, timeout=timeout) or {}).get("results") or []
                     live_entry = results_u[0] if results_u else None
                 else:
                     sym_clean = re.sub(r"^h(?=[A-Z]{2,})", "", target_tok)
+                    enforce_human = enforce_human or (sym_clean != target_tok)
                     q_human = urllib.parse.quote(f"gene_exact:{sym_clean} AND organism_id:9606 AND reviewed:true")
                     uniprot_url = f"https://rest.uniprot.org/uniprotkb/search?query={q_human}&format=json&size=1"
                     results_u = (_http_json(uniprot_url, timeout=timeout) or {}).get("results") or []
                     if not results_u:
-                        q_broad = urllib.parse.quote(f"(gene:{target_tok} OR {target_tok}) AND reviewed:true")
+                        broad_filter = " AND organism_id:9606 AND reviewed:true" if enforce_human else " AND reviewed:true"
+                        q_broad = urllib.parse.quote(f"(gene:{sym_clean} OR {sym_clean}){broad_filter}")
                         uniprot_url = f"https://rest.uniprot.org/uniprotkb/search?query={q_broad}&format=json&size=1"
-                        results_u = (_http_json(uniprot_url, timeout=timeout) or {}).get("results") or []
+                        broad_hits = (_http_json(uniprot_url, timeout=timeout) or {}).get("results") or []
+                        results_u = [
+                            item
+                            for item in broad_hits
+                            if self._uniprot_entry_matches_gene_symbol(item, sym_clean)
+                        ]
                     live_entry = results_u[0] if results_u else None
             except Exception:
                 live_entry = None
+
+        if live_entry and enforce_human and not self._is_human_uniprot_entry(live_entry):
+            live_entry = None
 
         if live_entry and live_entry.get("sequence", {}).get("value"):
             seq = str(live_entry["sequence"]["value"]).strip().upper()
