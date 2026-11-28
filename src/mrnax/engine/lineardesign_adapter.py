@@ -983,7 +983,8 @@ def sweep_lineardesign_candidates(
     if max_w <= 1:
         return [_run_one(lam) for lam in lam_tuple]
     with ThreadPoolExecutor(max_workers=max_w) as pool:
-        return list(pool.map(_run_one, lam_tuple))
+        futs = [pool.submit(contextvars.copy_context().run, _run_one, lam) for lam in lam_tuple]
+        return [f.result() for f in futs]
 
 
 __all__ = [

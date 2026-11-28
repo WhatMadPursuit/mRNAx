@@ -2742,15 +2742,19 @@ async function runStructureAnalysisForSelected() {
   }
 
   const isCurrentSelection = () => {
+    const candNow = state.candidates.find((c) => c.bundle_id === state.selectedBundleId);
     const activeChainNow = getActiveInspectedChain();
     return Boolean(
       reqApiBase === normalizeOrigin(state.apiBase) &&
         reqProjId === state.projectId &&
         reqRev === state.activeVersion &&
         reqBid === state.selectedBundleId &&
+        candNow &&
         activeChainNow &&
         (activeChainNow.molecule_id || null) === reqMolId &&
-        activeChainNow.full_sequence === chain.full_sequence
+        activeChainNow.full_sequence === chain.full_sequence &&
+        effTrack === getActiveComplianceTrackForCandidate(candNow) &&
+        effMod === (activeChainNow.modality || state.modality || "linear_mrna")
     );
   };
 
@@ -4120,18 +4124,27 @@ async function runRefineTurn(overridePayload = null, customUtterance = null, met
   const reqProvider = isAgent ? state.llmProvider : null;
   const reqModel = isAgent ? state.llmModel : null;
   const reqHeaders = isAgent ? {} : { "X-MRNAX-Idempotency-Key": clientRequestId };
-  const bodyObj = isAgent
-    ? {
-        message: utterance,
-        provider: reqProvider,
-        model: reqModel,
-        client_request_id: clientRequestId,
-      }
-    : effectiveOverride || {
-        mode: "refine",
-        user_utterance: utterance,
-        restriction_enzymes: getSelectedEnzymes(),
-      };
+  let bodyObj;
+  if (isAgent) {
+    const profSel = (meta.complianceTrack || document.getElementById("sel-profile")?.value || "").trim();
+    const modSel = (meta.modality || state.modality || "").trim();
+    const scafSel = (meta.scaffoldId || document.getElementById("sel-scaffold")?.value || "").trim();
+    bodyObj = {
+      message: utterance,
+      provider: reqProvider,
+      model: reqModel,
+      client_request_id: clientRequestId,
+    };
+    if (profSel) bodyObj.compliance_track = profSel;
+    if (modSel) bodyObj.modality = modSel;
+    if (scafSel) bodyObj.scaffold_id = scafSel;
+  } else {
+    bodyObj = effectiveOverride || {
+      mode: "refine",
+      user_utterance: utterance,
+      restriction_enzymes: getSelectedEnzymes(),
+    };
+  }
   const replayRequest = {
     path: reqPath,
     method: "POST",
@@ -5587,6 +5600,7 @@ function resetProjectWorkspaceState({ silent = false } = {}) {
   state.activeIntentStatus = "";
   state.activeEnzymes = null;
   state.additionalProteinSequences = [];
+  state.proteinAccession = "GenBank:U55762.1";
   state.userEditedProtein = false;
   state.appliedTurnSequence = 0;
   state.paretoAxisPairKey = "";
@@ -6236,7 +6250,7 @@ function wireEvents() {
       runRefineTurn(
         getSelectedExecMode() === "llm_agent" ? null : structuredRefine,
         prompt,
-        { sourceEl: mainInput, fallbackPayload: structuredRefine }
+        { sourceEl: mainInput, fallbackPayload: structuredRefine, complianceTrack: "commercial_clean" }
       );
     } else {
       runInitialTurn(prompt, { sourceEl: mainInput, fromForm: true });

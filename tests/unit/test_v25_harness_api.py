@@ -1421,3 +1421,296 @@ def test_gate_b_r2_audit_remediations(tmp_path: Path, monkeypatch: pytest.Monkey
     assert su_row["license_track"] == "internal_evaluation_only"
 
 
+def test_gate_b_r2_round2_export_provenance_policy_and_deadlines(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import hashlib
+    import os
+    import time
+    import mrnax.engine.lineardesign_adapter as ld_mod
+    import mrnax.harness.tools as tools_mod
+    from mrnax.cloud.gateway import InitialTurnRequest
+    from mrnax.engine.lineardesign_adapter import (
+        discover_lineardesign_binary,
+        enforce_local_heavy_binaries_policy,
+        sweep_lineardesign_candidates,
+    )
+    from mrnax.harness.dialogue import _PinnedHostHTTPTransport, _run_bounded_dns_call
+
+    short_prot = "MVSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPTLVTT"
+
+    # #11: export_bundle rejects reserved subdirs, preserves unrelated files, and rolls back cleanly on mid-export failure
+    session = ProjectHarnessSession(project_id="proj_r2_exp", store_dir=tmp_path / "proj_r2_exp", seed_dir=SEED_DIR)
+    toolbox = AtomicToolbox(session)
+    with enforce_local_heavy_binaries_policy(True):
+        des = toolbox.design_constructs(
+            user_utterance="Commercial clean reporter",
+            protein_sequence=short_prot,
+            compliance_track="commercial_clean",
+        )
+    top_bid = des["recommended_bundle_ids"][0]
+
+    for bad_dir in ("intents", "bundles", "reports", "experiments", "manifests", "exports/../intents"):
+        with pytest.raises(ValueError):
+            toolbox.export_bundle(bundle_id=top_bid, out_dir=bad_dir, include_dossier=False)
+
+    custom_dir = session.store_dir / "exports" / "custom_keep"
+    custom_dir.mkdir(parents=True, exist_ok=True)
+    (custom_dir / "lab_notes.txt").write_text("KEEP ME\n", encoding="utf-8")
+    (custom_dir / "cds_only.fasta").write_text(">old\nAUG\n", encoding="utf-8")
+    toolbox.export_bundle(bundle_id=top_bid, out_dir="exports/custom_keep", include_dossier=False)
+    assert (custom_dir / "lab_notes.txt").read_text(encoding="utf-8") == "KEEP ME\n"
+    assert (custom_dir / "cds_only.fasta").read_text(encoding="utf-8") != ">old\nAUG\n"
+
+    (custom_dir / "cds_only.fasta").write_text(">sentinel_before_fail\nAUG\n", encoding="utf-8")
+    (custom_dir / "lab_notes.txt").write_text("KEEP ON ROLLBACK\n", encoding="utf-8")
+    orig_replace = os.replace
+    swap_hits = 0
+    failed_once = False
+
+    def _fail_second_export_swap(src: Any, dst: Any) -> None:
+        nonlocal swap_hits, failed_once
+        src_s, dst_s = str(src), str(dst)
+        if not failed_once and str(custom_dir) in dst_s and "pkg" in src_s:
+            swap_hits += 1
+            if swap_hits == 2:
+                failed_once = True
+                raise OSError("simulated disk full during export swap")
+        orig_replace(src, dst)
+
+    with monkeypatch.context() as mp:
+        mp.setattr(os, "replace", _fail_second_export_swap)
+        with pytest.raises(OSError, match="simulated disk full"):
+            toolbox.export_bundle(bundle_id=top_bid, out_dir="exports/custom_keep", include_dossier=False)
+
+    assert (custom_dir / "cds_only.fasta").read_text(encoding="utf-8") == ">sentinel_before_fail\nAUG\n"
+    assert (custom_dir / "lab_notes.txt").read_text(encoding="utf-8") == "KEEP ON ROLLBACK\n"
+
+    # #10b & #10d: forced_commercial_clean enforces commercial_clean in analyze_structure_and_motifs; new protein_sequence clears default accession; refine preserves circRNA modality
+    seen_struct_tracks: list[str] = []
+    orig_struct_fn = tools_mod.run_structure_and_motif_analysis
+
+    def _spy_struct(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        seen_struct_tracks.append(str(kwargs.get("compliance_track")))
+        return orig_struct_fn(*args, **kwargs)
+
+    cc_toolbox = AtomicToolbox(
+        session,
+        forced_commercial_clean=True,
+        default_protein_sequence=short_prot,
+        default_accession_or_source="UniProt:P01588",
+        default_modality="linear_mrna",
+    )
+    with monkeypatch.context() as mp:
+        mp.setattr(tools_mod, "run_structure_and_motif_analysis", _spy_struct)
+        with pytest.raises(PermissionError, match="commercial_clean"):
+            cc_toolbox.analyze_structure_and_motifs(
+                sequence="GGGAUGCCCGCCACCAUGGCCUAA",
+                modality="linear_mrna",
+                include_eternafold=True,
+            )
+        with pytest.raises(PermissionError, match="commercial_clean"):
+            cc_toolbox.analyze_structure_and_motifs(
+                bundle_id=top_bid,
+                include_eternafold=True,
+            )
+        ok_st_raw = cc_toolbox.analyze_structure_and_motifs(
+            sequence="GGGAUGCCCGCCACCAUGGCCUAA",
+            modality="linear_mrna",
+            include_eternafold=False,
+        )
+        ok_st_bnd = cc_toolbox.analyze_structure_and_motifs(
+            bundle_id=top_bid,
+            include_eternafold=False,
+        )
+        assert ok_st_raw and ok_st_bnd
+    assert seen_struct_tracks == ["commercial_clean"] * 4
+
+    alt_prot = "MVLSPADKTNVKAAWGKVGAHAGEYGAEALERMFLSFPTTKTYFPHFDLSHGSAQVKGHGKKV"
+    with enforce_local_heavy_binaries_policy(True):
+        alt_res = cc_toolbox.design_constructs(
+            user_utterance="New target hemoglobin chain",
+            protein_sequence=alt_prot,
+            compliance_track="commercial_clean",
+        )
+    alt_bid = alt_res["recommended_bundle_ids"][0]
+    alt_intent = session.intent_for_bundle(alt_bid)
+    assert alt_intent.protein_targets[0].accession_or_source == "user_supplied"
+
+    circ_sess = ProjectHarnessSession(project_id="proj_circ_tb", store_dir=tmp_path / "proj_circ_tb", seed_dir=SEED_DIR)
+    circ_tb = AtomicToolbox(
+        circ_sess,
+        default_modality="circrna",
+        default_scaffold_id="circ_t4td_hrvb3",
+    )
+    circ_tb.design_constructs(
+        user_utterance="Circular eGFP",
+        protein_sequence=short_prot,
+        compliance_track="commercial_clean",
+        uridine_chemistry="unmodified_u",
+    )
+    circ_ref = circ_tb.refine_construct(user_utterance="Eliminate BsaI site", restriction_enzymes=["BsaI"])
+    ref_bnd_intent = circ_sess.intent_for_bundle(circ_ref["recommended_bundle_ids"][0])
+    assert ref_bnd_intent.modality == "circrna"
+    assert ref_bnd_intent.scaffold_id == "circ_t4td_hrvb3"
+
+    # #3, #8, #9: Gateway reload of historical ef89abb circular project, unwitnessed research_max isolation, and 21768a1 journal digest replay 200
+    projects_root = tmp_path / "gw_projects"
+    admin_secret = "tok_r2_admin_secret_1234"
+    owner_key = "pk_r2_owner_cap_key_123456"
+    app1 = create_control_plane_app(
+        ExecutionCASStore(tmp_path / "gw_cas.sqlite3"),
+        projects_root=projects_root,
+        seed_dir=SEED_DIR,
+        access_token=admin_secret,
+    )
+    client1 = TestClient(app1)
+
+    init_payload = {
+        "mode": "initial",
+        "user_utterance": "Design commercial circular T4 td eGFP",
+        "protein_sequence": short_prot,
+        "compliance_track": "commercial_clean",
+        "modality": "circrna",
+        "scaffold_id": "circ_t4td_hrvb3",
+        "uridine_chemistry": "unmodified_u",
+        "restriction_enzymes": ["BspQI"],
+    }
+    idemp_hdrs = {"X-MRNAX-Project-Key": owner_key, "X-MRNAX-Idempotency-Key": "req_r2_init_replay"}
+    r_circ = client1.post(
+        "/v1/projects/proj_ef89_circ/turn",
+        headers=idemp_hdrs,
+        json=init_payload,
+    )
+    assert r_circ.status_code == 200
+    circ_body = r_circ.json()
+    assert circ_body["intent"]["modality"] == "circrna"
+    assert circ_body["intent"]["scaffold_id"] == "circ_t4td_hrvb3"
+
+    circ_dir = projects_root / "proj_ef89_circ"
+    for int_file in (circ_dir / "intents").glob("*.json"):
+        doc = json.loads(int_file.read_text(encoding="utf-8"))
+        doc.pop("modality", None)
+        doc.pop("scaffold_id", None)
+        int_file.write_text(json.dumps(doc), encoding="utf-8")
+
+    # Simulate an unreferenced research_max orphan bundle on disk to prove #3 does not poison unwitnessed intents
+    sample_bnd = next((circ_dir / "bundles").glob("*.json"))
+    orphan_doc = json.loads(sample_bnd.read_text(encoding="utf-8"))
+    orphan_doc["bundle_id"] = "bnd_orphan_research"
+    orphan_doc["license_track"] = "research_max"
+    (circ_dir / "bundles" / "bnd_orphan_research.json").write_text(json.dumps(orphan_doc), encoding="utf-8")
+
+    # Rewrite journal request_digest to 21768a1 full model_dump_json() sha256 (#8)
+    tj_path = circ_dir / "turn_requests.json"
+    tj_doc = json.loads(tj_path.read_text(encoding="utf-8"))
+    req_model = InitialTurnRequest(**init_payload)
+    digest_v252 = hashlib.sha256(req_model.model_dump_json().encode("utf-8")).hexdigest()
+    updated_entries = 0
+
+    def _rewrite_digest(node: Any) -> None:
+        nonlocal updated_entries
+        if isinstance(node, dict):
+            if "request_digest" in node:
+                node["request_digest"] = digest_v252
+                updated_entries += 1
+            for val in node.values():
+                _rewrite_digest(val)
+
+    _rewrite_digest(tj_doc)
+    assert updated_entries >= 1
+    tj_path.write_text(json.dumps(tj_doc), encoding="utf-8")
+
+    app2 = create_control_plane_app(
+        ExecutionCASStore(tmp_path / "gw_cas.sqlite3"),
+        projects_root=projects_root,
+        seed_dir=SEED_DIR,
+        access_token=admin_secret,
+    )
+    client2 = TestClient(app2)
+    intents_before_replay = len(list((circ_dir / "intents").glob("*.json")))
+    r_replay = client2.post(
+        "/v1/projects/proj_ef89_circ/turn",
+        headers=idemp_hdrs,
+        json=init_payload,
+    )
+    assert r_replay.status_code == 200
+    assert r_replay.json()["intent"]["intent_id"] == circ_body["intent"]["intent_id"]
+    assert len(list((circ_dir / "intents").glob("*.json"))) == intents_before_replay
+
+    r_ref = client2.post(
+        "/v1/projects/proj_ef89_circ/turn",
+        headers={"X-MRNAX-Project-Key": owner_key},
+        json={"mode": "refine", "user_utterance": "Avoid BsaI as well", "restriction_enzymes": ["BspQI", "BsaI"]},
+    )
+    assert r_ref.status_code == 200
+    ref_body = r_ref.json()
+    ref_intent = ref_body["intent"]
+    assert ref_intent["modality"] == "circrna"
+    assert ref_intent["compliance_track"] == "commercial_clean"
+    ref_bnd_path = circ_dir / "bundles" / f"{ref_body['candidates'][0]['bundle_id']}.json"
+    assert json.loads(ref_bnd_path.read_text(encoding="utf-8"))["molecules"][0]["modality"] == "circrna"
+
+    # #13a: sweep_lineardesign_candidates propagates enforce_local_heavy_binaries_policy contextvar to worker threads
+    dummy_bin = tmp_path / "dummy_ld"
+    dummy_bin.write_text("#!/bin/sh\necho never\n", encoding="utf-8")
+    dummy_bin.chmod(0o755)
+    monkeypatch.setenv("MRNAX_LINEARDESIGN_BIN", str(dummy_bin))
+    worker_bin_seen: list[Any] = []
+    orig_discover = ld_mod.discover_lineardesign_binary
+
+    def _spy_discover(*args: Any, **kwargs: Any) -> Any:
+        found = orig_discover(*args, **kwargs)
+        worker_bin_seen.append(found)
+        return found
+
+    monkeypatch.setattr(ld_mod, "discover_lineardesign_binary", _spy_discover)
+    with enforce_local_heavy_binaries_policy(True):
+        assert discover_lineardesign_binary() is None
+        cands = sweep_lineardesign_candidates(
+            short_prot,
+            lambdas=(1.0, 2.0),
+            compliance_track="research_max",
+        )
+    assert worker_bin_seen and all(x is None for x in worker_bin_seen)
+    assert len(cands) == 2 and all(c.backend_used == "guided_bicodon_vienna_fallback" for c in cands)
+
+    # #14: _PinnedHostHTTPTransport permits sub-second timeout floor (0.05s) and _run_bounded_dns_call enforces DNS timeout
+    import socket
+    import threading
+
+    blk_sock = socket.socket()
+    blk_sock.bind(("127.0.0.1", 0))
+    blk_sock.listen(4)
+    blk_port = blk_sock.getsockname()[1]
+
+    def _hold_socket() -> None:
+        try:
+            conn, _ = blk_sock.accept()
+            time.sleep(1.2)
+            conn.close()
+        except Exception:
+            pass
+
+    threading.Thread(target=_hold_socket, daemon=True).start()
+    try:
+        transport_sub = _PinnedHostHTTPTransport(
+            expected_host="api.openai.com",
+            pinned_ip="127.0.0.1",
+            pinned_port=blk_port,
+            timeout_sec=0.05,
+        )
+        t_http = time.monotonic()
+        with pytest.raises(httpx.TimeoutException):
+            transport_sub.handle_request(httpx.Request("POST", f"https://api.openai.com:{blk_port}/v1/responses", json={}))
+        assert (time.monotonic() - t_http) < 0.6
+    finally:
+        blk_sock.close()
+
+    t0 = time.monotonic()
+    with pytest.raises((TimeoutError, httpx.TimeoutException)):
+        _run_bounded_dns_call(lambda: time.sleep(0.5), timeout_sec=0.05)
+    assert (time.monotonic() - t0) < 0.4
+
+
+

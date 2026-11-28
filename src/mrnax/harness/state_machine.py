@@ -517,9 +517,13 @@ class ProjectHarnessSession:
         self._ambiguous_report_intents.clear()
         intent_files = sorted((self.store_dir / "intents").glob("intent_v*.json"))
         intent_files_by_revision: dict[tuple[str, int], tuple[DesignIntent, str]] = {}
+        intents_missing_modality: set[str] = set()
         for p in intent_files:
             raw_intent = p.read_bytes()
+            raw_intent_obj = json.loads(raw_intent)
             intent = DesignIntent.model_validate_json(raw_intent)
+            if isinstance(raw_intent_obj, dict) and "modality" not in raw_intent_obj:
+                intents_missing_modality.add(intent.intent_id)
             self._intents.append(intent)
             intent_files_by_revision[(intent.intent_id, intent.intent_version)] = (intent, hashlib.sha256(raw_intent).hexdigest())
         bundle_files = (self.store_dir / "bundles").glob("*.json")
@@ -652,12 +656,6 @@ class ProjectHarnessSession:
 
         if not has_saved_bundle_map:
             self._bundle_intent_map.update(earliest_witness)
-            if (
-                self.active_reference_bundle_id
-                and self.active_reference_bundle_id in self._bundles
-                and len(self._intents) == 1
-            ):
-                self._bundle_intent_map.setdefault(self.active_reference_bundle_id, self._intents[0].intent_id)
         else:
             for bid, earliest_iid in earliest_witness.items():
                 cur_iid = self._bundle_intent_map.get(bid)
@@ -667,6 +665,32 @@ class ProjectHarnessSession:
                     and version_by_iid[cur_iid] > version_by_iid[earliest_iid]
                 ):
                     self._bundle_intent_map[bid] = earliest_iid
+
+        if intents_missing_modality and self._bundles:
+            for idx_i, loaded_i in enumerate(self._intents):
+                if loaded_i.intent_id not in intents_missing_modality:
+                    continue
+                ref_cand = (
+                    self._bundles.get(loaded_i.reference_bundle_id)
+                    if loaded_i.reference_bundle_id
+                    else None
+                )
+                if ref_cand is None:
+                    for rep in reps_by_intent.get(loaded_i.intent_id, []):
+                        for ce in rep.candidate_evaluations:
+                            if ce.bundle_id in self._bundles:
+                                ref_cand = self._bundles[ce.bundle_id]
+                                break
+                        if ref_cand is not None:
+                            break
+                if (
+                    ref_cand is not None
+                    and ref_cand.molecules
+                    and ref_cand.molecules[0].modality in ("circrna", "sarna")
+                ):
+                    self._intents[idx_i] = loaded_i.model_copy_validated(
+                        modality=ref_cand.molecules[0].modality
+                    )
 
         self._reload_experiments_from_disk(meta=meta, exp_order=exp_order, has_saved_exp_order=has_saved_exp_order)
         self._state_revision = meta.get("state_revision", 0)

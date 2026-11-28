@@ -1476,7 +1476,7 @@ def create_control_plane_app(
             proj_dir.mkdir(parents=True, exist_ok=True)
         if not proj_dir.is_dir():
             raise HTTPException(status_code=404, detail=f"Unknown project '{safe_pid}'")
-        with project_lock(proj_dir):
+        with project_lock(proj_dir), enforce_local_heavy_binaries_policy(disable_local_heavy_binaries):
             if owner_file.is_file():
                 expected_sha, stored_claim = _parse_owner_file(owner_file)
                 if stored_claim is None and claim_file.is_file():
@@ -1710,7 +1710,7 @@ def create_control_plane_app(
         chat_authorized = (proj_dir / "owner_token_sha256.txt").is_file() or _is_valid_admin_token(x_mrnax_access_token)
         cookie_cap = request.cookies.get(f"mrnax_pk_{safe_pid}")
         read_secrets = _collect_active_secrets(x_mrnax_access_token, x_mrnax_project_key, cookie_cap)
-        with project_lock(proj_dir):
+        with project_lock(proj_dir), enforce_local_heavy_binaries_policy(disable_local_heavy_binaries):
             session = _get_session(safe_pid)
             intents = redact_secrets_in_obj(
                 [i.model_dump(mode="json") for i in session._intents],
@@ -1767,8 +1767,12 @@ def create_control_plane_app(
             turn_req_digest: str | None = hashlib.sha256(
                 json.dumps(turn_digest_doc, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
             ).hexdigest()
+            turn_req_digest_v252: str | None = hashlib.sha256(
+                req.model_dump_json().encode("utf-8")
+            ).hexdigest()
         else:
             turn_req_digest = None
+            turn_req_digest_v252 = None
         safe_pid_preview = _validate_safe_id(project_id, "project_id")
         pre_turn_cookie = request.cookies.get(f"mrnax_pk_{safe_pid_preview}", "")
         turn_claim_proof = (
@@ -1796,7 +1800,7 @@ def create_control_plane_app(
         cookie_cap = request.cookies.get(f"mrnax_pk_{safe_pid}")
         turn_secrets = _collect_active_secrets(x_mrnax_access_token, x_mrnax_project_key, cookie_cap, minted_key)
 
-        with project_lock(proj_dir):
+        with project_lock(proj_dir), enforce_local_heavy_binaries_policy(disable_local_heavy_binaries):
             turn_journal_path = proj_dir / "turn_requests.json"
             if turn_req_key:
                 try:
@@ -1811,7 +1815,10 @@ def create_control_plane_app(
                 turn_requests_map, turn_legacy_hex, turn_migrated = {}, {}, False
                 prior_turn = None
             if prior_turn and turn_req_digest:
-                if prior_turn.get("request_digest") and prior_turn.get("request_digest") != turn_req_digest:
+                if prior_turn.get("request_digest") and prior_turn.get("request_digest") not in (
+                    turn_req_digest,
+                    turn_req_digest_v252,
+                ):
                     raise HTTPException(
                         status_code=409,
                         detail="Idempotency conflict: X-MRNAX-Idempotency-Key reused with a different request payload.",
@@ -2253,7 +2260,7 @@ def create_control_plane_app(
                 sanitized_out["intent"]["status"] = target_intent.status
             return sanitized_out
 
-        with project_lock(proj_dir):
+        with project_lock(proj_dir), enforce_local_heavy_binaries_policy(disable_local_heavy_binaries):
             try:
                 requests_map, legacy_hex_map, req_migrated = _load_agent_chat_requests(proj_dir)
             except _JournalCorruptionError as exc:

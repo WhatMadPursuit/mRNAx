@@ -319,7 +319,7 @@ class _PinnedHostHTTPTransport(httpx.BaseTransport):
         self._expected_host = expected_host.lower()
         self._pinned_ip = pinned_ip
         self._pinned_port = pinned_port
-        self._timeout_sec = max(1.0, float(timeout_sec))
+        self._timeout_sec = max(0.05, float(timeout_sec))
 
     def handle_request(self, request: httpx.Request) -> httpx.Response:
         import http.client
@@ -568,6 +568,19 @@ def _project_llm_tool_payload(obj: Any, *, depth: int = 0) -> Any:
     return obj
 
 
+def _run_bounded_dns_call(fn: Callable[[], Any], *, timeout_sec: float) -> Any:
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+
+    pool = ThreadPoolExecutor(max_workers=1)
+    fut = pool.submit(fn)
+    try:
+        return fut.result(timeout=max(0.05, float(timeout_sec)))
+    except FuturesTimeoutError as exc:
+        raise httpx.ReadTimeout("Upstream LLM DNS resolution exceeded deadline") from exc
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
 class LiveDialogueAgent:
     """Executes blank-slate and multi-turn natural language sessions against real tool-calling LLMs."""
 
@@ -592,10 +605,13 @@ class LiveDialogueAgent:
         self._transport = transport
         raw_url = base_url or PROVIDER_ENV_MAP[self.provider][1]
         self._has_custom_base_url = base_url is not None and base_url.strip().rstrip("/") != PROVIDER_ENV_MAP[self.provider][1].rstrip("/")
-        self.base_url = validate_byo_llm_base_url(
-            raw_url,
-            allow_localhost=False,
-            resolve_dns=self._has_custom_base_url,
+        self.base_url = _run_bounded_dns_call(
+            lambda: validate_byo_llm_base_url(
+                raw_url,
+                allow_localhost=False,
+                resolve_dns=self._has_custom_base_url,
+            ),
+            timeout_sec=15.0,
         )
         cleaned_model = (model or "").strip()
         self.model = cleaned_model or DEFAULT_PROVIDER_MODELS[self.provider]
@@ -830,34 +846,36 @@ class LiveDialogueAgent:
             self.provider, self.model, has_tools=bool(tools_spec)
         )
 
+        overall_deadline = _time.monotonic() + 90.0
         custom_transport: httpx.BaseTransport | None = self._transport
         if custom_transport is None and (self._has_custom_base_url or not _is_direct_pytest_post_stub()):
-            from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
             from mrnax.harness.sandbox import SSRFBlockedError, resolve_verified_public_peer
 
-            dns_deadline = _time.monotonic() + 15.0
             try:
-                dns_pool = ThreadPoolExecutor(max_workers=1)
-                dns_fut = dns_pool.submit(resolve_verified_public_peer, self.base_url, allow_localhost=False)
-                try:
-                    _, exp_host, exp_port, pinned_ip = dns_fut.result(timeout=max(0.5, dns_deadline - _time.monotonic()))
-                finally:
-                    dns_pool.shutdown(wait=False, cancel_futures=True)
-            except FuturesTimeoutError as exc:
-                raise httpx.ReadTimeout("Upstream LLM DNS resolution exceeded deadline") from exc
+                dns_budget = min(15.0, max(0.05, overall_deadline - _time.monotonic()))
+                _, exp_host, exp_port, pinned_ip = _run_bounded_dns_call(
+                    lambda: resolve_verified_public_peer(self.base_url, allow_localhost=False),
+                    timeout_sec=dns_budget,
+                )
             except SSRFBlockedError as exc:
                 msg = str(exc)
                 if "Unable to resolve outbound host" in msg or "resolved to zero addresses" in msg:
                     raise httpx.ConnectError(msg) from exc
                 raise
+            rem_budget = overall_deadline - _time.monotonic()
+            if rem_budget <= 0.0:
+                raise httpx.ReadTimeout("Upstream LLM request exceeded overall deadline")
             custom_transport = _PinnedHostHTTPTransport(
                 expected_host=exp_host,
                 pinned_ip=pinned_ip,
                 pinned_port=exp_port,
-                timeout_sec=90.0,
+                timeout_sec=rem_budget,
             )
 
-        client_kwargs: dict[str, Any] = {"timeout": 90.0, "follow_redirects": False}
+        rem_overall = overall_deadline - _time.monotonic()
+        if rem_overall <= 0.0:
+            raise httpx.ReadTimeout("Upstream LLM request exceeded overall deadline")
+        client_kwargs: dict[str, Any] = {"timeout": max(0.05, rem_overall), "follow_redirects": False}
         if custom_transport is not None:
             client_kwargs["transport"] = custom_transport
 
@@ -883,6 +901,11 @@ class LiveDialogueAgent:
             pending_resp_outputs: list[dict[str, str]] | None = None
 
             for _round in range(max_tool_rounds):
+                rem_round = overall_deadline - _time.monotonic()
+                if rem_round <= 0.0:
+                    raise httpx.ReadTimeout("Upstream LLM request exceeded overall deadline")
+                if isinstance(custom_transport, _PinnedHostHTTPTransport):
+                    custom_transport._timeout_sec = max(0.05, rem_round)
                 if use_responses_api:
                     resp = _post_json_bounded(
                         client,

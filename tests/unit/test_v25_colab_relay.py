@@ -520,7 +520,7 @@ def test_colab_worker_production_drive_seal_commit_and_security_hardening(
         with pytest.raises(ValueError, match="control characters"):
             worker_mod.run_worker(protein_seq=egfp_prot, lineardesign_tar=ld_tar)
         monkeypatch.setenv("MRNAX_GATEWAY_ACCESS_TOKEN", admin_secret)
-        with pytest.raises(ValueError, match="Blocked private"):
+        with pytest.raises(ValueError, match="Blocked non-global/private"):
             worker_mod.validate_gateway_url("https://10.0.0.5:8443")
         with pytest.raises(ValueError, match="Remote HTTPS gateway commit requires Drive sealing"):
             worker_mod.run_worker(
@@ -532,3 +532,246 @@ def test_colab_worker_production_drive_seal_commit_and_security_hardening(
         server.should_exit = True
         srv_thread.join(timeout=5.0)
         sock.close()
+
+
+def test_gate_b_r2_round2_colab_worker_hardening(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import importlib.util
+    import socket
+    import tarfile
+    import threading
+    import time
+    import uvicorn
+
+    from mrnax.cloud.cas_store import ExecutionCASStore
+    from mrnax.cloud.drive_rest_v3 import DRIVE_FOLDER_MIME, DriveRestV3Client, InMemoryDriveV3Transport
+    from mrnax.cloud.gateway import create_control_plane_app
+
+    spec = importlib.util.spec_from_file_location(
+        "colab_heavy_sota_worker_r2",
+        WORKER_SCRIPT,
+    )
+    assert spec and spec.loader
+    worker_mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = worker_mod
+    spec.loader.exec_module(worker_mod)
+
+    egfp_prot = json.loads((REPO_ROOT / "registry_seed" / "egfp_reporter_snapshot.json").read_text(encoding="utf-8"))[
+        "mammalian_reporter_egfp"
+    ]["protein_sequence"]
+
+    # #6: Trailing control chars rejected before strip(), CGNAT/TEST-NET non-global IPs blocked, recursive cas_commit redaction
+    monkeypatch.setenv("MRNAX_GATEWAY_ACCESS_TOKEN", "tok_trailing_123456\n")
+    with pytest.raises(ValueError, match="control characters"):
+        worker_mod.run_worker(protein_seq=egfp_prot, lineardesign_bin=tmp_path / "missing")
+    monkeypatch.setenv("MRNAX_GATEWAY_ACCESS_TOKEN", "tok_del_123456\x7f")
+    with pytest.raises(ValueError, match="control characters"):
+        worker_mod.run_worker(protein_seq=egfp_prot, lineardesign_bin=tmp_path / "missing")
+    monkeypatch.setenv("MRNAX_GATEWAY_ACCESS_TOKEN", "tok_super_secret_abcdef")
+
+    with pytest.raises(ValueError):
+        worker_mod.validate_gateway_url("https://100.64.0.1:8443")
+    with pytest.raises(ValueError):
+        worker_mod.validate_gateway_url("https://192.0.2.1:8443")
+
+    redacted = worker_mod._redact_obj(
+        {"cas_commit": {"receipt": "Bearer tok_super_secret_abcdef", "items": ["tok_super_secret_abcdef"]}},
+        "tok_super_secret_abcdef",
+    )
+    assert "tok_super_secret_abcdef" not in json.dumps(redacted)
+
+    # Tiny executable script that satisfies LinearDesign CLI stdout parsing
+    import hashlib
+
+    fake_ld_py = (
+        f"#!{sys.executable}\n"
+        "import sys\n"
+        "CODON = dict(zip('ACDEFGHIKLMNPQRSTVWY', "
+        "'GCU UGU GAU GAA UUU GGU CAU AUU AAA CUU AUG AAU CCU CAA CGU UCU ACU GUU UGG UAU'.split()))\n"
+        "aa = ''.join(ch for ch in sys.stdin.read().strip().upper() if ch in CODON)\n"
+        "rna = ''.join(CODON[c] for c in aa)\n"
+        "print(f'mRNA sequence:  {rna}')\n"
+        "print('mRNA structure: ' + '.' * len(rna))\n"
+        "print('mRNA folding free energy: -42.50 kcal/mol; mRNA CAI: 0.910')\n"
+    )
+    bin_a = tmp_path / "bin_a" / "lineardesign"
+    bin_a.parent.mkdir(parents=True, exist_ok=True)
+    bin_a.write_text(fake_ld_py, encoding="utf-8")
+    bin_a.chmod(0o755)
+    sha_bin_a = hashlib.sha256(bin_a.read_bytes()).hexdigest()
+    ld_tar_a = tmp_path / "ld_a.tar.gz"
+    with tarfile.open(ld_tar_a, "w:gz") as tf:
+        tf.add(bin_a, arcname="lineardesign")
+    sha_tar_a = hashlib.sha256(ld_tar_a.read_bytes()).hexdigest()
+
+    bin_b = tmp_path / "bin_b" / "lineardesign"
+    bin_b.parent.mkdir(parents=True, exist_ok=True)
+    bin_b.write_text(fake_ld_py + "# variant b\n", encoding="utf-8")
+    bin_b.chmod(0o755)
+    sha_bin_b = hashlib.sha256(bin_b.read_bytes()).hexdigest()
+    ld_tar_b = tmp_path / "ld_b.tar.gz"
+    with tarfile.open(ld_tar_b, "w:gz") as tf:
+        tf.add(bin_b, arcname="lineardesign")
+
+    # #1: Reject --commit-receipt-json == --output-json and reject --defer-commit without --output-json
+    same_path = tmp_path / "same.json"
+    with pytest.raises(ValueError):
+        worker_mod.run_worker(
+            protein_seq=egfp_prot,
+            lineardesign_bin=bin_a,
+            output_json=same_path,
+            commit_receipt_json=same_path,
+            defer_commit=True,
+            work_dir=tmp_path / "work_same",
+        )
+    rc_cli_missing_out = worker_mod.main(
+        [
+            "--protein-seq",
+            egfp_prot,
+            "--lineardesign-bin",
+            str(bin_a),
+            "--defer-commit",
+            "--work-dir",
+            str(tmp_path / "work_cli"),
+        ]
+    )
+    assert rc_cli_missing_out == 1
+
+    # #4: Raw --lineardesign-bin rejects wrong SHA-256 prior to execution
+    with pytest.raises(ValueError, match="SHA-256"):
+        worker_mod.run_worker(
+            protein_seq=egfp_prot,
+            lineardesign_bin=bin_a,
+            lineardesign_bin_sha256="0" * 64,
+            defer_commit=True,
+            output_json=tmp_path / "bad_sha_out.json",
+            work_dir=tmp_path / "work_bad_sha",
+        )
+
+    # #5: Distinct LinearDesign binaries yield distinct CAS request_digest & submission_id,
+    # explicit --execution-id already COMMITTED fails fast before running compute,
+    # and heartbeat stays alive during slow Drive sealing
+    transport = InMemoryDriveV3Transport()
+    runs_root_id = transport.create_file(parent_id="root", name="mRNAx_R2_Runs", mime_type=DRIVE_FOLDER_MIME)["id"]
+    commits_id = transport.create_file(parent_id="root", name="mRNAx_R2_Commits", mime_type=DRIVE_FOLDER_MIME)["id"]
+    drive_client = DriveRestV3Client(transport)
+    cas_store = ExecutionCASStore(
+        tmp_path / "cas_r2.sqlite3",
+        drive_verifier=drive_client,
+        commits_snapshot_folder_id=commits_id,
+        runs_root_id=runs_root_id,
+        require_drive_verifier=True,
+    )
+    app = create_control_plane_app(
+        cas_store,
+        projects_root=tmp_path / "projects_r2",
+        seed_dir=REPO_ROOT / "registry_seed",
+        access_token="tok_super_secret_abcdef",
+    )
+
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error"))
+    srv_thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
+    srv_thread.start()
+    try:
+        for _ in range(50):
+            if server.started:
+                break
+            time.sleep(0.05)
+
+        res_a = worker_mod.run_worker(
+            protein_seq=egfp_prot,
+            compliance_track="research_max",
+            lambdas=(1.0,),
+            lineardesign_bin=bin_a,
+            lineardesign_bin_sha256=sha_bin_a,
+            gateway_url=f"http://127.0.0.1:{port}",
+            drive_runs_root_id=runs_root_id,
+            drive_client=drive_client,
+            output_json=tmp_path / "out_a.json",
+            work_dir=tmp_path / "work_a",
+        )
+        res_b = worker_mod.run_worker(
+            protein_seq=egfp_prot,
+            compliance_track="research_max",
+            lambdas=(1.0,),
+            lineardesign_bin=bin_b,
+            lineardesign_bin_sha256=sha_bin_b,
+            gateway_url=f"http://127.0.0.1:{port}",
+            drive_runs_root_id=runs_root_id,
+            drive_client=drive_client,
+            output_json=tmp_path / "out_b.json",
+            work_dir=tmp_path / "work_b",
+        )
+        row_a = cas_store.get_execution(res_a["execution_id"])
+        row_b = cas_store.get_execution(res_b["execution_id"])
+        assert res_a["execution_id"] != res_b["execution_id"]
+        assert row_a.request_digest != row_b.request_digest
+        assert row_a.submission_id != row_b.submission_id
+
+        monkeypatch.setattr(worker_mod, "PINNED_LINEARDESIGN_TAR_SHA256", sha_tar_a)
+
+        eid_done = res_a["execution_id"]
+
+        called_sweep = False
+
+        def _fail_if_called(*args: Any, **kwargs: Any) -> Any:
+            nonlocal called_sweep
+            called_sweep = True
+            raise AssertionError("Should not execute compute when explicit execution_id is already COMMITTED")
+
+        with monkeypatch.context() as mp:
+            mp.setattr("mrnax.engine.lineardesign_adapter.sweep_lineardesign_candidates", _fail_if_called)
+            with pytest.raises(RuntimeError, match="COMMITTED"):
+                worker_mod.run_worker(
+                    protein_seq=egfp_prot,
+                    compliance_track="research_max",
+                    lambdas=(1.0,),
+                    lineardesign_tar=ld_tar_a,
+                    gateway_url=f"http://127.0.0.1:{port}",
+                    execution_id=eid_done,
+                    drive_runs_root_id=runs_root_id,
+                    drive_client=drive_client,
+                    work_dir=tmp_path / "work_committed",
+                )
+        assert called_sweep is False
+
+        # Heartbeat stays alive throughout Drive sealing
+        orig_seal = drive_client.write_attempt_seal
+        lease_calls = 0
+        orig_lease_fn = cas_store.acquire_or_renew_lease
+
+        def _counting_lease(*args: Any, **kwargs: Any) -> Any:
+            nonlocal lease_calls
+            lease_calls += 1
+            return orig_lease_fn(*args, **kwargs)
+
+        def _slow_seal(*args: Any, **kwargs: Any) -> Any:
+            time.sleep(0.25)
+            return orig_seal(*args, **kwargs)
+
+        monkeypatch.setattr(cas_store, "acquire_or_renew_lease", _counting_lease)
+        monkeypatch.setattr(drive_client, "write_attempt_seal", _slow_seal)
+        sealed_out = worker_mod.run_worker(
+            protein_seq=egfp_prot,
+            compliance_track="research_max",
+            lambdas=(1.0,),
+            lineardesign_tar=ld_tar_a,
+            gateway_url=f"http://127.0.0.1:{port}",
+            drive_runs_root_id=runs_root_id,
+            drive_client=drive_client,
+            heartbeat_interval_sec=0.04,
+            output_json=tmp_path / "hb_seal_out.json",
+            work_dir=tmp_path / "work_hb_seal",
+        )
+        assert sealed_out["status"] == "COMMITTED"
+        assert lease_calls >= 3
+    finally:
+        server.should_exit = True
+        srv_thread.join(timeout=5.0)
+        sock.close()
+

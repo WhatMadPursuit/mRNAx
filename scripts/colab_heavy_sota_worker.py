@@ -18,13 +18,16 @@ import argparse
 from datetime import datetime, timezone
 import hashlib
 import hmac
+import http.client
 import ipaddress
 import json
 import math
 import os
 from pathlib import Path
 import re
+import shutil
 import socket
+import ssl
 import subprocess
 import sys
 import tarfile
@@ -108,21 +111,40 @@ def _redact_secrets(text: str, *secrets_to_scrub: str) -> str:
     return _REDACT_PATTERNS.sub("[REDACTED]", out)
 
 
+def _redact_obj(obj: Any, *secrets_to_scrub: str) -> Any:
+    if isinstance(obj, str):
+        return _redact_secrets(obj, *secrets_to_scrub)
+    if isinstance(obj, dict):
+        return {str(k): _redact_obj(v, *secrets_to_scrub) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_redact_obj(x, *secrets_to_scrub) for x in obj]
+    return obj
+
+
 def _validate_env_token(raw: str, *, env_name: str) -> str:
-    tok = raw.strip()
-    if not tok:
-        return ""
-    if any(ch in tok for ch in ("\r", "\n", "\x00")):
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in raw):
         raise ValueError(f"{env_name} contains invalid control characters")
-    return tok
+    return raw.strip()
 
 
 def _is_loopback_host(host: str) -> bool:
     return host.lower() in ("127.0.0.1", "localhost", "::1")
 
 
+def _is_forbidden_non_global_ip(ip_obj: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    return (
+        (not ip_obj.is_global)
+        or ip_obj.is_private
+        or ip_obj.is_loopback
+        or ip_obj.is_link_local
+        or ip_obj.is_multicast
+        or ip_obj.is_reserved
+        or ip_obj.is_unspecified
+    )
+
+
 def validate_gateway_url(url: str) -> str:
-    """Validate gateway URL: HTTPS required unless localhost/127.0.0.1; disallow credentials and metadata IPs."""
+    """Validate gateway URL: HTTPS required unless localhost/127.0.0.1; disallow credentials and non-global IPs."""
     raw = url.strip().rstrip("/")
     parsed = urllib.parse.urlsplit(raw)
     if parsed.scheme not in ("http", "https"):
@@ -138,10 +160,8 @@ def validate_gateway_url(url: str) -> str:
         raise ValueError(f"Blocked metadata host in gateway URL: '{host}'")
     try:
         ip_obj = ipaddress.ip_address(host)
-        if ip_obj.is_link_local or ip_obj.is_multicast:
-            raise ValueError(f"Blocked non-routable/link-local gateway IP: '{host}'")
-        if not ip_obj.is_loopback and (ip_obj.is_private or ip_obj.is_reserved or ip_obj.is_unspecified):
-            raise ValueError(f"Blocked private/non-global gateway IP: '{host}'")
+        if not ip_obj.is_loopback and _is_forbidden_non_global_ip(ip_obj):
+            raise ValueError(f"Blocked non-global/private gateway IP: '{host}'")
     except ValueError as exc:
         if "Blocked" in str(exc):
             raise
@@ -158,28 +178,25 @@ def validate_gateway_url(url: str) -> str:
     return raw
 
 
-def _assert_safe_gateway_peer(base_url: str) -> None:
-    """Verify resolved non-loopback gateway DNS records never point to private, loopback, or metadata IPs."""
+def _resolve_safe_gateway_peer(base_url: str) -> tuple[str, int, str]:
+    """Resolve gateway host once, reject any non-global/shared/private IP, and return (host, port, pinned_ip)."""
     parsed = urllib.parse.urlsplit(base_url)
     host = (parsed.hostname or "").strip().lower()
+    is_https = parsed.scheme == "https"
+    port = parsed.port or (443 if is_https else 80)
     if _is_loopback_host(host):
-        return
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        return host, port, ("127.0.0.1" if host == "localhost" else host)
     infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
     if not infos:
         raise ValueError(f"Unable to resolve gateway host '{host}'")
+    verified_ips: list[str] = []
     for _fam, _stype, _proto, _canon, sockaddr in infos:
         ip_str = str(sockaddr[0]).split("%", 1)[0]
         ip_obj = ipaddress.ip_address(ip_str)
-        if (
-            ip_obj.is_private
-            or ip_obj.is_loopback
-            or ip_obj.is_link_local
-            or ip_obj.is_multicast
-            or ip_obj.is_reserved
-            or ip_obj.is_unspecified
-        ):
-            raise ValueError(f"Blocked resolved non-public gateway IP '{ip_str}' for '{host}'")
+        if _is_forbidden_non_global_ip(ip_obj):
+            raise ValueError(f"Blocked resolved non-global gateway IP '{ip_str}' for '{host}'")
+        verified_ips.append(ip_str)
+    return host, port, verified_ips[0]
 
 
 def normalize_protein_sequence(protein_seq: str) -> str:
@@ -607,6 +624,58 @@ class _StdlibDriveRestClient:
         return self.upload_verified_bytes(attempt_folder_id, "SEALED.json", payload, mime_type="application/json")
 
 
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    """Connects TCP directly to the verified public IP while preserving TLS SNI and hostname certificate checks."""
+
+    def __init__(
+        self,
+        host: str,
+        port: int | None = None,
+        *,
+        pinned_ip: str,
+        expected_host: str,
+        expected_port: int,
+        timeout: float = 15.0,
+        context: ssl.SSLContext | None = None,
+    ) -> None:
+        super().__init__(host, port=port, timeout=timeout, context=context)
+        self._pinned_ip = pinned_ip
+        self._expected_host = expected_host.lower()
+        self._expected_port = expected_port
+
+    def connect(self) -> None:
+        if self.host.lower() != self._expected_host or int(self.port) != self._expected_port:
+            raise ValueError("HTTPS connection escaped pinned verified gateway origin")
+        raw_sock = socket.create_connection((self._pinned_ip, self._expected_port), self.timeout, self.source_address)
+        try:
+            self.sock = self._context.wrap_socket(raw_sock, server_hostname=self._expected_host)
+        except Exception:
+            raw_sock.close()
+            raise
+
+
+class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
+    def __init__(self, *, expected_host: str, expected_port: int, pinned_ip: str) -> None:
+        super().__init__(context=ssl.create_default_context())
+        self._expected_host = expected_host
+        self._expected_port = expected_port
+        self._pinned_ip = pinned_ip
+
+    def https_open(self, req: urllib.request.Request) -> http.client.HTTPResponse:
+        return self.do_open(
+            lambda host, timeout=15.0, **_kw: _PinnedHTTPSConnection(
+                host,
+                port=self._expected_port,
+                pinned_ip=self._pinned_ip,
+                expected_host=self._expected_host,
+                expected_port=self._expected_port,
+                timeout=timeout,
+                context=self._context,
+            ),
+            req,
+        )
+
+
 class VultrCASClient:
     """Minimal stdlib HTTP client for Vultr CAS execution submission, lease keepalive, and commit."""
 
@@ -615,26 +684,28 @@ class VultrCASClient:
         self._access_token = _validate_env_token(access_token, env_name="MRNAX_GATEWAY_ACCESS_TOKEN")
         self.timeout_sec = timeout_sec
         host = (urllib.parse.urlsplit(self.base_url).hostname or "").lower()
+        self._is_loopback = _is_loopback_host(host)
+
+    def _open_pinned_json(
+        self, method: str, path: str, body: dict[str, Any] | None = None, *, timeout_sec: float | None = None
+    ) -> dict[str, Any]:
+        exp_host, exp_port, pinned_ip = _resolve_safe_gateway_peer(self.base_url)
         handlers: list[Any] = [_NoRedirectHandler()]
-        if _is_loopback_host(host):
+        if self._is_loopback:
             handlers.append(urllib.request.ProxyHandler({}))
-        self._opener = urllib.request.build_opener(*handlers)
-
-    @property
-    def is_loopback(self) -> bool:
-        host = (urllib.parse.urlsplit(self.base_url).hostname or "").lower()
-        return _is_loopback_host(host)
-
-    def post_json(self, path: str, body: dict[str, Any], *, timeout_sec: float | None = None) -> dict[str, Any]:
-        _assert_safe_gateway_peer(self.base_url)
+        elif urllib.parse.urlsplit(self.base_url).scheme == "https":
+            handlers.append(_PinnedHTTPSHandler(expected_host=exp_host, expected_port=exp_port, pinned_ip=pinned_ip))
+        opener = urllib.request.build_opener(*handlers)
         url = f"{self.base_url}{path}"
-        data = json.dumps(body, separators=(",", ":")).encode("utf-8")
-        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        data = json.dumps(body, separators=(",", ":")).encode("utf-8") if body is not None else None
+        headers: dict[str, str] = {"Accept": "application/json"}
+        if data is not None:
+            headers["Content-Type"] = "application/json"
         if self._access_token:
             headers["X-MRNAX-Access-Token"] = self._access_token
-        req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+        req = urllib.request.Request(url, data=data, headers=headers, method=method)
         eff_to = self.timeout_sec if timeout_sec is None else max(0.5, float(timeout_sec))
-        with self._opener.open(req, timeout=eff_to) as resp:
+        with opener.open(req, timeout=eff_to) as resp:
             raw = resp.read(_MAX_HTTP_RESPONSE_BYTES + 1)
             if len(raw) > _MAX_HTTP_RESPONSE_BYTES:
                 raise RuntimeError("Gateway CAS response exceeded byte cap")
@@ -642,6 +713,17 @@ class VultrCASClient:
             if not isinstance(decoded, dict):
                 raise RuntimeError("Gateway CAS response must be a JSON object")
             return decoded
+
+    @property
+    def is_loopback(self) -> bool:
+        return self._is_loopback
+
+    def post_json(self, path: str, body: dict[str, Any], *, timeout_sec: float | None = None) -> dict[str, Any]:
+        return self._open_pinned_json("POST", path, body, timeout_sec=timeout_sec)
+
+    def get_execution(self, execution_id: str) -> dict[str, Any]:
+        safe_exec = urllib.parse.quote(execution_id, safe="")
+        return self._open_pinned_json("GET", f"/v1/executions/{safe_exec}")
 
     def submit_execution(self, *, submission_id: str, request_digest: str, intent_id: str) -> dict[str, Any]:
         return self.post_json(
@@ -709,9 +791,37 @@ def _sanitize_commit_receipt(raw: dict[str, Any], *, secrets_to_scrub: tuple[str
     out: dict[str, Any] = {}
     for k in _CAS_COMMIT_ALLOWLIST_KEYS:
         if k in raw:
-            val = raw[k]
-            out[k] = _redact_secrets(val, *secrets_to_scrub) if isinstance(val, str) else val
+            out[k] = _redact_obj(raw[k], *secrets_to_scrub)
     return out
+
+
+def _copy_verified_raw_binary(src_bin: Path, dest_dir: Path, *, expected_sha256: str) -> tuple[Path, Path]:
+    """Read, SHA-256 verify, and stage raw binary via ONE open file descriptor into `dest_dir`."""
+    exp_bin_sha = expected_sha256.strip().lower()
+    if not _SHA256_HEX_RE.fullmatch(exp_bin_sha):
+        raise ValueError("--lineardesign-bin-sha256 must be a valid 64-char hex SHA-256")
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    staged_bin = dest_dir / src_bin.name
+    h = hashlib.sha256()
+    with src_bin.open("rb") as src_fh, staged_bin.open("wb") as dst_fh:
+        while True:
+            blk = src_fh.read(65536)
+            if not blk:
+                break
+            h.update(blk)
+            dst_fh.write(blk)
+    actual_sha = h.hexdigest()
+    if not hmac.compare_digest(actual_sha, exp_bin_sha):
+        staged_bin.unlink(missing_ok=True)
+        raise ValueError(
+            f"LinearDesign binary SHA-256 mismatch: got {actual_sha}, expected {exp_bin_sha}"
+        )
+    os.chmod(staged_bin, 0o755)
+    for tbl in ("coding_wheel.txt", "codon_usage_freq_table_human.csv"):
+        cand_tbl = src_bin.parent / tbl
+        if cand_tbl.is_file():
+            shutil.copy2(cand_tbl, dest_dir / tbl)
+    return staged_bin.resolve(), dest_dir.resolve()
 
 
 def _seal_to_drive(
@@ -806,6 +916,12 @@ def run_worker(
         raise ValueError("--sealed-file-id requires matching --sealed-sha256 of the uploaded SEALED.json")
     if sealed_sha256 and not _SHA256_HEX_RE.fullmatch(sealed_sha256.strip().lower()):
         raise ValueError("--sealed-sha256 must be a 64-char lowercase hex SHA-256 digest")
+    if (
+        output_json is not None
+        and commit_receipt_json is not None
+        and output_json.resolve() == commit_receipt_json.resolve()
+    ):
+        raise ValueError("--commit-receipt-json must be distinct from --output-json so the sealed artifact stays immutable")
 
     if cas_client is not None and not defer_commit and not cas_client.is_loopback:
         if eff_drive_client is None and not (sealed_file_id and sealed_sha256):
@@ -815,6 +931,12 @@ def run_worker(
             )
 
     eff_exec_id = (execution_id or "").strip() or None
+    ld_identity = (
+        PINNED_LINEARDESIGN_TAR_SHA256
+        if lineardesign_tar is not None
+        else (lineardesign_bin_sha256 or "").strip().lower()
+    )
+    ef_identity = PINNED_ETERNAFOLD_TAR_SHA256 if include_eternafold else None
     if cas_client is not None and eff_exec_id is None:
         eff_req_dig = (request_digest or "").strip() or hashlib.sha256(
             json.dumps(
@@ -824,6 +946,8 @@ def run_worker(
                     "ef": include_eternafold,
                     "track": compliance_track,
                     "intent_id": intent_id,
+                    "ld_sha": ld_identity,
+                    "ef_sha": ef_identity,
                 },
                 sort_keys=True,
             ).encode("utf-8")
@@ -839,6 +963,13 @@ def run_worker(
             raise RuntimeError(
                 f"Execution '{eff_exec_id}' (submission_id='{eff_sub_id}') is already COMMITTED "
                 f"(winning_attempt_id={sub_row.get('winning_attempt_id')})."
+            )
+    elif cas_client is not None and eff_exec_id is not None:
+        existing_exec = cas_client.get_execution(eff_exec_id)
+        if str(existing_exec.get("status") or "") == "COMMITTED":
+            raise RuntimeError(
+                f"Execution '{eff_exec_id}' is already COMMITTED "
+                f"(winning_attempt_id={existing_exec.get('winning_attempt_id')})."
             )
 
     lease_grant: dict[str, Any] | None = None
@@ -910,20 +1041,16 @@ def run_worker(
                     )
                     ld_bin, ld_runtime = _locate_lineardesign_binary(ld_dir)
                 elif lineardesign_bin is not None:
-                    ld_bin = lineardesign_bin.resolve()
-                    if not ld_bin.is_file():
-                        raise FileNotFoundError(f"LinearDesign binary not found: '{ld_bin}'")
+                    raw_ld_bin = lineardesign_bin.resolve()
+                    if not raw_ld_bin.is_file():
+                        raise FileNotFoundError(f"LinearDesign binary not found: '{raw_ld_bin}'")
                     if not lineardesign_bin_sha256:
                         raise ValueError("--lineardesign-bin requires pinned --lineardesign-bin-sha256")
-                    exp_bin_sha = lineardesign_bin_sha256.strip().lower()
-                    if not _SHA256_HEX_RE.fullmatch(exp_bin_sha):
-                        raise ValueError("--lineardesign-bin-sha256 must be a valid 64-char hex SHA-256")
-                    actual_bin_sha = compute_file_sha256(ld_bin)
-                    if not hmac.compare_digest(actual_bin_sha, exp_bin_sha):
-                        raise ValueError(
-                            f"LinearDesign binary SHA-256 mismatch: got {actual_bin_sha}, expected {exp_bin_sha}"
-                        )
-                    ld_runtime = ld_bin.parent
+                    ld_bin, ld_runtime = _copy_verified_raw_binary(
+                        raw_ld_bin,
+                        isolated_dir / "pinned_bin",
+                        expected_sha256=lineardesign_bin_sha256,
+                    )
                 else:
                     raise FileNotFoundError("Provide --lineardesign-tar (pinned SHA-256) or --lineardesign-bin + --lineardesign-bin-sha256.")
 
@@ -950,10 +1077,6 @@ def run_worker(
                                 **run_eternafold_aup(ef_bin, ef_params, cand["cds_rna"]),
                             }
                         )
-
-        stop_event.set()
-        if hb_thread is not None:
-            hb_thread.join(timeout=5.0)
 
         with renewal_lock:
             renewals_snapshot = renewal_count
@@ -1012,14 +1135,24 @@ def run_worker(
             else:
                 raise ValueError("Cannot commit to remote gateway without Drive SEALED.json or explicit sealed digest")
 
+            with renewal_lock:
+                if lease_superseded:
+                    raise RuntimeError(
+                        renewal_errors[-1] if renewal_errors else "CAS lease superseded during Drive sealing"
+                    )
+                commit_grant = dict(active_grant) if active_grant is not None else grant_snapshot
+
             raw_commit_receipt = cas_client.commit_attempt(
                 execution_id=eff_exec_id,
-                attempt_id=eff_attempt_id,
-                lease_epoch=int(grant_snapshot["lease_epoch"]),
-                lease_token=str(grant_snapshot["lease_token"]),
+                attempt_id=str(commit_grant["attempt_id"]),
+                lease_epoch=int(commit_grant["lease_epoch"]),
+                lease_token=str(commit_grant["lease_token"]),
                 sealed_file_id=eff_sealed_id,
                 sealed_sha256=eff_sealed_sha256,
             )
+            with renewal_lock:
+                result_out["heartbeat_renewals"] = renewal_count
+                result_out["heartbeat_errors"] = list(renewal_errors)
             clean_receipt = _sanitize_commit_receipt(raw_commit_receipt, secrets_to_scrub=scrub_secrets)
             result_out["status"] = str(clean_receipt.get("status", "COMMITTED"))
             result_out["sealed_file_id"] = eff_sealed_id
@@ -1034,7 +1167,7 @@ def run_worker(
             if receipt_target is not None:
                 receipt_doc = {
                     "execution_id": eff_exec_id,
-                    "attempt_id": eff_attempt_id,
+                    "attempt_id": str(commit_grant["attempt_id"]),
                     "status": result_out["status"],
                     "result_sha256": result_sha256,
                     "sealed_file_id": eff_sealed_id,
@@ -1112,12 +1245,19 @@ def main(argv: list[str] | None = None) -> int:
         if "compliance_track" in job_doc and job_doc["compliance_track"] is not None:
             job_track = str(job_doc["compliance_track"]).strip()
             if job_track not in ("research_max", "commercial_clean"):
-                print(f"Error: unsupported compliance_track '{job_track}' in --job-json", file=sys.stderr)
+                print(
+                    _redact_secrets(f"Error: unsupported compliance_track '{job_track}' in --job-json", *scrub_secrets),
+                    file=sys.stderr,
+                )
                 return 2
         if "lambdas" in job_doc:
             lambdas_raw = job_doc["lambdas"]
         if "include_eternafold" in job_doc:
             include_eternafold = bool(job_doc["include_eternafold"])
+
+    if args.defer_commit and args.output_json is None:
+        print("Error: --defer-commit requires --output-json so the computed artifact is persisted for external sealing", file=sys.stderr)
+        return 1
 
     if cli_track is not None and job_track is not None and cli_track != job_track:
         print(

@@ -1530,3 +1530,115 @@ test("v2.5.2 WebUI upgrades: dual-chain DLL3, circRNA T4 td default, unified opt
   assert.doesNotMatch(document.getElementById("dh-datasets-tbody").innerHTML, /commercial_clean/);
   assert.match(document.getElementById("dh-datasets-tbody").innerHTML, /internal_evaluation_only/);
 });
+
+test("Gate B-R2 Round 2 (#10a, #10c, #12): agent structured track/modality forwarding, reset accession, and stale structure race guard", async () => {
+  const fetchCalls = [];
+  let resolveSlowStruct;
+  const { run } = app({
+    fetch: async (url, init) => {
+      fetchCalls.push({ url, init: init || {} });
+      if (url.includes("/agent-chat")) {
+        return response(200, {
+          status: "COMPLETED",
+          assistant_text: "Updated construct",
+          tool_calls: [],
+          turn: {
+            status: "COMPLETED",
+            intent: { intent_id: "i_ag", intent_version: 2, status: "ready", compliance_track: "commercial_clean", modality: "circrna", scaffold_id: "circ_t4td_hrvb3", uridine_chemistry: "unmodified", locked_scopes: {} },
+            candidates: [],
+          },
+        });
+      }
+      if (url.includes("/api/v1/structure/analyze")) {
+        return new Promise((resolve) => {
+          resolveSlowStruct = () => resolve(response(200, {
+            initiation_window: { start: 0, end: 10, aug_index_in_window: 0, sequence: "AUGGCCUUAA", dot_bracket: "..........", arcs: [] },
+            sliding_tracks: { positions: [0], local_mfe: [-2], local_gc_pct: [50], local_u_pct: [20], local_unpaired_prob: [0.7] },
+            motifs: [],
+          }));
+        });
+      }
+      if (url.includes("/turn")) {
+        return response(200, {
+          status: "COMPLETED",
+          intent: {
+            intent_id: "i_p",
+            intent_version: 1,
+            status: "ready",
+            compliance_track: "commercial_clean",
+            modality: "circrna",
+            scaffold_id: "circ_t4td_hrvb3",
+            locked_scopes: {},
+          },
+          candidates: [],
+        });
+      }
+      return response(404, {});
+    },
+  });
+
+  // #10c: resetProjectWorkspaceState restores state.proteinAccession to eGFP default
+  run(`state.proteinAccession = "UniProt:P01588"; resetProjectWorkspaceState();`);
+  assert.equal(run("state.proteinAccession"), "GenBank:U55762.1");
+
+  // #10a: syncTrackButtons("commercial_clean") updates sel-profile for runInitialTurn, and runRefineTurn in llm_agent mode forwards compliance_track/modality/scaffold_id
+  run(`
+    state.apiBase = "http://localhost";
+    document.getElementById("sel-exec-mode").value = "deterministic";
+    document.getElementById("sel-profile").value = "research_max";
+    document.getElementById("input-protein").value = "MVSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPTLVTT";
+    syncTrackButtons("commercial_clean");
+  `);
+  assert.equal(run(`document.getElementById("sel-profile").value`), "commercial_clean");
+  await run(`runInitialTurn("Commercial eGFP mRNA", { fromForm: true })`);
+  const turnPresetCall = fetchCalls.find((c) => c.url.includes("/turn"));
+  assert.ok(turnPresetCall);
+  assert.equal(JSON.parse(turnPresetCall.init.body).compliance_track, "commercial_clean");
+
+  run(`
+    document.getElementById("sel-exec-mode").value = "llm_agent";
+    document.getElementById("cfg-llm-provider").value = "deepseek";
+    document.getElementById("sel-profile").value = "research_max";
+    document.getElementById("sel-modality").value = "circrna";
+    document.getElementById("sel-scaffold").value = "circ_t4td_hrvb3";
+    state.byoKey = "sk-test-agent-123456";
+    state.modality = "circrna";
+    state.scaffoldId = "circ_t4td_hrvb3";
+    document.getElementById("inp-refine").value = "Optimize Kozak";
+  `);
+  await run(`runRefineTurn(null, "Optimize Kozak", { fromForm: true, complianceTrack: "commercial_clean" })`);
+  const agentCall = fetchCalls.find((c) => c.url.includes("/agent-chat") && c.init.method === "POST");
+  assert.ok(agentCall);
+  const agentBody = JSON.parse(agentCall.init.body);
+  assert.equal(agentBody.compliance_track, "commercial_clean");
+  assert.equal(agentBody.modality, "circrna");
+  assert.equal(agentBody.scaffold_id, "circ_t4td_hrvb3");
+
+  // #12: Stale in-flight structure response suppresses render when candidate track or modality changes mid-flight
+  run(`
+    document.getElementById("sel-profile").value = "research_max";
+    state.structureCache = {};
+    state.candidates = [{
+      bundle_id: "bnd_race_1",
+      version_digest: "deadbeef1234",
+      compliance_track: "research_max",
+      molecules: [{ molecule_id: "ch1", modality: "linear_mrna", full_sequence: "AUGGCCUAA", segments: [{ segment_type: "cds", start: 0, end: 9, length_nt: 9, gc_pct: 55 }] }],
+      chains: [{ chain_id: "ch1", modality: "linear_mrna", full_sequence: "AUGGCCUAA", segments: [{ segment_type: "cds", start: 0, end: 9, length_nt: 9, gc_pct: 55 }] }]
+    }];
+    state.selectedBundleId = "bnd_race_1";
+    state.selectedChainIndex = 0;
+    globalThis.__structRenderCalls = 0;
+    const __origRenderStruct = renderStructureVisuals;
+    renderStructureVisuals = (...args) => { globalThis.__structRenderCalls += 1; return __origRenderStruct(...args); };
+  `);
+  const pendingStruct = run(`runStructureAnalysisForSelected()`);
+  assert.ok(resolveSlowStruct);
+  run(`state.candidates[0].compliance_track = "commercial_clean";`);
+  resolveSlowStruct();
+  await pendingStruct;
+  assert.equal(run(`globalThis.__structRenderCalls`), 0);
+  const cacheKeys = run(`Object.keys(state.structureCache)`);
+  assert.equal(cacheKeys.length, 1);
+  assert.match(cacheKeys[0], /:research_max:/);
+  assert.doesNotMatch(cacheKeys[0], /:commercial_clean:/);
+});

@@ -1250,13 +1250,27 @@ class AtomicToolbox:
             if additional_protein_sequences is not None
             else self.default_additional_protein_sequences
         )
-        eff_acc = (
-            self.default_accession_or_source
-            if (accession_or_source == "GenBank:U55762.1" and self.default_accession_or_source)
-            else accession_or_source
+        llm_switched_primary = (
+            protein_sequence is not None
+            and self.default_protein_sequence is not None
+            and protein_sequence.strip().upper() != self.default_protein_sequence.strip().upper()
         )
+        if accession_or_source != "GenBank:U55762.1":
+            eff_acc = accession_or_source
+        elif llm_switched_primary:
+            eff_acc = "user_supplied"
+        else:
+            eff_acc = self.default_accession_or_source or accession_or_source
         eff_mod = modality if modality is not None else self.default_modality
-        eff_scaf = scaffold_id if scaffold_id is not None else self.default_scaffold_id
+        eff_scaf = (
+            scaffold_id
+            if scaffold_id is not None
+            else (
+                self.default_scaffold_id
+                if (modality is None or modality == self.default_modality)
+                else None
+            )
+        )
         intent = self.session.create_turn_intent_canonical(
             user_utterance=user_utterance,
             protein_sequence=eff_prot,
@@ -1325,6 +1339,16 @@ class AtomicToolbox:
         else:
             eff_refine_track = compliance_track
             eff_refine_surr = use_commercial_surrogate
+        eff_mod = modality if modality is not None else self.default_modality
+        eff_scaf = (
+            scaffold_id
+            if scaffold_id is not None
+            else (
+                self.default_scaffold_id
+                if (modality is None or modality == self.default_modality)
+                else None
+            )
+        )
         intent_v = self.session.refine_turn_intent_canonical(
             user_utterance=user_utterance,
             restriction_enzymes=restriction_enzymes,
@@ -1336,8 +1360,8 @@ class AtomicToolbox:
             compliance_track=eff_refine_track,  # type: ignore[arg-type]
             detarget_liver=detarget_liver,
             use_commercial_surrogate=eff_refine_surr,
-            modality=modality,  # type: ignore[arg-type]
-            scaffold_id=scaffold_id,
+            modality=eff_mod,  # type: ignore[arg-type]
+            scaffold_id=eff_scaf,
             turn_id=self._next_turn_id(),
             expected_parent_intent_id=self.expected_parent_intent_id,
         )
@@ -1467,6 +1491,12 @@ class AtomicToolbox:
                 raise ValueError(
                     f"Export out_dir '{out_dir}' must resolve inside project store_dir '{base_store}'"
                 )
+            for reserved_name in ("intents", "bundles", "reports", "experiments", "manifests"):
+                reserved_dir = (base_store / reserved_name).resolve()
+                if target_dir == reserved_dir or target_dir.is_relative_to(reserved_dir):
+                    raise ValueError(
+                        f"Export out_dir '{out_dir}' cannot target protected project directory '{reserved_name}'"
+                    )
             checked_files = [
                 "full_rna.fasta",
                 "cds_only.fasta",
@@ -1493,6 +1523,12 @@ class AtomicToolbox:
                     locked_scopes=intent.locked_scopes,
                     expected_protein_targets=intent.protein_targets,
                 )
+                staged_names = [
+                    "full_rna.fasta",
+                    "cds_only.fasta",
+                    "construct.gb",
+                    "chemistry_metadata.json",
+                ]
                 if include_dossier:
                     ev_match: BundleEvaluation | None = None
                     try:
@@ -1524,23 +1560,37 @@ class AtomicToolbox:
                     (stg_dir / "chemistry_metadata.json").write_text(
                         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
                     )
+                    staged_names.extend(["ivt_synthesis_order.csv", "qc_dossier.html"])
 
+                target_dir.mkdir(parents=True, exist_ok=True)
                 for fn in checked_files:
                     cand_f = target_dir / fn
                     if cand_f.is_symlink():
                         raise ValueError(f"Refusing to overwrite or remove symlinked export target '{cand_f}'")
-                if target_dir.exists():
-                    bak_dir = target_dir.parent / f".mrnax_exp_bak_{uuid.uuid4().hex}"
-                    os.rename(target_dir, bak_dir)
-                    try:
-                        os.rename(stg_dir, target_dir)
-                    except Exception:
-                        if not target_dir.exists() and bak_dir.exists():
-                            os.rename(bak_dir, target_dir)
-                        raise
-                    shutil.rmtree(bak_dir, ignore_errors=True)
-                else:
-                    os.rename(stg_dir, target_dir)
+
+                bak_dir = Path(stg_raw) / "bak"
+                bak_dir.mkdir(parents=True, exist_ok=True)
+                prior_files: set[str] = set()
+                for fn in checked_files:
+                    cur_f = target_dir / fn
+                    if cur_f.is_file():
+                        shutil.copy2(cur_f, bak_dir / fn)
+                        prior_files.add(fn)
+                try:
+                    for fn in staged_names:
+                        os.replace(stg_dir / fn, target_dir / fn)
+                    if not include_dossier:
+                        (target_dir / "ivt_synthesis_order.csv").unlink(missing_ok=True)
+                        (target_dir / "qc_dossier.html").unlink(missing_ok=True)
+                except Exception:
+                    for fn in checked_files:
+                        dst_f = target_dir / fn
+                        bak_f = bak_dir / fn
+                        if fn in prior_files and bak_f.is_file():
+                            os.replace(bak_f, dst_f)
+                        elif fn not in prior_files:
+                            dst_f.unlink(missing_ok=True)
+                    raise
             return manifest
 
     # 10. resolve_target_protein
@@ -1570,6 +1620,8 @@ class AtomicToolbox:
                     eff_track = b_intent.compliance_track
                 except Exception:
                     eff_track = "commercial_clean"
+            if self.forced_commercial_clean:
+                eff_track = "commercial_clean"
             if molecule_index < 0 or molecule_index >= len(b.molecules):
                 raise ValueError(f"molecule_index {molecule_index} out of range for bundle '{bundle_id}'")
             mol = b.molecules[molecule_index]
@@ -1594,9 +1646,13 @@ class AtomicToolbox:
         assert sequence is not None
         with self.session.current_state():
             seq_track = (
-                self.session._intents[-1].compliance_track
-                if self.session._intents
-                else "commercial_clean"
+                "commercial_clean"
+                if self.forced_commercial_clean
+                else (
+                    self.session._intents[-1].compliance_track
+                    if self.session._intents
+                    else "commercial_clean"
+                )
             )
         return run_structure_and_motif_analysis(
             sequence,
