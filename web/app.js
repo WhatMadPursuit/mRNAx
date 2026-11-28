@@ -3739,12 +3739,9 @@ function parseDeterministicRefineFallback(utterance) {
     /(?:切回|改回|换成|改为|切换(?:为|回|成|到)?|(?:switch|convert|change)(?:\s+from\s+[\w\s-]+?)?(?:\s+back)?\s+to|back\s+to|replace\s+[\w\s-]+?\s+with)\s*(?:an?\s+|the\s+)?(?:\bsarna\b|self[- ]amplifying|自扩增|\bveev\b|\bsinv\b|sindbis)/i;
 
   const preserveScaffold =
-    /(?:keep|preserve|retain)(?:\s+(?:the|my|our|this|current|existing))?\s+(?:(?:linear|circular|circrna|sarna)\s+)?(?:scaffold|backbone|utr|ires|pie)|(?:scaffold|backbone|utr|ires|pie)\s+(?:unchanged|as[- ]is)|(?:保留|维持)(?:当前|现有|原|既有)?(?:环状|线性|自扩增)?(?:骨架|模板|UTR|IRES|PIE)/i.test(
+    /(?:keep|preserve|retain)(?:\s+(?:the|my|our|this|that|current|existing|same|active|original|previous))*\s+(?:(?:linear|circular|circrna|sarna)\s+)?(?:scaffold|backbone|utr|ires|pie)|(?:scaffold|backbone|utr|ires|pie)\s+(?:unchanged|as[- ]is)|(?:保留|维持)(?:当前|现有|原|既有|目前|该)?(?:环状|线性|自扩增)?(?:骨架|模板|UTR|IRES|PIE)/i.test(
       raw
     );
-  const explicitLinearPart = /\bcap1_\w+|\bminimal\s*(?:5'?utr|3'?utr|structured)|\bhba1\b|\baes\b|\bhbb\b/i.test(raw);
-  const explicitCircPart = /\banabaena\b|\bt4\s*_?\s*td\b|\b(?:hrv-?b3|cvb3)\b/i.test(raw);
-  const explicitSarnaPart = /\bveev\b|\bsinv\b|sindbis/i.test(raw);
 
   let targetModality = null;
   if (destCircRe.test(raw)) {
@@ -3763,8 +3760,8 @@ function parseDeterministicRefineFallback(utterance) {
 
   if (targetModality === "linear_mrna") {
     payload.modality = "linear_mrna";
-    if (!preserveScaffold || explicitLinearPart) {
-      payload.scaffold_id = /\bminimal\b|极简/i.test(raw)
+    if (!preserveScaffold) {
+      payload.scaffold_id = /\bminimal\b|\bhbb\b|极简/i.test(raw)
         ? "cap1_minimal_structured_3utr"
         : "cap1_hba1_aes_mt_a30l70";
     }
@@ -3772,7 +3769,7 @@ function parseDeterministicRefineFallback(utterance) {
   } else if (targetModality === "circrna") {
     payload.modality = "circrna";
     payload.uridine_chemistry = "unmodified_u";
-    if (!preserveScaffold || explicitCircPart) {
+    if (!preserveScaffold) {
       const backbone = /\banabaena\b/i.test(raw) ? "anabaena" : "t4td";
       if (/\bcvb3\b/i.test(raw)) {
         payload.scaffold_id = `circ_${backbone}_cvb3`;
@@ -3784,7 +3781,7 @@ function parseDeterministicRefineFallback(utterance) {
   } else if (targetModality === "sarna") {
     payload.modality = "sarna";
     payload.uridine_chemistry = "unmodified_u";
-    if (!preserveScaffold || explicitSarnaPart) {
+    if (!preserveScaffold) {
       payload.scaffold_id = /\bsinv\b|sindbis/i.test(raw) ? "sarna_sinv" : "sarna_veev_tc83";
     }
     changed = true;

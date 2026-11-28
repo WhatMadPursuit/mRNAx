@@ -2582,8 +2582,8 @@ def test_round8_final_fixes_deadline_provenance_journal_p42212_and_multichain(
     j_up_dir = tmp_path / "proj_r8_journal_upgrade"
     j_up_dir.mkdir(parents=True, exist_ok=True)
     reqs_upgrade = {
-        **{f"old_rej_{idx:03d}": {"status": "rejected_422", "error_detail": f"rej #{idx}"} for idx in range(50)},
         **{f"new_ok_{idx:03d}": {"status": "completed", "intent_version": idx + 1} for idx in range(50)},
+        **{f"old_rej_{idx:03d}": {"status": "rejected_422", "error_detail": f"rej #{idx}"} for idx in range(50)},
         "active_1": {"status": "in_progress"},
     }
     _save_agent_chat_requests(j_up_dir, reqs_upgrade, max_entries=50)

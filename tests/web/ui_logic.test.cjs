@@ -1665,11 +1665,11 @@ test("Gate B-R2 Round 3 (#10): syncControlsFromIntent resets linear modality/sca
         return response(200, {
           protein: {
             matched: true,
-            gene_symbol: "EGFP",
-            accession_or_source: "GenBank:U55762.1",
-            aa_length: 239,
+            gene_symbol: "CUSTOM_X",
+            accession_or_source: "UniProt:Q9XYZ1",
+            aa_length: 12,
             starts_with_met: true,
-            protein_sequence: "MVSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPTLVTTLTYGVQCFSRYPDHMKQHDFFKSAMPEGYVQERTIFFK",
+            protein_sequence: "MKTLLLFVGALL",
           },
         });
       }
@@ -1823,10 +1823,15 @@ test("Gate B-R2 Round 3 (#10): syncControlsFromIntent resets linear modality/sca
   assert.equal(keepLin.compliance_track, "commercial_clean");
   assert.equal(keepLin.scaffold_id, undefined);
 
-  const keepCirc = run('parseDeterministicRefineFallback("keep existing circular scaffold and switch to commercial_clean")');
+  const keepCirc = run('parseDeterministicRefineFallback("Keep the existing circular scaffold and switch to commercial_clean")');
   assert.equal(keepCirc.modality, "circrna");
   assert.equal(keepCirc.compliance_track, "commercial_clean");
   assert.equal(keepCirc.scaffold_id, undefined);
+
+  const keepLinHbb = run('parseDeterministicRefineFallback("Keep existing linear scaffold (HBB 3\' UTR) and change to commercial_clean")');
+  assert.equal(keepLinHbb.modality, "linear_mrna");
+  assert.equal(keepLinHbb.compliance_track, "commercial_clean");
+  assert.equal(keepLinHbb.scaffold_id, undefined);
 
   // Initial turn from default linear form with "Switch to circRNA and keep the protein unchanged" must pick circ_t4td_hrvb3
   run(`
@@ -1844,11 +1849,11 @@ test("Gate B-R2 Round 3 (#10): syncControlsFromIntent resets linear modality/sca
   run(`
     state.apiBase = "http://localhost";
   `);
-  await run('resolveTargetProteinInHub("eGFP")');
+  await run('resolveTargetProteinInHub("Q9XYZ1")');
   assert.equal(resolveCalls, 1);
-  assert.match(document.getElementById("dh-target-result").innerHTML, /GenBank:U55762\.1/);
+  assert.match(document.getElementById("dh-target-result").innerHTML, /UniProt:Q9XYZ1/);
   const impBtnListeners = listenerMap.get("btn-import-resolved-protein");
   assert.ok(impBtnListeners && typeof impBtnListeners.click === "function");
   impBtnListeners.click();
-  assert.equal(run("state.proteinAccession"), "GenBank:U55762.1");
+  assert.equal(run("state.proteinAccession"), "UniProt:Q9XYZ1");
 });
