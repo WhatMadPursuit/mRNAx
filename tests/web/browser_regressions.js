@@ -440,10 +440,20 @@ async function runBrowserRegressions() {
         return response({ qc_dossier_html: "<!doctype html><html><body>QC PASS</body></html>" });
       }
       if (u.includes("/api/v1/rules")) {
+        const longCitationRule = {
+          ...FALLBACK_SCIENTIFIC_RULES[0],
+          citations: [
+            {
+              authors: "ConsortiumForUltraLongUnbrokenCitationIdentifierWrappingCheck2024EtAl",
+              year: 2024,
+              doi: "10.1038/s41587-024-02112-9-ultra-long-unbroken-identifier-segment-for-390px-mobile-wrap-verification-check",
+            },
+          ],
+        };
         return response({
           total_available: 2,
           total_matched: 2,
-          rules: FALLBACK_SCIENTIFIC_RULES.slice(0, 2),
+          rules: [longCitationRule, FALLBACK_SCIENTIFIC_RULES[1]],
         });
       }
       if (u.includes("/api/v1/data-hub")) {
@@ -509,26 +519,55 @@ async function runBrowserRegressions() {
     const cmpOpen = Boolean(el("modal-compare")?.open) && el("compare-body").textContent.includes("序列碱基位点差异");
     el("btn-close-compare").click();
     const origAnchorClick = HTMLAnchorElement.prototype.click;
-    HTMLAnchorElement.prototype.click = () => {};
+    const origCreateObjectURL = URL.createObjectURL;
+    let capturedDownloadName = "";
+    let capturedBlobText = "";
+    HTMLAnchorElement.prototype.click = function () {
+      capturedDownloadName = this.download || "";
+    };
+    URL.createObjectURL = (blob) => {
+      blob.text().then((t) => {
+        capturedBlobText = t;
+      });
+      return "blob:wave3-ivt-check";
+    };
+    let ivtDownloadedOk = false;
     try {
-      await downloadIvtSynthesisOrder();
+      ivtDownloadedOk = await downloadIvtSynthesisOrder();
+      await Promise.resolve();
       await openOrDownloadQcDossier();
     } finally {
       HTMLAnchorElement.prototype.click = origAnchorClick;
+      URL.createObjectURL = origCreateObjectURL;
     }
+    if (!capturedBlobText) {
+      await new Promise((r) => requestAnimationFrame(() => r()));
+    }
+    const ivtVerified =
+      ivtDownloadedOk === true
+      && capturedDownloadName.endsWith("_ivt_order.csv")
+      && capturedBlobText.includes("bnd_wave3_0,ATG");
     const dossierLoaded = Boolean(el("modal-dossier-preview")?.open) && el("dossier-iframe").srcdoc.includes("QC PASS");
     el("btn-close-dossier").click();
-    check("wave3_compare_ivt_and_qc_dossier", cmpOpen && dossierLoaded);
+    check("wave3_compare_ivt_and_qc_dossier", cmpOpen && ivtVerified && dossierLoaded);
 
     // 6. All 4 Tabs (Rules, Data Hub + Import to Studio, Benchmarks + Wet-Lab) & 390px zero horizontal overflow
+    const waitUntil = async (pred) => {
+      for (let i = 0; i < 60 && !pred(); i += 1) {
+        await new Promise((r) => requestAnimationFrame(() => r()));
+      }
+      return Boolean(pred());
+    };
+
     el("tab-btn-rules").click();
-    await new Promise((r) => setTimeout(r, 20));
+    await waitUntil(() => el("rules-list").children.length >= 2);
     const rulesWidthOk = document.documentElement.scrollWidth === 390;
     const rulesRendered = el("rules-list").children.length >= 2
+      && Array.from(el("rules-list").querySelectorAll("a.ext-link")).some((a) => a.textContent.length > 70)
       && Array.from(el("rules-list").querySelectorAll("a.ext-link")).every((a) => a.rel.includes("noopener"));
 
     el("tab-btn-data").click();
-    await new Promise((r) => setTimeout(r, 20));
+    await waitUntil(() => Boolean(document.getElementById("dh-datasets-tbody")?.rows.length));
     await resolveTargetProteinInHub("EPO");
     const dataWidthOk = document.documentElement.scrollWidth === 390;
     const importBtn = document.getElementById("btn-import-resolved-protein");
@@ -536,7 +575,7 @@ async function runBrowserRegressions() {
     const importedToStudio = !el("view-studio").hidden && el("input-protein").value === FALLBACK_HEPO;
 
     el("tab-btn-benchmarks").click();
-    await new Promise((r) => setTimeout(r, 20));
+    await waitUntil(() => el("bench-delta-tbody").rows.length >= 1);
     el("btn-load-sample-wetlab-cal").click();
     const benchWidthOk = document.documentElement.scrollWidth === 390;
     const benchRendered = el("bench-delta-tbody").rows.length >= 1

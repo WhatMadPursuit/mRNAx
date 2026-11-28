@@ -2442,53 +2442,95 @@ function getActiveInspectedChain() {
   return chains[idx] || chains[0];
 }
 
+function getActiveComplianceTrackForCandidate(cand) {
+  const latestIntent = state.intentHistory.length
+    ? state.intentHistory[state.intentHistory.length - 1]
+    : null;
+  if (latestIntent && latestIntent.compliance_track) {
+    return latestIntent.compliance_track;
+  }
+  const profSel = document.getElementById("sel-profile")?.value;
+  if (profSel === "commercial_clean") return "commercial_clean";
+  const segs = Array.isArray(cand?.segments) ? cand.segments : [];
+  if (segs.length && segs.every((s) => !s.license_track || s.license_track === "commercial_clean")) {
+    return profSel === "research_max" ? "research_max" : "commercial_clean";
+  }
+  return profSel || "commercial_clean";
+}
+
 async function runStructureAnalysisForSelected() {
+  const cand = state.candidates.find((c) => c.bundle_id === state.selectedBundleId);
   const chain = getActiveInspectedChain();
-  if (!chain || !chain.full_sequence || chain.full_sequence.length < 3) return null;
+  if (!cand || !chain || !chain.full_sequence || chain.full_sequence.length < 3) return null;
   const seq = String(chain.full_sequence).toUpperCase().replace(/T/g, "U");
-  const cacheKey = `${state.modality}:${seq}`;
+  const segs = Array.isArray(chain.segments) ? chain.segments : [];
+  const u5 = segs.find((s) => s.segment_type === "five_prime_utr");
+  const cds = segs.find((s) => s.segment_type === "cds");
+  const u3 = segs.find((s) => s.segment_type === "three_prime_utr");
+  const effMod = chain.modality || state.modality || "linear_mrna";
+  const effTrack = getActiveComplianceTrackForCandidate(cand);
+  const coordKey = [
+    u5 ? Number(u5.end) : "",
+    cds ? Number(cds.start) : "",
+    cds ? Number(cds.end) : "",
+    u3 ? Number(u3.start) : "",
+    u3 ? Number(u3.end) : "",
+  ].join(",");
+  const cacheKey = [
+    cand.bundle_id || "raw",
+    cand.version_digest || "v0",
+    chain.molecule_id || "mol0",
+    effTrack,
+    effMod,
+    coordKey,
+    seq,
+  ].join(":");
   if (state.structureCache[cacheKey]) {
     renderStructureVisuals(state.structureCache[cacheKey], chain);
     return state.structureCache[cacheKey];
   }
 
-  const segs = Array.isArray(chain.segments) ? chain.segments : [];
-  const u5 = segs.find((s) => s.segment_type === "five_prime_utr");
-  const cds = segs.find((s) => s.segment_type === "cds");
-  const u3 = segs.find((s) => s.segment_type === "three_prime_utr");
+  const reqProjId = state.projectId;
+  const reqRev = state.activeVersion;
+  const reqBid = cand.bundle_id;
+  const reqMolId = chain.molecule_id || null;
+  const reqApiBase = normalizeOrigin(state.apiBase);
+  const reqProjKey = state.projectKey;
+
   const payload = {
     sequence: seq,
+    project_id: reqProjId || null,
+    bundle_id: reqBid || null,
+    molecule_id: reqMolId,
     five_prime_end: u5 ? Number(u5.end) : null,
     cds_start: cds ? Number(cds.start) : null,
     cds_end: cds ? Number(cds.end) : null,
     three_prime_start: u3 ? Number(u3.start) : null,
     three_prime_end: u3 ? Number(u3.end) : null,
-    modality: state.modality || "linear_mrna",
+    modality: effMod,
+    compliance_track: effTrack,
     include_eternafold: false,
   };
 
   try {
-    let data;
-    try {
-      data = await apiFetch("/api/v1/structure/analyze", {
-        method: "POST",
-        includeAuth: false,
-        body: JSON.stringify(payload),
-      });
-    } catch (e1) {
-      if (e1 && e1.status === 404) {
-        data = await apiFetch("/v1/tools/structure-profile", {
-          method: "POST",
-          includeAuth: false,
-          body: JSON.stringify(payload),
-        });
-      } else {
-        throw e1;
-      }
-    }
+    const data = await apiFetch("/api/v1/structure/analyze", {
+      method: "POST",
+      explicitProjectKey: reqProjKey,
+      explicitApiBase: reqApiBase,
+      body: JSON.stringify(payload),
+    });
     if (data && data.initiation_window) {
       state.structureCache[cacheKey] = data;
-      if (getActiveInspectedChain()?.full_sequence === chain.full_sequence) {
+      const activeChainNow = getActiveInspectedChain();
+      if (
+        reqApiBase === normalizeOrigin(state.apiBase) &&
+        reqProjId === state.projectId &&
+        reqRev === state.activeVersion &&
+        reqBid === state.selectedBundleId &&
+        activeChainNow &&
+        (activeChainNow.molecule_id || null) === reqMolId &&
+        activeChainNow.full_sequence === chain.full_sequence
+      ) {
         renderStructureVisuals(data, chain);
       }
       return data;
@@ -2496,7 +2538,7 @@ async function runStructureAnalysisForSelected() {
   } catch {
     // Keep client deterministic structure profile when offline or mocked
   }
-  const fallback = computeClientStructureProfile(chain, state.modality);
+  const fallback = computeClientStructureProfile(chain, effMod);
   if (fallback) renderStructureVisuals(fallback, chain);
   return fallback;
 }
@@ -2904,6 +2946,13 @@ function syncControlsFromIntent(intent) {
         (o) => o && o.requirement_id === "obj_late_protein_persistence"
       );
     }
+  }
+  if (intent.modality) {
+    setModality(intent.modality);
+  }
+  if (intent.scaffold_id) {
+    const scafEl = document.getElementById("sel-scaffold");
+    if (scafEl) scafEl.value = intent.scaffold_id;
   }
   updateSetupSummary();
 }
@@ -3390,6 +3439,19 @@ function parseDeterministicRefineFallback(utterance) {
     changed = true;
   }
 
+  if (/\bcircrna\b|环状\s*rna/i.test(raw)) {
+    payload.modality = "circrna";
+    payload.uridine_chemistry = "unmodified_u";
+    if (/\bcvb3\b/i.test(raw)) payload.scaffold_id = "circ_anabaena_cvb3";
+    else if (/\bhrv-?b3\b/i.test(raw)) payload.scaffold_id = "circ_anabaena_hrvb3";
+    changed = true;
+  } else if (/\bsarna\b|自扩增|veev/i.test(raw)) {
+    payload.modality = "sarna";
+    payload.uridine_chemistry = "unmodified_u";
+    payload.scaffold_id = "sarna_veev_tc83";
+    changed = true;
+  }
+
   return changed ? payload : null;
 }
 
@@ -3525,7 +3587,9 @@ async function runInitialTurn(customUtterance = null, meta = {}) {
   const submittedText = typeof customUtterance === "string" ? customUtterance.trim() : "";
   const allowMainDraftFallback = !meta.ignoreTextDraft && (!meta.sourceEl || meta.sourceEl === utteranceInput);
   const mainDraftText =
-    allowMainDraftFallback && !submittedText && utteranceInput ? utteranceInput.value.trim() : "";
+    allowMainDraftFallback && !submittedText && utteranceInput
+      ? String(utteranceInput.value || "").trim()
+      : "";
   const draftEl = meta.ignoreTextDraft ? null : meta.sourceEl || (mainDraftText ? utteranceInput : null);
   const draftText = meta.ignoreTextDraft ? "" : submittedText || mainDraftText;
 
@@ -3576,6 +3640,11 @@ async function runInitialTurn(customUtterance = null, meta = {}) {
   const effEnz = (parsedInit && parsedInit.restriction_enzymes) || enz;
   const effDetarget =
     parsedInit && typeof parsedInit.detarget_liver === "boolean" ? parsedInit.detarget_liver : detarget;
+  const rawScaffoldVal = (document.getElementById("sel-scaffold") && document.getElementById("sel-scaffold").value) || null;
+  const effModality = (parsedInit && parsedInit.modality) || state.modality || "linear_mrna";
+  const effScaffold = (parsedInit && parsedInit.scaffold_id) || rawScaffoldVal || null;
+  const effInitChem =
+    effModality === "circrna" || effModality === "sarna" ? "unmodified_u" : effChem;
   const defaultProt = (state.presets?.egfp_reporter?.protein_sequence) || FALLBACK_EGFP;
   const namesEgfp = /\b(?:egfp|gfp|p42212|u55762)\b/i.test(draftText);
   const namesOtherTarget = /\b(?:mcherry|cas9|luciferase|fluc|spike|insulin|epo|dll3|fgf21|her2)\b/i.test(draftText);
@@ -3609,14 +3678,18 @@ async function runInitialTurn(customUtterance = null, meta = {}) {
         mode: "initial",
         user_utterance: utterance,
         protein_sequence: usePrefilledDefaultForDet ? prot || null : null,
-        uridine_chemistry: effChem,
+        uridine_chemistry: effInitChem,
         compliance_track: effProf,
         use_commercial_surrogate: effSurrogate,
         restriction_enzymes: effEnz,
         detarget_liver: effDetarget,
         prioritize_late_signal: late,
         conflicting_single_pick: conflict,
-        use_preset_reference_r: Boolean(useR && usePrefilledDefaultForDet && !namesOtherTarget),
+        use_preset_reference_r: Boolean(
+          useR && effModality === "linear_mrna" && usePrefilledDefaultForDet && !namesOtherTarget
+        ),
+        modality: effModality,
+        scaffold_id: effScaffold,
       };
   const replayRequest = {
     path: reqPath,
@@ -3696,7 +3769,9 @@ async function runRefineTurn(overridePayload = null, customUtterance = null, met
   const submittedText = typeof customUtterance === "string" ? customUtterance.trim() : "";
   const allowMainDraftFallback = !meta.ignoreTextDraft && (!meta.sourceEl || meta.sourceEl === utteranceInput);
   const mainDraftText =
-    allowMainDraftFallback && !submittedText && utteranceInput ? utteranceInput.value.trim() : "";
+    allowMainDraftFallback && !submittedText && utteranceInput
+      ? String(utteranceInput.value || "").trim()
+      : "";
   const draftEl = meta.ignoreTextDraft ? null : meta.sourceEl || (mainDraftText ? utteranceInput : null);
   const draftText = meta.ignoreTextDraft ? "" : submittedText || mainDraftText;
 
@@ -3865,90 +3940,106 @@ async function downloadExportFile(filename) {
   triggerTextBlobDownload(content, `${revTag}_${bid}_${filename}`);
 }
 
-function buildLocalIvtOrderCsv(cand) {
-  const enz = getSelectedEnzymes()[0] || "BspQI";
-  const rna = String(cand.full_sequence || "");
-  const dna = rna.replace(/U/g, "T");
-  const promoter = "TAATACGACTCACTATA";
-  const adapter = enz === "BsaI" ? "GAGACC" : enz === "BsmBI" ? "GAGACG" : "GAAGAGC";
-  const cassette = promoter + dna + adapter;
-  const header =
-    "bundle_id,display_label,uridine_chemistry,promoter_dna_5to3,linearization_enzyme,linearization_site_dna_5to3,full_rna_length_nt,template_dna_5to3,full_ivt_insert_cassette_dna_5to3";
-  const csvEsc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const row = [
-    cand.bundle_id,
-    humanizeCandidateLabel(cand),
-    cand.uridine_chemistry || "m1psi",
-    promoter,
-    enz,
-    adapter,
-    rna.length,
-    dna,
-    cassette,
-  ]
-    .map(csvEsc)
-    .join(",");
-  return `${header}\n${row}\n`;
+function showExportActionError(label, err) {
+  const banner = document.getElementById("banner-notes");
+  if (!banner) return;
+  const code = err && err.status ? ` (HTTP ${err.status})` : "";
+  const detail = (err && err.message) || "网关拒绝或暂不可达，已阻止未经授权核验的本地导出";
+  banner.hidden = false;
+  banner.className = "notice-banner error";
+  banner.innerHTML = `<strong>${escapeHtml(label)}导出受阻${escapeHtml(code)}：</strong>${escapeHtml(detail)}`;
 }
 
 async function downloadIvtSynthesisOrder() {
   const cand = state.candidates.find((c) => c.bundle_id === state.selectedBundleId);
-  if (!cand) return;
-  const revTag = `v${String(state.activeVersion).padStart(2, "0")}`;
-  let csvText = "";
-  try {
-    const res = await apiFetch(
-      `/v1/projects/${encodeURIComponent(state.projectId)}/bundles/${encodeURIComponent(cand.bundle_id)}/ivt-order?format=json`,
-      { explicitProjectKey: state.projectKey }
-    );
-    if (res && typeof res.ivt_synthesis_order_csv === "string") {
-      csvText = res.ivt_synthesis_order_csv;
-    }
-  } catch {
-    csvText = "";
-  }
-  if (!csvText) {
-    csvText = buildLocalIvtOrderCsv(cand);
-  }
-  triggerTextBlobDownload(csvText, `${revTag}_${cand.bundle_id}_ivt_order.csv`, "text/csv;charset=utf-8");
-}
+  if (!cand) return false;
+  const bid = cand.bundle_id;
+  const projId = state.projectId;
+  const revNum = state.activeVersion;
+  const latestIntent = state.intentHistory.length
+    ? state.intentHistory[state.intentHistory.length - 1]
+    : null;
+  const intentIdSnapshot = latestIntent ? latestIntent.intent_id : null;
+  const pKey = state.projectKey;
+  const apiBaseSnapshot = normalizeOrigin(state.apiBase);
 
-function buildLocalQcDossierHtml(cand) {
-  const segRows = (cand.segments || [])
-    .map(
-      (s) =>
-        `<tr><td>${escapeHtml(s.segment_type)}</td><td>${escapeHtml(s.start)}..${escapeHtml(s.end)}</td><td>${escapeHtml(s.length_nt)}</td><td>${escapeHtml(s.gc_pct)}%</td><td>${escapeHtml(s.license_track || "commercial_clean")}</td></tr>`
-    )
-    .join("");
-  return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>QC Dossier · ${escapeHtml(cand.bundle_id)}</title>
-  <style>body{font-family:-apple-system,sans-serif;margin:24px;color:#0f172a;line-height:1.5}table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}th,td{border:1px solid #cbd5e1;padding:6px 8px;text-align:left}th{background:#f1f5f9}</style></head>
-  <body><h1>mRNAx v2.5 质量控制与合规核验档案</h1>
-  <p><strong>方案名称：</strong>${escapeHtml(humanizeCandidateLabel(cand))} &nbsp;|&nbsp; <strong>全长：</strong>${escapeHtml(cand.length_nt)} nt (GC ${escapeHtml(cand.full_gc_pct)}%)</p>
-  <table><thead><tr><th>区段</th><th>0-based 坐标</th><th>长度 (nt)</th><th>GC%</th><th>许可轨</th></tr></thead><tbody>${segRows}</tbody></table>
-  <p style="margin-top:14px;font-size:12px;color:#475569;">声明：本档案记录序列硬门禁与洁净室组件核验结果，不构成特定司法管辖区专利法律意见书。</p></body></html>`;
+  let res;
+  try {
+    res = await apiFetch(
+      `/v1/projects/${encodeURIComponent(projId)}/bundles/${encodeURIComponent(bid)}/ivt-order?format=json`,
+      { explicitProjectKey: pKey, explicitApiBase: apiBaseSnapshot }
+    );
+  } catch (err) {
+    showExportActionError("IVT 下单表", err);
+    return false;
+  }
+  const activeIntentNow = state.intentHistory.length
+    ? state.intentHistory[state.intentHistory.length - 1]
+    : null;
+  if (
+    apiBaseSnapshot !== normalizeOrigin(state.apiBase) ||
+    projId !== state.projectId ||
+    revNum !== state.activeVersion ||
+    (activeIntentNow ? activeIntentNow.intent_id : null) !== intentIdSnapshot ||
+    bid !== state.selectedBundleId
+  ) {
+    return false;
+  }
+  const csvText = res && typeof res.ivt_synthesis_order_csv === "string" ? res.ivt_synthesis_order_csv : "";
+  if (!csvText) {
+    showExportActionError("IVT 下单表", new Error("网关未返回已核验的 IVT 模板数据"));
+    return false;
+  }
+  clearErrorBanner();
+  const revTag = `v${String(revNum).padStart(2, "0")}`;
+  triggerTextBlobDownload(csvText, `${revTag}_${bid}_ivt_order.csv`, "text/csv;charset=utf-8");
+  return true;
 }
 
 async function openOrDownloadQcDossier() {
   const cand = state.candidates.find((c) => c.bundle_id === state.selectedBundleId);
-  if (!cand) return;
-  const revTag = `v${String(state.activeVersion).padStart(2, "0")}`;
-  let htmlDoc = "";
+  if (!cand) return false;
+  const bid = cand.bundle_id;
+  const projId = state.projectId;
+  const revNum = state.activeVersion;
+  const latestIntent = state.intentHistory.length
+    ? state.intentHistory[state.intentHistory.length - 1]
+    : null;
+  const intentIdSnapshot = latestIntent ? latestIntent.intent_id : null;
+  const pKey = state.projectKey;
+  const apiBaseSnapshot = normalizeOrigin(state.apiBase);
+
+  let res;
   try {
-    const res = await apiFetch(
-      `/v1/projects/${encodeURIComponent(state.projectId)}/bundles/${encodeURIComponent(cand.bundle_id)}/dossier?format=json`,
-      { explicitProjectKey: state.projectKey }
+    res = await apiFetch(
+      `/v1/projects/${encodeURIComponent(projId)}/bundles/${encodeURIComponent(bid)}/dossier?format=json`,
+      { explicitProjectKey: pKey, explicitApiBase: apiBaseSnapshot }
     );
-    if (res && typeof res.qc_dossier_html === "string") {
-      htmlDoc = res.qc_dossier_html;
-    }
-  } catch {
-    htmlDoc = "";
+  } catch (err) {
+    showExportActionError("QC 质控档案", err);
+    return false;
   }
+  const activeIntentNow = state.intentHistory.length
+    ? state.intentHistory[state.intentHistory.length - 1]
+    : null;
+  if (
+    apiBaseSnapshot !== normalizeOrigin(state.apiBase) ||
+    projId !== state.projectId ||
+    revNum !== state.activeVersion ||
+    (activeIntentNow ? activeIntentNow.intent_id : null) !== intentIdSnapshot ||
+    bid !== state.selectedBundleId
+  ) {
+    return false;
+  }
+  const htmlDoc = res && typeof res.qc_dossier_html === "string" ? res.qc_dossier_html : "";
   if (!htmlDoc) {
-    htmlDoc = buildLocalQcDossierHtml(cand);
+    showExportActionError("QC 质控档案", new Error("网关未返回已核验的 QC 质控档案"));
+    return false;
   }
+  clearErrorBanner();
+  const revTag = `v${String(revNum).padStart(2, "0")}`;
   state.lastDossierHtml = htmlDoc;
-  state.lastDossierFilename = `${revTag}_${cand.bundle_id}_qc_dossier.html`;
+  state.lastDossierFilename = `${revTag}_${bid}_qc_dossier.html`;
 
   const frame = document.getElementById("dossier-iframe");
   const dlg = document.getElementById("modal-dossier-preview");
@@ -3958,6 +4049,7 @@ async function openOrDownloadQcDossier() {
   } else {
     triggerTextBlobDownload(htmlDoc, state.lastDossierFilename, "text/html;charset=utf-8");
   }
+  return true;
 }
 
 /* ============================================================================
@@ -4051,16 +4143,7 @@ async function loadScientificRules() {
   params.set("include_debunked", String(incDeb));
 
   try {
-    let res;
-    try {
-      res = await apiFetch(`/api/v1/rules?${params.toString()}`, { includeAuth: false });
-    } catch (e1) {
-      if (e1 && e1.status === 404) {
-        res = await apiFetch(`/v1/rules?${params.toString()}`, { includeAuth: false });
-      } else {
-        throw e1;
-      }
-    }
+    const res = await apiFetch(`/api/v1/rules?${params.toString()}`, { includeAuth: false });
     if (res && Array.isArray(res.rules)) {
       state.rulesCache = res;
       renderRulesAtlas(res);
@@ -4441,21 +4524,44 @@ async function resolveTargetProteinInHub(customQuery = null) {
   }
 
   if (!prot || !prot.matched) {
-    const isEgfp = /egfp|gfp/i.test(q);
-    prot = {
-      matched: true,
-      gene_symbol: isEgfp ? "EGFP" : "EPO",
-      uniprot_accession: isEgfp ? "P42212" : "P01588",
-      resolution_mode: "offline_verified_snapshot",
-      protein_name_sandboxed: isEgfp ? "Enhanced Green Fluorescent Protein" : "Erythropoietin precursor (hEPO)",
-      protein_sequence: isEgfp ? FALLBACK_EGFP : FALLBACK_HEPO,
-      aa_length: isEgfp ? FALLBACK_EGFP.length : FALLBACK_HEPO.length,
-      starts_with_met: true,
-      has_signal_peptide: !isEgfp,
-      signal_peptide_hint: isEgfp
-        ? "胞质报告蛋白（无分泌信号肽）"
-        : "含天然 N 端分泌信号肽 [1..27 aa]，建议保留天然信号肽用于体内分泌蛋白替代",
-    };
+    const normQ = q.trim();
+    const exactEgfp = /^(?:egfp|gfp|p42212|u55762(?:\.1)?|aab02572(?:\.1)?)$/i.test(normQ);
+    const exactHepo = /^(?:epo|hepo|p01588|erythropoietin)$/i.test(normQ);
+    if (exactEgfp || exactHepo) {
+      prot = {
+        matched: true,
+        gene_symbol: exactEgfp ? "EGFP" : "EPO",
+        uniprot_accession: exactEgfp ? "P42212" : "P01588",
+        resolution_mode: "offline_verified_snapshot",
+        protein_name_sandboxed: exactEgfp ? "Enhanced Green Fluorescent Protein" : "Erythropoietin precursor (hEPO)",
+        protein_sequence: exactEgfp ? FALLBACK_EGFP : FALLBACK_HEPO,
+        aa_length: exactEgfp ? FALLBACK_EGFP.length : FALLBACK_HEPO.length,
+        starts_with_met: true,
+        has_signal_peptide: !exactEgfp,
+        signal_peptide_hint: exactEgfp
+          ? "胞质报告蛋白（无分泌信号肽）"
+          : "含天然 N 端分泌信号肽 [1..27 aa]，建议保留天然信号肽用于体内分泌蛋白替代",
+      };
+    } else {
+      state.resolvedTarget = null;
+      if (box) {
+        box.innerHTML = `
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+            <div>
+              <strong style="font-size:13.5px;">未解析到匹配靶点：${escapeHtml(q)}</strong>
+              <span class="badge warn mono" style="margin-inline-start:6px;">UNRESOLVED</span>
+            </div>
+            <button type="button" class="btn-primary btn-compact" id="btn-import-resolved-protein" disabled>
+              导入到设计台 →
+            </button>
+          </div>
+          <div class="mono meta-muted" style="margin-top:6px;">
+            网关未匹配到该基因/登录号（离线核验快照仅支持精确别名 eGFP/P42212 与 EPO/P01588），请检查基因名或直接在设计台粘贴氨基酸序列。
+          </div>
+        `;
+      }
+      return null;
+    }
   }
   state.resolvedTarget = prot;
 
@@ -4482,20 +4588,23 @@ async function resolveTargetProteinInHub(customQuery = null) {
     </div>
   `;
 
-  document.getElementById("btn-import-resolved-protein")?.addEventListener("click", () => {
-    if (!state.resolvedTarget || !state.resolvedTarget.protein_sequence) return;
-    const protField = document.getElementById("input-protein");
-    if (protField) {
-      protField.value = state.resolvedTarget.protein_sequence;
-      state.userEditedProtein = true;
-      updateProteinBadge();
-    }
-    const utt = document.getElementById("input-utterance");
-    if (utt) {
-      utt.value = `从零设计 ${state.resolvedTarget.gene_symbol || "目标蛋白"} (${state.resolvedTarget.uniprot_accession || "UniProt"}) mRNA，m¹Ψ 修饰，避开 BsaI，蛋白序列 100% 锁定。`;
-    }
-    switchWorkspaceTab("studio");
-  });
+  const impBtn = document.getElementById("btn-import-resolved-protein");
+  if (impBtn && typeof impBtn.addEventListener === "function") {
+    impBtn.addEventListener("click", () => {
+      if (!state.resolvedTarget || !state.resolvedTarget.protein_sequence) return;
+      const protField = document.getElementById("input-protein");
+      if (protField) {
+        protField.value = state.resolvedTarget.protein_sequence;
+        state.userEditedProtein = true;
+        updateProteinBadge();
+      }
+      const utt = document.getElementById("input-utterance");
+      if (utt) {
+        utt.value = `从零设计 ${state.resolvedTarget.gene_symbol || "目标蛋白"} (${state.resolvedTarget.uniprot_accession || "UniProt"}) mRNA，m¹Ψ 修饰，避开 BsaI，蛋白序列 100% 锁定。`;
+      }
+      switchWorkspaceTab("studio");
+    });
+  }
 }
 
 /* ============================================================================
@@ -4611,23 +4720,11 @@ async function runClinicalBenchmarkCompare() {
 
   let data = null;
   try {
-    try {
-      data = await apiFetch("/api/v1/benchmarks/clinical", {
-        method: "POST",
-        explicitProjectKey: state.projectKey,
-        body: JSON.stringify(reqBody),
-      });
-    } catch (e1) {
-      if (e1 && e1.status === 404) {
-        data = await apiFetch("/v1/tools/clinical-benchmark", {
-          method: "POST",
-          explicitProjectKey: state.projectKey,
-          body: JSON.stringify(reqBody),
-        });
-      } else {
-        throw e1;
-      }
-    }
+    data = await apiFetch("/api/v1/benchmarks/clinical", {
+      method: "POST",
+      explicitProjectKey: state.projectKey,
+      body: JSON.stringify(reqBody),
+    });
   } catch {
     data = computeClientClinicalBenchmark(customSeq || (selCand && selCand.full_sequence) || reqBody.sequence, mod || "", chem);
   }

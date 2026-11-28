@@ -951,7 +951,7 @@ def run_design_pipeline(
     effective_modality = modality or (
         reference_bundle.molecules[0].modality
         if (reference_bundle is not None and reference_bundle.molecules)
-        else "linear_mrna"
+        else intent.modality
     )
     if effective_modality not in {"linear_mrna", "circrna", "sarna"}:
         raise UnsupportedModalityError(f"Unsupported RNA modality '{effective_modality}'")
@@ -1217,13 +1217,34 @@ def run_design_pipeline(
             return unavailable(str(exc))
 
     use_surrogate_v2 = "surrogate_v2" in intent.runtime_policy.enabled_evaluators
-    if use_surrogate_v2 and not has_surrogate_v2_artifacts(seed_dir):
+    v2_ready = (
+        has_surrogate_v2_artifacts(seed_dir, allow_sandbox_override=True)
+        if isolated_sandbox_override
+        else has_surrogate_v2_artifacts(seed_dir)
+    )
+    if use_surrogate_v2 and not v2_ready:
         return unavailable(
             "无法比较：已请求 surrogate_v2 评估器，但当前 seed_dir 未包含通过 SHA-256 与许可证校验的 surrogate_v2 权重清单。"
         )
-    surrogate_v2 = CommercialCleanSurrogateV2.from_seed_dir(seed_dir) if use_surrogate_v2 else None
+    surrogate_v2 = (
+        (
+            CommercialCleanSurrogateV2.from_seed_dir(seed_dir, allow_sandbox_override=True)
+            if isolated_sandbox_override
+            else CommercialCleanSurrogateV2.from_seed_dir(seed_dir)
+        )
+        if use_surrogate_v2
+        else None
+    )
     use_surrogate_v1 = "surrogate_v1_clean" in intent.runtime_policy.enabled_evaluators
-    surrogate_v1_only = CommercialCleanSurrogateV1.from_seed_dir(seed_dir) if use_surrogate_v1 else None
+    surrogate_v1_only = (
+        (
+            CommercialCleanSurrogateV1.from_seed_dir(seed_dir, allow_sandbox_override=True)
+            if isolated_sandbox_override
+            else CommercialCleanSurrogateV1.from_seed_dir(seed_dir)
+        )
+        if use_surrogate_v1
+        else None
+    )
     surrogate_v1 = surrogate_v2 if surrogate_v2 is not None else surrogate_v1_only
 
     use_orthrus = "orthrus_mamba_rna_foundation" in intent.runtime_policy.enabled_evaluators
@@ -1393,6 +1414,14 @@ def run_design_pipeline(
         u for u in utr_v1_reg["five_prime_utrs"] if not u["has_uaug"] and u["max_homopolymer_run"] <= 7
     ]
     clean_utr3s = [u for u in utr_v1_reg["three_prime_utrs"] if u["max_homopolymer_run"] <= 7]
+    if intent.scaffold_id == "cap1_minimal_structured_3utr":
+        if len(clean_utr5s) > 1:
+            clean_utr5s = sorted(clean_utr5s, key=lambda u: len(str(u.get("sequence", ""))))
+        if len(clean_utr3s) > 1:
+            clean_utr3s = sorted(
+                clean_utr3s,
+                key=lambda u: 0 if "hbb" in str(u.get("component_id", "")).lower() else 1,
+            )
 
     # Respect locked scopes
     locked_utr5 = intent.locked_scopes.get("five_prime_utr")
@@ -1728,8 +1757,15 @@ def run_design_pipeline(
             )
         )
         mod_built: list[ConstructBundle] = []
+        scaf_choice = (intent.scaffold_id or "").lower()
         if effective_modality == "circrna":
-            for c_idx, (ires_nm, lam_v) in enumerate((("HRV-B3", 1.0), ("EV-B107", 1.0), ("CVB3", 2.0)), start=1):
+            if "cvb3" in scaf_choice:
+                circ_plan: tuple[tuple[str, float], ...] = (("CVB3", 1.0), ("CVB3", 2.0))
+            elif "hrvb3" in scaf_choice or "hrv_b3" in scaf_choice:
+                circ_plan = (("HRV-B3", 1.0), ("HRV-B3", 2.0))
+            else:
+                circ_plan = (("HRV-B3", 1.0), ("EV-B107", 1.0), ("CVB3", 2.0))
+            for c_idx, (ires_nm, lam_v) in enumerate(circ_plan, start=1):
                 bnd_c = build_circrna_bundle(
                     intent.protein_targets[0],
                     bundle_id=f"bnd_{exec_tag}_circ_{c_idx:02d}",
@@ -1744,7 +1780,13 @@ def run_design_pipeline(
                 raw_candidates.append(bnd_c)
                 mod_built.append(bnd_c)
         else:
-            for s_idx, (bb_nm, lam_v) in enumerate((("VEEV_TC83", 1.0), ("VEEV_TC83", 2.0), ("SINV", 1.0)), start=1):
+            if "sinv" in scaf_choice:
+                sarna_plan: tuple[tuple[str, float], ...] = (("SINV", 1.0), ("SINV", 2.0))
+            elif "veev" in scaf_choice:
+                sarna_plan = (("VEEV_TC83", 1.0), ("VEEV_TC83", 2.0))
+            else:
+                sarna_plan = (("VEEV_TC83", 1.0), ("VEEV_TC83", 2.0), ("SINV", 1.0))
+            for s_idx, (bb_nm, lam_v) in enumerate(sarna_plan, start=1):
                 bnd_s = build_sarna_bundle(
                     intent.protein_targets[0],
                     bundle_id=f"bnd_{exec_tag}_sarna_{s_idx:02d}",

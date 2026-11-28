@@ -8,6 +8,35 @@ from pathlib import Path
 
 from mrnax.rules.models import APPROVED_REPLACEMENT_RELEASES
 
+APPROVED_SURROGATE_MANIFEST_SHA256: dict[str, str] = {
+    "surrogate_v1": "4b0c2357699f7f15c6686251ac2bf9c34d53f9604ed0eac37290e569441225a6",
+    "surrogate_v2": "b8cc1b651ca419bbe634b7816e5c4ff5cb05d74b4186d4b83c23199a7aef8e6b",
+}
+
+
+def verify_surrogate_manifest_trust_anchor(
+    manifest_path: Path,
+    *,
+    allow_sandbox_override: bool = False,
+) -> str:
+    """Verify TRAINING_PROVENANCE_MANIFEST.json against pinned release digests unless sandbox override is explicit."""
+    actual = _sha256_file(manifest_path)
+    if allow_sandbox_override:
+        return actual
+    dir_name = manifest_path.parent.name
+    expected_for_dir = APPROVED_SURROGATE_MANIFEST_SHA256.get(dir_name)
+    if expected_for_dir is not None:
+        if actual != expected_for_dir:
+            raise PermissionError(
+                f"Untrusted provenance manifest '{manifest_path}': sha256 {actual} != pinned {dir_name} release digest {expected_for_dir}"
+            )
+        return actual
+    if actual not in APPROVED_SURROGATE_MANIFEST_SHA256.values():
+        raise PermissionError(
+            f"Untrusted provenance manifest '{manifest_path}': sha256 {actual} is not pinned in APPROVED_SURROGATE_MANIFEST_SHA256"
+        )
+    return actual
+
 
 def _sha256_file(path: Path) -> str:
     actual = hashlib.sha256()

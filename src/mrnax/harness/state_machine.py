@@ -32,7 +32,7 @@ from mrnax.harness.sandbox import (
     redact_secrets_in_obj,
     redact_secrets_in_text,
 )
-from mrnax.schemas.common import ComplianceProfile, SegmentScope, UridineChemistry
+from mrnax.schemas.common import ComplianceProfile, Modality, SegmentScope, UridineChemistry
 from mrnax.schemas.construct_bundle import (
     ChemistryTrackSpec,
     ConstructBundle,
@@ -118,6 +118,8 @@ class InitialTurnInput(BaseModel):
     reference_bundle_id: StrictStr | None = None
     use_preset_reference_r: StrictBool = False
     use_commercial_surrogate: StrictBool | None = None
+    modality: Modality | None = None
+    scaffold_id: StrictStr | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9_-]{1,63}$")
     random_seed: int = Field(default=42, ge=0, le=2_147_483_647)
 
     @field_validator("random_seed", mode="before")
@@ -141,6 +143,8 @@ class RefineTurnInput(BaseModel):
     compliance_track: ComplianceProfile | None = None
     detarget_liver: StrictBool | None = None
     use_commercial_surrogate: StrictBool | None = None
+    modality: Modality | None = None
+    scaffold_id: StrictStr | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9_-]{1,63}$")
 
 
 def _detect_chemistry(utterance: str, default: UridineChemistry = "m1psi") -> UridineChemistry:
@@ -940,6 +944,8 @@ class ProjectHarnessSession:
         prioritize_late_signal: bool = False,
         conflicting_single_pick: bool = False,
         use_commercial_surrogate: bool | None = None,
+        modality: Modality | None = None,
+        scaffold_id: str | None = None,
         random_seed: int = 42,
         redact_extra_secrets: Iterable[str] = (),
     ) -> DesignIntent:
@@ -959,8 +965,22 @@ class ProjectHarnessSession:
             protected_tissues = [
                 redact_secrets_in_text(x, extra_secrets=redact_extra_secrets) for x in protected_tissues
             ]
+        eff_modality: Modality = (
+            reference_bundle.molecules[0].modality
+            if (reference_bundle is not None and reference_bundle.molecules)
+            else (modality or "linear_mrna")
+        )
+        eff_scaffold = (
+            redact_secrets_in_text(scaffold_id, extra_secrets=redact_extra_secrets)
+            if scaffold_id is not None
+            else None
+        )
         prot_clean = protein_sequence.strip().upper()
-        chem = uridine_chemistry or _detect_chemistry(user_utterance)
+        chem: UridineChemistry = (
+            "unmodified_u"
+            if eff_modality in ("circrna", "sarna")
+            else (uridine_chemistry or _detect_chemistry(user_utterance))
+        )
         enz = restriction_enzymes if restriction_enzymes is not None else (_detect_enzymes(user_utterance) or ["BspQI"])
 
         blocking_q: list[str] = []
@@ -1143,6 +1163,8 @@ class ProjectHarnessSession:
             cell_expression_control=cell_ctrl,
             portfolio_tracks=tracks,  # type: ignore[arg-type]
             runtime_policy=run_pol,
+            modality=eff_modality,
+            scaffold_id=eff_scaffold,
         )
         if reference_bundle is not None:
             self.register_bundle(reference_bundle, set_as_reference=False)
@@ -1169,6 +1191,8 @@ class ProjectHarnessSession:
         reference_bundle_id: str | None = None,
         use_preset_reference_r: bool = False,
         use_commercial_surrogate: bool | None = None,
+        modality: Modality | None = None,
+        scaffold_id: str | None = None,
         random_seed: int = 42,
         turn_id: str | None = None,
         redact_extra_secrets: Iterable[str] = (),
@@ -1190,6 +1214,8 @@ class ProjectHarnessSession:
                 "reference_bundle_id": reference_bundle_id,
                 "use_preset_reference_r": use_preset_reference_r,
                 "use_commercial_surrogate": use_commercial_surrogate,
+                "modality": modality,
+                "scaffold_id": scaffold_id,
                 "random_seed": random_seed,
             }
         )
@@ -1280,6 +1306,8 @@ class ProjectHarnessSession:
             prioritize_late_signal=prioritize_late_signal,
             conflicting_single_pick=conflicting_single_pick,
             use_commercial_surrogate=use_commercial_surrogate,
+            modality=validated.modality,
+            scaffold_id=validated.scaffold_id,
             random_seed=random_seed,
             redact_extra_secrets=redact_extra_secrets,
         )
@@ -1297,6 +1325,8 @@ class ProjectHarnessSession:
         compliance_track: ComplianceProfile | None = None,
         detarget_liver: bool | None = None,
         use_commercial_surrogate: bool | None = None,
+        modality: Modality | None = None,
+        scaffold_id: str | None = None,
         turn_id: str | None = None,
         expected_parent_intent_id: str | None = None,
         redact_extra_secrets: Iterable[str] = (),
@@ -1314,6 +1344,8 @@ class ProjectHarnessSession:
                 "compliance_track": compliance_track,
                 "detarget_liver": detarget_liver,
                 "use_commercial_surrogate": use_commercial_surrogate,
+                "modality": modality,
+                "scaffold_id": scaffold_id,
             }
         )
         user_utterance = redact_secrets_in_text(validated.user_utterance, extra_secrets=redact_extra_secrets)
@@ -1371,6 +1403,8 @@ class ProjectHarnessSession:
             detarget_tissues=detarget,
             protected_tissues=prot_tiss,
             use_commercial_surrogate=bool(use_commercial_surrogate),
+            updated_modality=validated.modality,
+            updated_scaffold_id=validated.scaffold_id,
             expected_parent_intent_id=expected_parent_intent_id,
             redact_extra_secrets=redact_extra_secrets,
         )
@@ -1426,6 +1460,8 @@ class ProjectHarnessSession:
         detarget_tissues: list[str] | None = None,
         protected_tissues: list[str] | None = None,
         use_commercial_surrogate: bool = False,
+        updated_modality: Modality | None = None,
+        updated_scaffold_id: str | None = None,
         expected_parent_intent_id: str | None = None,
         redact_extra_secrets: Iterable[str] = (),
     ) -> DesignIntent:
@@ -1587,6 +1623,20 @@ class ProjectHarnessSession:
             redact_secrets_in_text(q, extra_secrets=redact_extra_secrets)
             for q in prev.blocking_questions
         ]
+        eff_next_mod = updated_modality or prev.modality
+        eff_next_scaf = updated_scaffold_id if updated_scaffold_id is not None else (
+            prev.scaffold_id if eff_next_mod == prev.modality else None
+        )
+        eff_next_chem: UridineChemistry = (
+            "unmodified_u"
+            if eff_next_mod in ("circrna", "sarna")
+            else (updated_chemistry or prev.uridine_chemistry)
+        )
+        next_ref_id = (
+            None
+            if eff_next_mod != prev.modality
+            else (self.active_reference_bundle_id or prev.reference_bundle_id)
+        )
         updated = prev.model_copy_validated(
             intent_id=f"int_{uuid.uuid4().hex[:8]}",
             intent_version=prev.intent_version + 1,
@@ -1594,8 +1644,8 @@ class ProjectHarnessSession:
             created_from_turn_ids=[*prev.created_from_turn_ids, turn_id],
             protein_targets=new_targets,
             blocking_questions=new_blocking_q,
-            reference_bundle_id=self.active_reference_bundle_id or prev.reference_bundle_id,
-            uridine_chemistry=updated_chemistry or prev.uridine_chemistry,
+            reference_bundle_id=next_ref_id,
+            uridine_chemistry=eff_next_chem,
             compliance_track=updated_compliance_track or prev.compliance_track,
             locked_scopes=new_locks,
             mutable_scopes=mutable,
@@ -1603,6 +1653,8 @@ class ProjectHarnessSession:
             objectives=new_objs,
             cell_expression_control=new_cell,
             runtime_policy=new_pol,
+            modality=eff_next_mod,
+            scaffold_id=eff_next_scaf,
         )
         return self._persist_intent(updated)
 

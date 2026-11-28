@@ -12,6 +12,7 @@ import math
 import os
 import re
 import shutil
+import tempfile
 import threading
 from pathlib import Path
 from typing import Any, Literal
@@ -1200,6 +1201,8 @@ class AtomicToolbox:
         reference_bundle_id: str | None = None,
         use_preset_reference_r: bool = False,
         use_commercial_surrogate: bool | None = None,
+        modality: str | None = None,
+        scaffold_id: str | None = None,
         random_seed: int = 42,
     ) -> dict[str, Any]:
         intent = self.session.create_turn_intent_canonical(
@@ -1217,6 +1220,8 @@ class AtomicToolbox:
             reference_bundle_id=reference_bundle_id,
             use_preset_reference_r=use_preset_reference_r,
             use_commercial_surrogate=use_commercial_surrogate,
+            modality=modality,  # type: ignore[arg-type]
+            scaffold_id=scaffold_id,
             random_seed=random_seed,
             turn_id=self._next_turn_id(),
         )
@@ -1254,6 +1259,8 @@ class AtomicToolbox:
         compliance_track: str | None = None,
         detarget_liver: bool | None = None,
         use_commercial_surrogate: bool | None = None,
+        modality: str | None = None,
+        scaffold_id: str | None = None,
     ) -> dict[str, Any]:
         intent_v = self.session.refine_turn_intent_canonical(
             user_utterance=user_utterance,
@@ -1266,6 +1273,8 @@ class AtomicToolbox:
             compliance_track=compliance_track,  # type: ignore[arg-type]
             detarget_liver=detarget_liver,
             use_commercial_surrogate=use_commercial_surrogate,
+            modality=modality,  # type: ignore[arg-type]
+            scaffold_id=scaffold_id,
             turn_id=self._next_turn_id(),
             expected_parent_intent_id=self.expected_parent_intent_id,
         )
@@ -1407,50 +1416,68 @@ class AtomicToolbox:
                 cand_f = target_dir / fn
                 if cand_f.is_symlink():
                     raise ValueError(f"Refusing to overwrite or remove symlinked export target '{cand_f}'")
-            manifest = export_construct_package(
-                b,
-                target_dir,
-                constraint_engine=self.constraint_engine,
-                constraints=intent.constraints,
-                compliance_track=intent.compliance_track,
-                expected_chemistry=intent.uridine_chemistry,
-                locked_scopes=intent.locked_scopes,
-                expected_protein_targets=intent.protein_targets,
-            )
-            if include_dossier:
-                ev_match: BundleEvaluation | None = None
-                try:
-                    rep = self.session.latest_report(intent.intent_id)
-                    if rep is not None:
-                        ev_match = next((e for e in rep.candidate_evaluations if e.bundle_id == b.bundle_id), None)
-                except ValueError:
-                    ev_match = None
-                csv_text, _ = render_ivt_synthesis_order(b, intent=intent)
-                html_text = render_qc_dossier_html(
+            target_dir.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(prefix=".mrnax_exp_stage_", dir=target_dir.parent) as stg_raw:
+                stg_dir = Path(stg_raw)
+                manifest = export_construct_package(
                     b,
-                    intent=intent,
+                    stg_dir,
                     constraint_engine=self.constraint_engine,
-                    evaluation=ev_match,
-                    seed_dir=self.session.seed_dir,
+                    constraints=intent.constraints,
+                    compliance_track=intent.compliance_track,
+                    expected_chemistry=intent.uridine_chemistry,
+                    locked_scopes=intent.locked_scopes,
+                    expected_protein_targets=intent.protein_targets,
                 )
-                csv_path = target_dir / "ivt_synthesis_order.csv"
-                html_path = target_dir / "qc_dossier.html"
-                csv_path.write_text(csv_text, encoding="utf-8")
-                html_path.write_text(html_text, encoding="utf-8")
-                manifest["files"]["ivt_synthesis_order.csv"] = {
-                    "sha256": hashlib.sha256(csv_path.read_bytes()).hexdigest(),
-                    "bytes": csv_path.stat().st_size,
-                }
-                manifest["files"]["qc_dossier.html"] = {
-                    "sha256": hashlib.sha256(html_path.read_bytes()).hexdigest(),
-                    "bytes": html_path.stat().st_size,
-                }
-                (target_dir / "chemistry_metadata.json").write_text(
-                    json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-                )
-            else:
-                (target_dir / "ivt_synthesis_order.csv").unlink(missing_ok=True)
-                (target_dir / "qc_dossier.html").unlink(missing_ok=True)
+                staged_names = [
+                    "full_rna.fasta",
+                    "cds_only.fasta",
+                    "construct.gb",
+                    "chemistry_metadata.json",
+                ]
+                if include_dossier:
+                    ev_match: BundleEvaluation | None = None
+                    try:
+                        rep = self.session.latest_report(intent.intent_id)
+                        if rep is not None:
+                            ev_match = next((e for e in rep.candidate_evaluations if e.bundle_id == b.bundle_id), None)
+                    except ValueError:
+                        ev_match = None
+                    csv_text, _ = render_ivt_synthesis_order(b, intent=intent)
+                    html_text = render_qc_dossier_html(
+                        b,
+                        intent=intent,
+                        constraint_engine=self.constraint_engine,
+                        evaluation=ev_match,
+                        seed_dir=self.session.seed_dir,
+                    )
+                    csv_path = stg_dir / "ivt_synthesis_order.csv"
+                    html_path = stg_dir / "qc_dossier.html"
+                    csv_path.write_text(csv_text, encoding="utf-8")
+                    html_path.write_text(html_text, encoding="utf-8")
+                    manifest["files"]["ivt_synthesis_order.csv"] = {
+                        "sha256": hashlib.sha256(csv_path.read_bytes()).hexdigest(),
+                        "bytes": csv_path.stat().st_size,
+                    }
+                    manifest["files"]["qc_dossier.html"] = {
+                        "sha256": hashlib.sha256(html_path.read_bytes()).hexdigest(),
+                        "bytes": html_path.stat().st_size,
+                    }
+                    (stg_dir / "chemistry_metadata.json").write_text(
+                        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+                    )
+                    staged_names.extend(["ivt_synthesis_order.csv", "qc_dossier.html"])
+
+                target_dir.mkdir(parents=True, exist_ok=True)
+                for fn in checked_files:
+                    cand_f = target_dir / fn
+                    if cand_f.is_symlink():
+                        raise ValueError(f"Refusing to overwrite or remove symlinked export target '{cand_f}'")
+                for fn in staged_names:
+                    os.replace(stg_dir / fn, target_dir / fn)
+                if not include_dossier:
+                    (target_dir / "ivt_synthesis_order.csv").unlink(missing_ok=True)
+                    (target_dir / "qc_dossier.html").unlink(missing_ok=True)
             return manifest
 
     # 10. resolve_target_protein
@@ -1482,7 +1509,7 @@ class AtomicToolbox:
                     eff_track = (
                         self.session._intents[-1].compliance_track
                         if self.session._intents
-                        else "research_max"
+                        else "commercial_clean"
                     )
             if molecule_index < 0 or molecule_index >= len(b.molecules):
                 raise ValueError(f"molecule_index {molecule_index} out of range for bundle '{bundle_id}'")
@@ -1510,7 +1537,7 @@ class AtomicToolbox:
             seq_track = (
                 self.session._intents[-1].compliance_track
                 if self.session._intents
-                else "research_max"
+                else "commercial_clean"
             )
         return run_structure_and_motif_analysis(
             sequence,

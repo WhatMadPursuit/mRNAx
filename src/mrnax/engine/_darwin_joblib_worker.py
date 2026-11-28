@@ -347,8 +347,8 @@ class _DarwinJoblibClient:
         self, proc: subprocess.Popen[bytes], req: tuple[Any, ...], deadline: float
     ) -> Any:
         assert proc.stdin is not None and proc.stdout is not None
+        wire_req = _encode_request_frame(req)
         try:
-            wire_req = _encode_request_frame(req)
             _write_all_fd_with_deadline(proc.stdin.fileno(), wire_req, deadline)
             status, payload = _read_data_only_reply_in_parent(proc.stdout.fileno(), deadline)
         except Exception as exc:

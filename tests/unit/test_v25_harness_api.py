@@ -839,18 +839,184 @@ def test_gate_a_round3_security_and_precursor_invariants(tmp_path: Path) -> None
             random_seed=42,
         ),
     )
-    _, rep_v2, _ = run_design_pipeline(intent_v2, seed_dir=SEED_DIR)
+    bundles_v2, rep_v2, _ = run_design_pipeline(intent_v2, seed_dir=SEED_DIR)
     assert rep_v2.outcome_status == "COMPLETED_WITH_CANDIDATES"
     top_ev = rep_v2.candidate_evaluations[0]
     assert any(m.tool_name.startswith("CommercialCleanSurrogateV2:") and m.participated_in == "pareto_selection_or_ranking" for m in top_ev.metrics)
 
-    # 6. Per-route-bucket rate limit & strict extra='forbid' on gateway models
+    # Gate B I2: shipped surrogate_v2 producer IDs survive commercial projection & export eligibility
+    from mrnax.constraints.registry import ScopedConstraintEngine
+    from mrnax.engine.pareto_director import project_report_for_intent
+    from mrnax.io_insdc.genbank_io import export_construct_package
+
+    projected_v2 = project_report_for_intent(
+        rep_v2,
+        {b.bundle_id: b for b in bundles_v2},
+        intent_v2,
+        seed_dir=SEED_DIR,
+    )
+    assert len(projected_v2.candidate_evaluations) >= 1
+    exp_dir_v2 = tmp_path / "exp_v2_cc"
+    exp_mf_v2 = export_construct_package(
+        bundles_v2[0],
+        exp_dir_v2,
+        constraint_engine=ScopedConstraintEngine.from_seed_dir(SEED_DIR),
+        constraints=intent_v2.constraints,
+        compliance_track="commercial_clean",
+        expected_chemistry=intent_v2.uridine_chemistry,
+        locked_scopes=intent_v2.locked_scopes,
+        expected_protein_targets=intent_v2.protein_targets,
+    )
+    assert "files" in exp_mf_v2 and "construct.gb" in exp_mf_v2["files"]
+    assert (exp_dir_v2 / "construct.gb").is_file()
+
+    # 6. Per-route-bucket + global rate limit with controlled clock & strict extra='forbid' on gateway models
+    fake_now = [1000.0]
     store = ExecutionCASStore(tmp_path / "r3_cas.sqlite")
-    app = create_control_plane_app(store, projects_root=tmp_path / "projects", seed_dir=SEED_DIR)
+    app = create_control_plane_app(
+        store,
+        projects_root=tmp_path / "projects",
+        seed_dir=SEED_DIR,
+        rate_limit_clock=lambda: fake_now[0],
+    )
     client = TestClient(app)
     for _ in range(25):
         assert client.get("/healthz").status_code == 200
     # Extra fields rejected with 422 (and NOT 429 from /healthz traffic!)
     r_extra = client.post("/v1/projects/p_r3/agent-chat", json={"message": "hi", "unexpected_field": 123})
     assert r_extra.status_code == 422
+
+    # Gate B I5: exact per-IP 429 on 31st tools_analysis call, then 200 after 60.0s window expiry
+    for _ in range(30):
+        r_ok_rl = client.post(
+            "/v1/tools/structure-profile",
+            json={"sequence": "GGGAAAUCCGCCACCAUGGUGAGCAAGGGCGAGUAAUAGAAAAAAAAAAAA"},
+        )
+        assert r_ok_rl.status_code == 200
+        assert "ViennaRNA" not in r_ok_rl.json().get("engines_used", [])
+    assert (
+        client.post(
+            "/v1/tools/structure-profile",
+            json={"sequence": "GGGAAAUCCGCCACCAUGGUGAGCAAGGGCGAGUAAUAGAAAAAAAAAAAA"},
+        ).status_code
+        == 429
+    )
+    fake_now[0] += 60.1
+    assert (
+        client.post(
+            "/v1/tools/structure-profile",
+            json={"sequence": "GGGAAAUCCGCCACCAUGGUGAGCAAGGGCGAGUAAUAGAAAAAAAAAAAA"},
+        ).status_code
+        == 200
+    )
+
+    # Gate B I5 global admission budget across distinct client IPs (tools_analysis global max = 90/min)
+    fake_now[0] += 61.0
+    for ip_idx in range(90):
+        ip_client = TestClient(app, client=(f"198.51.100.{(ip_idx % 200) + 1}", 50000 + ip_idx))
+        assert (
+            ip_client.post(
+                "/api/v1/structure/analyze",
+                json={"sequence": "GGGAAAUCCGCCACCAUGGUGAGCAAGGGCGAGUAAUAGAAAAAAAAAAAA"},
+            ).status_code
+            == 200
+        )
+    overflow_client = TestClient(app, client=("203.0.113.99", 59999))
+    r_glob_429 = overflow_client.post(
+        "/api/v1/structure/analyze",
+        json={"sequence": "GGGAAAUCCGCCACCAUGGUGAGCAAGGGCGAGUAAUAGAAAAAAAAAAAA"},
+    )
+    assert r_glob_429.status_code == 429
+    assert "Global admission budget" in r_glob_429.json()["detail"]
+    fake_now[0] += 60.5
+
+    # Gate B C2, I7, I9 & M1: commercial bundle structure profiling never invokes ViennaRNA,
+    # deterministic circRNA scaffold persists end-to-end, /v1/rules alias works, and failed optional export stages atomically
+    assert client.get("/v1/rules").status_code == 200
+    r_cc_turn = client.post(
+        "/v1/projects/proj_gb_cc/turn",
+        json={
+            "mode": "initial",
+            "user_utterance": "design commercial clean eGFP",
+            "protein_sequence": short_prot,
+            "compliance_track": "commercial_clean",
+            "uridine_chemistry": "m1psi",
+            "use_commercial_surrogate": True,
+        },
+    )
+    assert r_cc_turn.status_code == 200
+    cc_key = r_cc_turn.json()["project_key"]
+    cc_bid = r_cc_turn.json()["candidates"][0]["bundle_id"]
+    # Unauthenticated bundle profiling blocked with 403; authorized profiling forces commercial_clean even if client asks research_max
+    snooper_gb = TestClient(app)
+    assert (
+        snooper_gb.post(
+            "/api/v1/structure/analyze",
+            json={"project_id": "proj_gb_cc", "bundle_id": cc_bid, "compliance_track": "research_max"},
+        ).status_code
+        == 403
+    )
+    r_prof_cc = client.post(
+        "/api/v1/structure/analyze",
+        headers={"X-MRNAX-Project-Key": cc_key},
+        json={"project_id": "proj_gb_cc", "bundle_id": cc_bid, "compliance_track": "research_max"},
+    )
+    assert r_prof_cc.status_code == 200
+    assert r_prof_cc.json()["compliance_track"] == "commercial_clean"
+    assert "ViennaRNA" not in r_prof_cc.json().get("engines_used", [])
+
+    r_circ_turn = client.post(
+        "/v1/projects/proj_gb_circ/turn",
+        json={
+            "mode": "initial",
+            "user_utterance": "design circRNA CVB3 reporter",
+            "protein_sequence": short_prot,
+            "compliance_track": "commercial_clean",
+            "modality": "circrna",
+            "scaffold_id": "circ_anabaena_cvb3",
+        },
+    )
+    assert r_circ_turn.status_code == 200
+    circ_body = r_circ_turn.json()
+    assert circ_body["intent"]["modality"] == "circrna"
+    assert circ_body["intent"]["scaffold_id"] == "circ_anabaena_cvb3"
+    assert circ_body["intent"]["uridine_chemistry"] == "unmodified_u"
+    assert "CVB3" in circ_body["candidates"][0]["segments"][0]["origin_source"] or "CVB3" in str(circ_body["candidates"][0]["segments"][0].get("component_id", ""))
+
+    # Gate B I8: oversized Darwin worker frame raises ValueError locally without killing shared worker
+    import sys
+    if sys.platform == "darwin":
+        import numpy as np
+        from mrnax.engine._darwin_joblib_worker import get_darwin_joblib_client
+
+        w_client = get_darwin_joblib_client()
+        assert w_client._proc is not None and w_client._proc.poll() is None
+        pid_before = w_client._proc.pid
+        huge_arr = np.zeros((5_000_000,), dtype=np.float64)  # 40 MB > 32 MiB MAX_IPC_FRAME_BYTES
+        with pytest.raises(ValueError, match="exceeds"):
+            w_client.call("predict", "nonexistent_key", huge_arr)
+        assert w_client._proc is not None and w_client._proc.poll() is None and w_client._proc.pid == pid_before
+
+    # Gate B I9: atomic staging in AtomicToolbox.export_bundle leaves reused out_dir untouched on failure
+    from mrnax.harness.state_machine import ProjectHarnessSession
+    from mrnax.harness.tools import AtomicToolbox
+
+    sess_i9 = ProjectHarnessSession(project_id="proj_i9", store_dir=tmp_path / "proj_i9_store", seed_dir=SEED_DIR)
+    it_i9 = sess_i9.create_initial_intent(
+        turn_id="t01",
+        user_utterance="circ test",
+        protein_sequence=short_prot,
+        compliance_track="research_max",
+        modality="circrna",
+    )
+    sess_i9.register_bundle(circ_ana, originating_intent_id=it_i9.intent_id)
+    tb_i9 = AtomicToolbox(sess_i9)
+    reused_exp = sess_i9.store_dir / "exports_reused"
+    reused_exp.mkdir(parents=True, exist_ok=True)
+    sentinel = reused_exp / "construct.gb"
+    sentinel.write_text("PREVIOUS_GENERATION_SENTINEL", encoding="utf-8")
+    with pytest.raises(ExportConstraintViolationError):
+        tb_i9.export_bundle(circ_ana.bundle_id, out_dir="exports_reused", include_dossier=True)
+    assert sentinel.read_text(encoding="utf-8") == "PREVIOUS_GENERATION_SENTINEL"
+    assert not (reused_exp / "full_rna.fasta").exists()
 

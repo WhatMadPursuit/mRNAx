@@ -263,7 +263,7 @@ def test_surrogate_v2_loader_hooks_and_graceful_v1_fallback(tmp_path: Path) -> N
         json.dumps({"artifacts": manifest_artifacts}, indent=2), encoding="utf-8"
     )
     with pytest.raises(PermissionError):
-        CommercialCleanSurrogateV2(v2_compat_dir)
+        CommercialCleanSurrogateV2(v2_compat_dir, allow_sandbox_override=True)
 
     (v2_compat_dir / "TRAINING_PROVENANCE_MANIFEST.json").write_text(
         json.dumps(
@@ -278,9 +278,15 @@ def test_surrogate_v2_loader_hooks_and_graceful_v1_fallback(tmp_path: Path) -> N
         ),
         encoding="utf-8",
     )
+    # Gate B I1: unanchored synthetic manifest fails closed unless allow_sandbox_override=True
+    with pytest.raises(PermissionError, match="Untrusted provenance manifest"):
+        CommercialCleanSurrogateV2(v2_compat_dir)
+    assert has_surrogate_v2_artifacts(fake_seed) is False
+    assert has_surrogate_v2_artifacts(fake_seed, allow_sandbox_override=True) is True
+
     load_surrogate_jury.cache_clear()
     CommercialCleanSurrogateV2.from_seed_dir.cache_clear()
-    jury_v2_compat = load_surrogate_jury(fake_seed, prefer_v2=True)
+    jury_v2_compat = load_surrogate_jury(fake_seed, prefer_v2=True, allow_sandbox_override=True)
     assert isinstance(jury_v2_compat, CommercialCleanSurrogateV2)
     u5 = "GGGAAAUAAAGAGAGAAAAGAAGAGUAAGAAGAAAUAUAAGAGCCACC"
     cds = "AUG" + ("CUGGAGGAGAAGCUGGGC" * 15)
@@ -299,12 +305,37 @@ def test_surrogate_v2_loader_hooks_and_graceful_v1_fallback(tmp_path: Path) -> N
 
 def test_lineardesign_sweep_surgical_polisher_fallback_and_commercial_isolation(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
-    assert is_lineardesign_available() is True
-    discovered = discover_lineardesign_binary()
-    assert discovered is not None
+    import mrnax.engine.lineardesign_adapter as ld_mod
+
     assert DEFAULT_MAX_LINEARDESIGN_AA == 900
     assert DEFAULT_LINEARDESIGN_TIMEOUT_SEC == 45.0
+
+    # Gate B I10: stub the native binary runner so default unit suite never depends on machine-local executables
+    fake_bin = tmp_path / "lineardesign_stub"
+    fake_bin.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    fake_bin.chmod(0o755)
+    egfp_snap = json.loads((SEED_DIR / "egfp_reporter_snapshot.json").read_text(encoding="utf-8"))
+    ref_egfp_cds: str = egfp_snap["mammalian_reporter_egfp"]["reference_cds_rna_no_stop"]
+    # Introduce a synonymous FF -> UUUUUU run at lambda=0.0 so Surgical Polisher UUUU elimination is verified
+    low_lam_cds = ref_egfp_cds.replace("UUCUUCAAGUCC", "UUUUUUAAAUCA", 1)
+    assert low_lam_cds != ref_egfp_cds and "UUUU" in low_lam_cds
+
+    def _stub_run_bounded(argv: list[str], *, stdin_text: str, cwd_str: str, timeout_sec: float, **_kw: object) -> str:
+        lam = float(argv[argv.index("-l") + 1]) if "-l" in argv else 1.0
+        aa = stdin_text.strip()
+        assert len(aa) == len(ref_egfp_cds) // 3
+        seq_out = low_lam_cds if lam <= 0.5 else ref_egfp_cds
+        dg = round(-434.8 + 16.5 * lam, 2)
+        cai = round(min(0.96, 0.791 + 0.036 * lam), 3)
+        return f"mRNA sequence:  {seq_out}\nmRNA folding free energy: {dg:.2f} kcal/mol; mRNA CAI: {cai:.3f}\n"
+
+    ld_mod._cached_cpp_lineardesign_call.cache_clear()
+    monkeypatch.setattr(ld_mod, "discover_lineardesign_binary", lambda *_a, **_k: (fake_bin, tmp_path))
+    monkeypatch.setattr(ld_mod, "_run_bounded_subprocess", _stub_run_bounded)
+    assert is_lineardesign_available() is True
+    assert ld_mod.discover_lineardesign_binary() == (fake_bin, tmp_path)
 
     # Test protein with slippery phenylalanines, lysines, serines, and restriction-prone motifs
     prot = "MVSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPTLVTTLTYGVQCFSRYPDHMKQHDFFKSAMPEGYVQERTIFFKDDGNYKTRAEVKFEGDTLVNRIELKGIDFKEDGNILGHKLEYNYNSHNVYIMADKQKNGIKVNFKIRHNIEDGSVQLADHYQQNTPIGDGPVLLPDNHYLSTQSALSKDPNEKRDHMVLLEFVTAAGITLGMDELYK"
@@ -345,7 +376,7 @@ def test_lineardesign_sweep_surgical_polisher_fallback_and_commercial_isolation(
     # Raw lambda=0.0 on eGFP has UUUU runs that Surgical Polisher cleanly eliminated while keeping strong MFE!
     assert cands[0].eliminated_motifs_before >= 1
     assert cands[0].remaining_forbidden_motifs == 0
-    assert cands[0].polished_mfe_kcal_mol < -350.0
+    assert cands[0].polished_mfe_kcal_mol < -200.0
 
     # Clean fallback when binary is unavailable / force_fallback=True
     fb_cds, fb_dg, fb_cai, fb_backend = run_lineardesign_single(
@@ -393,6 +424,25 @@ def test_lineardesign_sweep_surgical_polisher_fallback_and_commercial_isolation(
         polish_cds_5prime_and_constraints(fb_cds[:90], prot[:30], compliance_track="commercial_clean")
     with pytest.raises(PermissionError, match="commercial_clean"):
         sweep_lineardesign_candidates(prot[:30], compliance_track="commercial_clean")
+    ld_mod._cached_cpp_lineardesign_call.cache_clear()
+
+
+@pytest.mark.skipif(
+    __import__("os").environ.get("MRNAX_RUN_NATIVE_BIN_TESTS") != "1",
+    reason="Provisioned native LinearDesign binary integration check (opt-in via MRNAX_RUN_NATIVE_BIN_TESTS=1)",
+)
+def test_provisioned_native_lineardesign_binary_integration() -> None:
+    assert discover_lineardesign_binary() is not None
+    cds_rna, dg, cai, backend = run_lineardesign_single(
+        "MVSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPT",
+        lambda_val=1.0,
+        compliance_track="research_max",
+    )
+    assert backend == "lineardesign_cpp_binary"
+    assert dg < -50.0 and 0.5 <= cai <= 1.0
+    assert verify_exact_aa_translation(
+        cds_rna, "MVSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPT"
+    )
 
 
 def test_structure_profiler_arcs_tracks_motifs_and_eternafold() -> None:

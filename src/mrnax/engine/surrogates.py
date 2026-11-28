@@ -25,7 +25,11 @@ from weakref import WeakSet
 
 import numpy as np
 
-from mrnax.engine.checkpoint_identity import verify_checkpoint, verify_release_directory_artifacts
+from mrnax.engine.checkpoint_identity import (
+    verify_checkpoint,
+    verify_release_directory_artifacts,
+    verify_surrogate_manifest_trust_anchor,
+)
 from mrnax.schemas.construct_bundle import ConstructBundle, RNAMoleculeSpec
 from mrnax.schemas.evaluation_report import AdvisoryNote, MetricResult
 
@@ -347,6 +351,7 @@ def _verify_manifest_artifact(
     filename: str,
     *,
     require_commercial_clean: bool = True,
+    allow_sandbox_override: bool = False,
 ) -> tuple[bytes, str, int, dict[str, Any], str]:
     """Authenticate joblib artifact size, SHA-256, and license track against TRAINING_PROVENANCE_MANIFEST.json without unpickling."""
     manifest_path = weights_dir / "TRAINING_PROVENANCE_MANIFEST.json"
@@ -418,6 +423,10 @@ def _verify_manifest_artifact(
         raise ValueError(
             f"Integrity error on '{filename}': sha256 {actual_sha} != expected {expected['sha256']}"
         )
+    if require_commercial_clean:
+        verify_surrogate_manifest_trust_anchor(
+            manifest_path, allow_sandbox_override=allow_sandbox_override
+        )
     return raw_bytes, actual_sha, decl_feats, expected, str(schema_id or "")
 
 
@@ -426,12 +435,14 @@ def _load_verified_joblib(
     filename: str,
     *,
     require_commercial_clean: bool = True,
+    allow_sandbox_override: bool = False,
 ) -> dict[str, Any]:
     """Authenticate joblib artifact size, SHA-256, and license track against TRAINING_PROVENANCE_MANIFEST.json."""
     raw_bytes, actual_sha, decl_feats, expected, schema_id = _verify_manifest_artifact(
         weights_dir,
         filename,
         require_commercial_clean=require_commercial_clean,
+        allow_sandbox_override=allow_sandbox_override,
     )
     if sys.platform == "darwin":
         from mrnax.engine._darwin_joblib_worker import get_darwin_joblib_client
@@ -463,20 +474,31 @@ class CommercialCleanSurrogateV1:
     - Axis 4 (`utr3_stability_pred`): `utr3_stability_pure_seq_lgbm.joblib` (Siegel et al. 2022 G3 CC-BY-4.0 / fastUTR MPRA)
     """
 
-    def __init__(self, weights_dir: Path) -> None:
+    def __init__(self, weights_dir: Path, *, allow_sandbox_override: bool = False) -> None:
         self.weights_dir = Path(weights_dir)
+        self._allow_sandbox_override = bool(allow_sandbox_override)
         self._utr5_bundle: dict[str, Any] = _load_verified_joblib(
-            self.weights_dir, "utr5_mrl_pure_seq_lgbm.joblib"
+            self.weights_dir,
+            "utr5_mrl_pure_seq_lgbm.joblib",
+            allow_sandbox_override=self._allow_sandbox_override,
         )
         self._cds_bundle: dict[str, Any] = _load_verified_joblib(
-            self.weights_dir, "cds_codon_stability_pure_seq_lgbm.joblib"
+            self.weights_dir,
+            "cds_codon_stability_pure_seq_lgbm.joblib",
+            allow_sandbox_override=self._allow_sandbox_override,
         )
         self._hl_bundle: dict[str, Any] = _load_verified_joblib(
-            self.weights_dir, "saluki_consensus_halflife_pure_seq_lgbm.joblib"
+            self.weights_dir,
+            "saluki_consensus_halflife_pure_seq_lgbm.joblib",
+            allow_sandbox_override=self._allow_sandbox_override,
         )
         utr3_path = self.weights_dir / "utr3_stability_pure_seq_lgbm.joblib"
         self._utr3_bundle: dict[str, Any] | None = (
-            _load_verified_joblib(self.weights_dir, "utr3_stability_pure_seq_lgbm.joblib")
+            _load_verified_joblib(
+                self.weights_dir,
+                "utr3_stability_pure_seq_lgbm.joblib",
+                allow_sandbox_override=self._allow_sandbox_override,
+            )
             if utr3_path.is_file()
             else None
         )
@@ -489,9 +511,14 @@ class CommercialCleanSurrogateV1:
         return heads
 
     @classmethod
-    @functools.lru_cache(maxsize=4)
-    def from_seed_dir(cls, seed_dir: Path) -> CommercialCleanSurrogateV1:
-        return cls(Path(seed_dir) / "surrogate_v1")
+    @functools.lru_cache(maxsize=8)
+    def from_seed_dir(
+        cls, seed_dir: Path, *, allow_sandbox_override: bool = False
+    ) -> CommercialCleanSurrogateV1:
+        return cls(
+            Path(seed_dir) / "surrogate_v1",
+            allow_sandbox_override=allow_sandbox_override,
+        )
 
     @staticmethod
     def _predict_bundle(bundle: dict[str, Any], X: np.ndarray) -> np.ndarray:
@@ -708,7 +735,9 @@ _SURROGATE_V2_HEAD_CANDIDATES: dict[str, tuple[str, ...]] = {
 }
 
 
-def has_surrogate_v2_artifacts(seed_dir: Path) -> bool:
+def has_surrogate_v2_artifacts(
+    seed_dir: Path, *, allow_sandbox_override: bool = False
+) -> bool:
     """Return True when `seed_dir / 'surrogate_v2'` has SHA-256 & license-verified core and optional heads."""
     v2_dir = Path(seed_dir) / "surrogate_v2"
     if not (v2_dir / "TRAINING_PROVENANCE_MANIFEST.json").is_file():
@@ -720,7 +749,12 @@ def has_surrogate_v2_artifacts(seed_dir: Path) -> bool:
                 if head_key in ("utr5", "cds", "hl"):
                     return False
                 continue
-            _verify_manifest_artifact(v2_dir, chosen, require_commercial_clean=True)
+            _verify_manifest_artifact(
+                v2_dir,
+                chosen,
+                require_commercial_clean=True,
+                allow_sandbox_override=allow_sandbox_override,
+            )
     except (OSError, ValueError, KeyError, PermissionError, json.JSONDecodeError):
         return False
     return True
@@ -729,8 +763,15 @@ def has_surrogate_v2_artifacts(seed_dir: Path) -> bool:
 class CommercialCleanSurrogateV2(CommercialCleanSurrogateV1):
     """Wave 1B `surrogate_v2` commercial-clean jury with stacked Ridge+VotingRegressor heads & circRNA IRES scorer."""
 
-    def __init__(self, weights_dir: Path, *, fallback_v1_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        weights_dir: Path,
+        *,
+        fallback_v1_dir: Path | None = None,
+        allow_sandbox_override: bool = False,
+    ) -> None:
         self.weights_dir = Path(weights_dir)
+        self._allow_sandbox_override = bool(allow_sandbox_override)
         resolved_v1 = (
             Path(fallback_v1_dir)
             if fallback_v1_dir is not None
@@ -746,22 +787,34 @@ class CommercialCleanSurrogateV2(CommercialCleanSurrogateV1):
             and (resolved_v1 / "TRAINING_PROVENANCE_MANIFEST.json").is_file()
         ):
             self._utr3_bundle = _load_verified_joblib(
-                resolved_v1, "utr3_stability_pure_seq_lgbm.joblib"
+                resolved_v1,
+                "utr3_stability_pure_seq_lgbm.joblib",
+                allow_sandbox_override=self._allow_sandbox_override,
             )
         self._isoform_mrl_bundle = self._load_first_available("isoform_mrl", required=False)
         self._rmdb_aup_bundle = self._load_first_available("rmdb_aup", required=False)
         self._circ_ires_bundle = self._load_first_available("circ_ires", required=False)
 
     @classmethod
-    @functools.lru_cache(maxsize=4)
-    def from_seed_dir(cls, seed_dir: Path) -> CommercialCleanSurrogateV2:
+    @functools.lru_cache(maxsize=8)
+    def from_seed_dir(
+        cls, seed_dir: Path, *, allow_sandbox_override: bool = False
+    ) -> CommercialCleanSurrogateV2:
         resolved = Path(seed_dir)
-        return cls(resolved / "surrogate_v2", fallback_v1_dir=resolved / "surrogate_v1")
+        return cls(
+            resolved / "surrogate_v2",
+            fallback_v1_dir=resolved / "surrogate_v1",
+            allow_sandbox_override=allow_sandbox_override,
+        )
 
     def _load_first_available(self, head_key: str, *, required: bool) -> dict[str, Any] | None:
         for fname in _SURROGATE_V2_HEAD_CANDIDATES[head_key]:
             if (self.weights_dir / fname).is_file():
-                return _load_verified_joblib(self.weights_dir, fname)
+                return _load_verified_joblib(
+                    self.weights_dir,
+                    fname,
+                    allow_sandbox_override=self._allow_sandbox_override,
+                )
         if required:
             raise FileNotFoundError(
                 f"Missing required surrogate_v2 head '{head_key}' in '{self.weights_dir}'"
@@ -1035,13 +1088,24 @@ class CommercialCleanSurrogateV2(CommercialCleanSurrogateV1):
         return res
 
 
-@functools.lru_cache(maxsize=8)
-def load_surrogate_jury(seed_dir: Path, *, prefer_v2: bool = True) -> CommercialCleanSurrogateV1:
+@functools.lru_cache(maxsize=16)
+def load_surrogate_jury(
+    seed_dir: Path,
+    *,
+    prefer_v2: bool = True,
+    allow_sandbox_override: bool = False,
+) -> CommercialCleanSurrogateV1:
     """Load `surrogate_v2` when verified artifacts exist under `seed_dir / 'surrogate_v2'`, else fall back to v1."""
     resolved = Path(seed_dir)
-    if prefer_v2 and has_surrogate_v2_artifacts(resolved):
-        return CommercialCleanSurrogateV2.from_seed_dir(resolved)
-    return CommercialCleanSurrogateV1.from_seed_dir(resolved)
+    if prefer_v2 and has_surrogate_v2_artifacts(
+        resolved, allow_sandbox_override=allow_sandbox_override
+    ):
+        return CommercialCleanSurrogateV2.from_seed_dir(
+            resolved, allow_sandbox_override=allow_sandbox_override
+        )
+    return CommercialCleanSurrogateV1.from_seed_dir(
+        resolved, allow_sandbox_override=allow_sandbox_override
+    )
 
 
 # ============================================================================

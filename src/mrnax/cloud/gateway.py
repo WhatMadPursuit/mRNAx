@@ -591,13 +591,17 @@ class AgentChatRequest(BaseModel):
 
 class StructureAnalyzeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    sequence: StrictStr = Field(min_length=3, max_length=20000)
+    sequence: StrictStr | None = Field(default=None, min_length=3, max_length=20000)
+    project_id: StrictStr | None = Field(default=None, max_length=80)
+    bundle_id: StrictStr | None = Field(default=None, max_length=80)
+    molecule_id: StrictStr | None = Field(default=None, max_length=80)
     five_prime_end: int | None = None
     cds_start: int | None = None
     cds_end: int | None = None
     three_prime_start: int | None = None
     three_prime_end: int | None = None
     modality: Literal["linear_mrna", "circrna", "sarna"] = "linear_mrna"
+    compliance_track: ComplianceProfile = "commercial_clean"
     include_eternafold: StrictBool = False
 
     @field_validator("five_prime_end", "cds_start", "cds_end", "three_prime_start", "three_prime_end", mode="before")
@@ -1077,6 +1081,7 @@ def create_control_plane_app(
     projects_root: Path | None = None,
     seed_dir: Path | None = None,
     access_token: str | None = None,
+    rate_limit_clock: Callable[[], float] | None = None,
 ) -> FastAPI:
     resolved_seed = seed_dir or Path(os.environ.get("MRNAX_SEED_DIR", str(DEFAULT_SEED_DIR)))
     resolved_projects = projects_root or Path(
@@ -1142,10 +1147,26 @@ def create_control_plane_app(
         expose_headers=["X-MRNAX-Project-Key"],
     )
 
-    # Bounded LRU sliding-window per-(IP, route_bucket) rate limiter across all gateway endpoints
+    # Bounded sliding-window per-(IP, route_bucket) AND global per-route_bucket admission limiter
     MAX_TRACKED_BUCKETS = 4096
     ip_buckets: OrderedDict[tuple[str, str], deque[float]] = OrderedDict()
+    global_buckets: dict[str, deque[float]] = {}
+    clock_fn: Callable[[], float] = rate_limit_clock or time.monotonic
     rate_lock = threading.Lock()
+
+    GLOBAL_GROUP_LIMITS: dict[str, int] = {
+        "healthz": 1200,
+        "readonly_meta": 600,
+        "data_or_exec_list": 240,
+        "project_state": 240,
+        "exec_commit": 180,
+        "exec_lease": 300,
+        "stage_webhook": 60,
+        "tools_analysis": 90,
+        "project_turn": 120,
+        "agent_chat": 60,
+        "default": 240,
+    }
 
     def _route_rate_bucket_and_limit(path: str, method: str) -> tuple[str, int]:
         if path == "/healthz":
@@ -1156,6 +1177,8 @@ def create_control_plane_app(
             return ("data_or_exec_list", 60)
         if path.startswith("/v1/projects/") and path.endswith("/state"):
             return ("project_state", 60)
+        if path.startswith("/v1/projects/") and path.endswith("/turn"):
+            return ("project_turn", 30)
         if path.startswith("/v1/executions/"):
             if path.endswith(":commit"):
                 return ("exec_commit", 60)
@@ -1168,6 +1191,7 @@ def create_control_plane_app(
             "/api/v1/evidence/resolve",
             "/v1/evidence/protein",
             "/v1/evidence/literature",
+            "/api/v1/benchmarks/clinical",
             "/v1/tools/clinical-benchmark",
         ):
             return ("tools_analysis", 30)
@@ -1180,23 +1204,43 @@ def create_control_plane_app(
             return
         client_ip = req.client.host if req.client else "local"
         bucket_key = (client_ip, bucket_group)
-        now = time.time()
+        global_max = GLOBAL_GROUP_LIMITS.get(bucket_group, max(max_per_min * 3, 90))
+        now = float(clock_fn())
         with rate_lock:
+            g_dq = global_buckets.setdefault(bucket_group, deque())
+            while g_dq and now - g_dq[0] >= 60.0:
+                g_dq.popleft()
+            if len(g_dq) >= global_max:
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"Global admission budget exceeded (max {global_max} requests/min for {bucket_group}).",
+                )
+
             dq = ip_buckets.get(bucket_key)
             if dq is None:
                 if len(ip_buckets) >= MAX_TRACKED_BUCKETS:
-                    ip_buckets.popitem(last=False)
+                    expired_keys = [
+                        k for k, v in ip_buckets.items() if not v or (now - v[-1] >= 60.0)
+                    ]
+                    for ek in expired_keys:
+                        ip_buckets.pop(ek, None)
+                    if len(ip_buckets) >= MAX_TRACKED_BUCKETS:
+                        raise HTTPException(
+                            status_code=429,
+                            detail="Gateway admission table saturated; retry shortly.",
+                        )
                 dq = deque()
                 ip_buckets[bucket_key] = dq
             else:
                 ip_buckets.move_to_end(bucket_key)
-            while dq and now - dq[0] > 60.0:
+            while dq and now - dq[0] >= 60.0:
                 dq.popleft()
             if len(dq) >= max_per_min:
                 raise HTTPException(
                     status_code=429,
                     detail=f"Rate limit exceeded (max {max_per_min} requests/min per IP for {bucket_group}).",
                 )
+            g_dq.append(now)
             dq.append(now)
             req.state._mrnax_rate_checked = True
 
@@ -1701,6 +1745,8 @@ def create_control_plane_app(
                             compliance_track=req.compliance_track,
                             detarget_liver=req.detarget_liver,
                             use_commercial_surrogate=req.use_commercial_surrogate,
+                            modality=req.modality,
+                            scaffold_id=req.scaffold_id,
                             turn_id=assigned_turn_id,
                             expected_parent_intent_id=expected_turn_parent_id,
                             redact_extra_secrets=turn_secrets,
@@ -1721,6 +1767,8 @@ def create_control_plane_app(
                             reference_bundle_id=req.reference_bundle_id,
                             use_preset_reference_r=req.use_preset_reference_r,
                             use_commercial_surrogate=req.use_commercial_surrogate,
+                            modality=req.modality,
+                            scaffold_id=req.scaffold_id,
                             random_seed=req.random_seed,
                             turn_id=assigned_turn_id,
                             redact_extra_secrets=turn_secrets,
@@ -2593,6 +2641,13 @@ def create_control_plane_app(
                 return _handle_agent_failure(_safe_upstream_status_detail(exc, extra_secrets=active_secrets))
             except httpx.RequestError as exc:
                 return _handle_agent_failure(f"Upstream LLM network error ({type(exc).__name__}).")
+            except (TimeoutError, OSError) as exc:
+                if isinstance(exc, PermissionError):
+                    raise HTTPException(
+                        status_code=422,
+                        detail=redact_secrets_in_text(str(exc), extra_secrets=active_secrets)[:240],
+                    ) from exc
+                return _handle_agent_failure(f"Upstream LLM network error ({type(exc).__name__}).")
             except RuntimeError as exc:
                 return _handle_agent_failure(redact_secrets_in_text(str(exc), extra_secrets=active_secrets)[:240])
 
@@ -2845,6 +2900,7 @@ def create_control_plane_app(
 
     # --- Wave 2B Scientific Knowledge, Structure, Evidence & Clinical Benchmark Endpoints ---
     @app.get("/api/v1/rules")
+    @app.get("/v1/rules")
     def api_get_rules(
         request: Request,
         modality: str | None = None,
@@ -2939,24 +2995,108 @@ def create_control_plane_app(
         return redact_secrets_in_obj(payload, extra_secrets=secrets_tuple)
 
     @app.post("/api/v1/structure/analyze")
+    @app.post("/v1/tools/structure-profile")
     def api_analyze_structure(
         req: StructureAnalyzeRequest,
         request: Request,
+        x_mrnax_project_key: str | None = Header(default=None),
+        x_mrnax_access_token: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        _enforce_rate_limit(request, max_per_min=30)
-        secrets_tuple = _collect_active_secrets()
+        _enforce_rate_limit(request, max_per_min=30, bucket_group="tools_analysis")
+        secrets_tuple = _collect_active_secrets(x_mrnax_access_token, x_mrnax_project_key)
+
+        target_seq = req.sequence
+        eff_u5_end = req.five_prime_end
+        eff_cds_start = req.cds_start
+        eff_cds_end = req.cds_end
+        eff_u3_start = req.three_prime_start
+        eff_u3_end = req.three_prime_end
+        eff_modality = req.modality
+        eff_track: ComplianceProfile = req.compliance_track
+
+        if req.project_id is not None or req.bundle_id is not None:
+            if not req.project_id or not req.bundle_id:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Both project_id and bundle_id are required when profiling a stored project bundle.",
+                )
+            safe_pid, _ = _authorize_or_bind_project(
+                req.project_id,
+                request,
+                allow_bind_new=False,
+                header_project_key=x_mrnax_project_key,
+                header_access_token=x_mrnax_access_token,
+            )
+            with project_lock(resolved_projects / safe_pid):
+                session = _get_session(safe_pid)
+                safe_bid = _validate_safe_id(req.bundle_id, "bundle_id")
+                try:
+                    bundle = session.get_bundle(safe_bid)
+                except KeyError as exc:
+                    raise HTTPException(status_code=404, detail=f"Unknown bundle '{safe_bid}'") from exc
+                except ValueError as exc:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=redact_secrets_in_text(str(exc), extra_secrets=secrets_tuple),
+                    ) from exc
+                try:
+                    b_intent = session.intent_for_bundle(safe_bid)
+                    eff_track = b_intent.compliance_track
+                except ValueError:
+                    eff_track = (
+                        session._intents[-1].compliance_track
+                        if session._intents
+                        else "commercial_clean"
+                    )
+                if req.compliance_track == "commercial_clean":
+                    eff_track = "commercial_clean"
+                elif eff_track == "commercial_clean" and req.compliance_track != "commercial_clean":
+                    # Never escalate a commercial_clean bundle into research_max analysis
+                    eff_track = "commercial_clean"
+
+                mol = bundle.molecules[0]
+                if req.molecule_id:
+                    matched_mol = next(
+                        (m for m in bundle.molecules if m.molecule_id == req.molecule_id),
+                        None,
+                    )
+                    if matched_mol is None:
+                        raise HTTPException(
+                            status_code=404,
+                            detail=f"Unknown molecule_id '{req.molecule_id}' in bundle '{safe_bid}'",
+                        )
+                    mol = matched_mol
+                target_seq = mol.sequence
+                u5_seg = mol.get_segment("five_prime_utr")
+                cds_seg = mol.get_segment("cds")
+                u3_seg = mol.get_segment("three_prime_utr")
+                eff_u5_end = u5_seg.end if u5_seg else None
+                eff_cds_start = cds_seg.start if cds_seg else None
+                eff_cds_end = cds_seg.end if cds_seg else None
+                eff_u3_start = u3_seg.start if u3_seg else None
+                eff_u3_end = u3_seg.end if u3_seg else None
+                eff_modality = mol.modality
+
+        if not target_seq:
+            raise HTTPException(
+                status_code=422,
+                detail="Provide either sequence or both project_id and bundle_id.",
+            )
+
         try:
             res = run_structure_and_motif_analysis(
-                req.sequence,
-                five_prime_end=req.five_prime_end,
-                cds_start=req.cds_start,
-                cds_end=req.cds_end,
-                three_prime_start=req.three_prime_start,
-                three_prime_end=req.three_prime_end,
-                modality=req.modality,
+                target_seq,
+                five_prime_end=eff_u5_end,
+                cds_start=eff_cds_start,
+                cds_end=eff_cds_end,
+                three_prime_start=eff_u3_start,
+                three_prime_end=eff_u3_end,
+                modality=eff_modality,
+                compliance_track=eff_track,
                 include_eternafold=req.include_eternafold,
                 seed_dir=resolved_seed,
             )
+            res["compliance_track"] = eff_track
         except StructureProfilerBusyError as exc:
             raise HTTPException(
                 status_code=503,
@@ -3000,6 +3140,7 @@ def create_control_plane_app(
         return redact_secrets_in_obj(out, extra_secrets=secrets_tuple)
 
     @app.post("/api/v1/benchmarks/clinical")
+    @app.post("/v1/tools/clinical-benchmark")
     def api_compare_clinical_benchmarks(
         req: ClinicalBenchmarkCompareRequest,
         request: Request,

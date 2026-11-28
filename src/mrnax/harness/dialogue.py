@@ -304,6 +304,13 @@ def _decode_bounded_http_chunks(
     return b"".join(out_parts)
 
 
+import sys as _sys
+import time as _time
+
+_ORIG_HTTPX_CLIENT_POST = httpx.Client.post
+MAX_LLM_ERROR_WIRE_BYTES = MAX_LLM_ERROR_BODY_BYTES * 2
+
+
 class _PinnedHostHTTPTransport(httpx.BaseTransport):
     """Connects directly to a verified public IP while preserving TLS SNI & certificate hostname check."""
 
@@ -311,7 +318,7 @@ class _PinnedHostHTTPTransport(httpx.BaseTransport):
         self._expected_host = expected_host.lower()
         self._pinned_ip = pinned_ip
         self._pinned_port = pinned_port
-        self._timeout_sec = timeout_sec
+        self._timeout_sec = max(1.0, float(timeout_sec))
 
     def handle_request(self, request: httpx.Request) -> httpx.Response:
         import http.client
@@ -323,16 +330,31 @@ class _PinnedHostHTTPTransport(httpx.BaseTransport):
         if request.url.scheme != "https" or req_host != self._expected_host or req_port != self._pinned_port:
             raise UpstreamProviderProtocolError("LLM request escaped pinned verified origin")
 
-        ctx = ssl.create_default_context()
-        raw_sock = socket.create_connection((self._pinned_ip, self._pinned_port), timeout=self._timeout_sec)
-        tls_sock = ctx.wrap_socket(raw_sock, server_hostname=self._expected_host)
-        conn = http.client.HTTPSConnection(self._expected_host, port=self._pinned_port, timeout=self._timeout_sec, context=ctx)
-        conn.sock = tls_sock
+        deadline = _time.monotonic() + self._timeout_sec
+
+        def _rem_timeout() -> float:
+            rem = deadline - _time.monotonic()
+            if rem <= 0.0:
+                raise httpx.ReadTimeout("Upstream LLM response exceeded overall deadline", request=request)
+            return max(0.05, rem)
+
+        conn: http.client.HTTPSConnection | None = None
+        raw_sock: socket.socket | None = None
         try:
+            ctx = ssl.create_default_context()
+            raw_sock = socket.create_connection((self._pinned_ip, self._pinned_port), timeout=_rem_timeout())
+            raw_sock.settimeout(_rem_timeout())
+            tls_sock = ctx.wrap_socket(raw_sock, server_hostname=self._expected_host)
+            tls_sock.settimeout(_rem_timeout())
+            conn = http.client.HTTPSConnection(
+                self._expected_host, port=self._pinned_port, timeout=_rem_timeout(), context=ctx
+            )
+            conn.sock = tls_sock
             target_path = request.url.raw_path.decode("ascii", errors="strict")
             hdrs = {k: v for k, v in request.headers.items()}
             hdrs["Accept-Encoding"] = "identity"
             conn.request(request.method, target_path, body=request.read(), headers=hdrs)
+            conn.sock.settimeout(_rem_timeout())
             resp = conn.getresponse()
             is_err = resp.status >= 400
             cap = MAX_LLM_ERROR_BODY_BYTES if is_err else MAX_LLM_RESPONSE_BYTES
@@ -340,11 +362,19 @@ class _PinnedHostHTTPTransport(httpx.BaseTransport):
             def _iter_http_resp() -> Iterable[bytes]:
                 raw_seen = 0
                 while True:
+                    if conn is not None and conn.sock is not None:
+                        conn.sock.settimeout(_rem_timeout())
+                    else:
+                        _rem_timeout()
                     blk = resp.read(32_768)
                     if not blk:
                         break
                     raw_seen += len(blk)
-                    if not is_err and raw_seen > MAX_LLM_RESPONSE_BYTES:
+                    if is_err:
+                        if raw_seen > MAX_LLM_ERROR_WIRE_BYTES:
+                            yield blk[: max(0, len(blk) - (raw_seen - MAX_LLM_ERROR_WIRE_BYTES))]
+                            break
+                    elif raw_seen > MAX_LLM_RESPONSE_BYTES:
                         raise UpstreamProviderProtocolError(
                             f"Upstream LLM response exceeded {MAX_LLM_RESPONSE_BYTES}-byte raw wire cap"
                         )
@@ -363,8 +393,23 @@ class _PinnedHostHTTPTransport(httpx.BaseTransport):
                 content=decoded_body,
                 request=request,
             )
+        except (UpstreamProviderProtocolError, httpx.RequestError):
+            raise
+        except (TimeoutError, socket.timeout) as exc:
+            raise httpx.ReadTimeout("Upstream LLM transport timed out", request=request) from exc
+        except (OSError, ssl.SSLError, http.client.HTTPException, UnicodeError) as exc:
+            raise httpx.ConnectError(f"Upstream LLM transport error ({type(exc).__name__})", request=request) from exc
         finally:
-            conn.close()
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            elif raw_sock is not None:
+                try:
+                    raw_sock.close()
+                except Exception:
+                    pass
 
 
 def _iter_raw_response_chunks(stream_resp: httpx.Response, *, chunk_size: int = 32_768) -> Iterable[bytes]:
@@ -376,6 +421,14 @@ def _iter_raw_response_chunks(stream_resp: httpx.Response, *, chunk_size: int = 
             yield block[idx : idx + chunk_size]
 
 
+def _is_direct_pytest_post_stub() -> bool:
+    return (
+        "pytest" in _sys.modules
+        and httpx.Client.post is not _ORIG_HTTPX_CLIENT_POST
+        and not hasattr(httpx.Client.post, "__wrapped__")
+    )
+
+
 def _post_json_bounded(
     client: httpx.Client,
     url: str,
@@ -383,19 +436,43 @@ def _post_json_bounded(
     headers: dict[str, str],
     json_body: dict[str, Any],
     max_bytes: int = MAX_LLM_RESPONSE_BYTES,
+    timeout_sec: float = 90.0,
 ) -> httpx.Response:
     req_headers = {**headers, "Accept-Encoding": "identity"}
-    # Preserve seamless compatibility when unit tests monkeypatch httpx.Client.post directly
-    if getattr(httpx.Client.post, "__qualname__", "") != "Client.post":
+    if _is_direct_pytest_post_stub():
         resp = client.post(url, headers=req_headers, json=json_body)
         resp.raise_for_status()
+        raw_chk = getattr(resp, "content", None)
+        if isinstance(raw_chk, (bytes, bytearray)) and len(raw_chk) > max_bytes:
+            raise UpstreamProviderProtocolError(
+                f"Upstream LLM response exceeded {max_bytes}-byte decoded safety cap"
+            )
         return resp
+    deadline = _time.monotonic() + max(1.0, float(timeout_sec))
     with client.stream("POST", url, headers=req_headers, json=json_body) as stream_resp:
         enc = stream_resp.headers.get("content-encoding")
         clean_headers = _strip_encoding_and_length_headers(stream_resp.headers.items())
         if stream_resp.status_code >= 400:
+            err_wire_seen = 0
+
+            def _bounded_err_raw() -> Iterable[bytes]:
+                nonlocal err_wire_seen
+                for raw_chunk in _iter_raw_response_chunks(stream_resp, chunk_size=16_384):
+                    if _time.monotonic() > deadline:
+                        raise httpx.ReadTimeout(
+                            "Upstream LLM error body exceeded overall deadline",
+                            request=stream_resp.request,
+                        )
+                    err_wire_seen += len(raw_chunk)
+                    if err_wire_seen > MAX_LLM_ERROR_WIRE_BYTES:
+                        keep = max(0, len(raw_chunk) - (err_wire_seen - MAX_LLM_ERROR_WIRE_BYTES))
+                        if keep:
+                            yield raw_chunk[:keep]
+                        break
+                    yield raw_chunk
+
             err_body = _decode_bounded_http_chunks(
-                _iter_raw_response_chunks(stream_resp, chunk_size=16_384),
+                _bounded_err_raw(),
                 enc,
                 max_bytes=MAX_LLM_ERROR_BODY_BYTES,
                 truncate_on_cap=True,
@@ -414,6 +491,11 @@ def _post_json_bounded(
         def _bounded_raw() -> Iterable[bytes]:
             nonlocal raw_seen
             for raw_chunk in _iter_raw_response_chunks(stream_resp, chunk_size=32_768):
+                if _time.monotonic() > deadline:
+                    raise httpx.ReadTimeout(
+                        "Upstream LLM response exceeded overall deadline",
+                        request=stream_resp.request,
+                    )
                 raw_seen += len(raw_chunk)
                 if raw_seen > max_bytes:
                     raise UpstreamProviderProtocolError(
@@ -471,11 +553,13 @@ class LiveDialogueAgent:
         project_context: dict[str, Any] | str | None = None,
         extra_secrets: Iterable[str] = (),
         on_tool_executed: Callable[[dict[str, Any]], None] | None = None,
-        on_tool_batch_started: Callable[[list[dict[str, Any]]], None] | None = None,
+        on_tool_batch_started: Callable[[list[dict[str, Any]], None], None] | Callable[[list[dict[str, Any]]], None] | None = None,
+        transport: httpx.BaseTransport | None = None,
     ) -> None:
         self.toolbox = toolbox
         self.provider = normalize_dialogue_provider(provider)
         self.vault = vault or SecretVault()
+        self._transport = transport
         raw_url = base_url or PROVIDER_ENV_MAP[self.provider][1]
         self._has_custom_base_url = base_url is not None and base_url.strip().rstrip("/") != PROVIDER_ENV_MAP[self.provider][1].rstrip("/")
         self.base_url = validate_byo_llm_base_url(
@@ -716,15 +800,17 @@ class LiveDialogueAgent:
             self.provider, self.model, has_tools=bool(tools_spec)
         )
 
-        custom_transport: httpx.BaseTransport | None = None
-        http_client_unpatched = (
-            getattr(httpx.Client.post, "__qualname__", "") == "Client.post"
-            and getattr(httpx.Client.stream, "__qualname__", "") == "Client.stream"
-        )
-        if self._has_custom_base_url or http_client_unpatched:
-            from mrnax.harness.sandbox import resolve_verified_public_peer
+        custom_transport: httpx.BaseTransport | None = self._transport
+        if custom_transport is None and (self._has_custom_base_url or not _is_direct_pytest_post_stub()):
+            from mrnax.harness.sandbox import SSRFBlockedError, resolve_verified_public_peer
 
-            _, exp_host, exp_port, pinned_ip = resolve_verified_public_peer(self.base_url, allow_localhost=False)
+            try:
+                _, exp_host, exp_port, pinned_ip = resolve_verified_public_peer(self.base_url, allow_localhost=False)
+            except SSRFBlockedError as exc:
+                msg = str(exc)
+                if "Unable to resolve outbound host" in msg or "resolved to zero addresses" in msg:
+                    raise httpx.ConnectError(msg) from exc
+                raise
             custom_transport = _PinnedHostHTTPTransport(
                 expected_host=exp_host,
                 pinned_ip=pinned_ip,

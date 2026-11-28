@@ -1688,6 +1688,8 @@ body {
   padding-block-start: 4px;
   border-block-start: 1px solid var(--border);
   font-size: 11px;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
 }
 
 .ext-link {
@@ -1695,6 +1697,9 @@ body {
   text-decoration: none;
   font-family: var(--font-mono);
   font-size: 11px;
+  max-inline-size: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .ext-link:hover {
   text-decoration: underline;
