@@ -1833,6 +1833,14 @@ test("Gate B-R2 Round 3 (#10): syncControlsFromIntent resets linear modality/sca
   assert.equal(keepLinHbb.compliance_track, "commercial_clean");
   assert.equal(keepLinHbb.scaffold_id, undefined);
 
+  run(`document.getElementById("sel-scaffold").value = "circ_t4td_hrvb3";`);
+  const keepBbSwitchIres = run('parseDeterministicRefineFallback("Keep the existing backbone and switch to CVB3 IRES")');
+  assert.equal(keepBbSwitchIres.modality, "circrna");
+  assert.equal(keepBbSwitchIres.scaffold_id, "circ_t4td_cvb3");
+  const keepIresSwitchBb = run('parseDeterministicRefineFallback("Keep the existing IRES and switch to the Anabaena backbone")');
+  assert.equal(keepIresSwitchBb.modality, "circrna");
+  assert.equal(keepIresSwitchBb.scaffold_id, "circ_anabaena_hrvb3");
+
   // Initial turn from default linear form with "Switch to circRNA and keep the protein unchanged" must pick circ_t4td_hrvb3
   run(`
     state.modality = "linear_mrna";

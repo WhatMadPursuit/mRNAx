@@ -3738,8 +3738,8 @@ function parseDeterministicRefineFallback(utterance) {
   const destSarnaRe =
     /(?:切回|改回|换成|改为|切换(?:为|回|成|到)?|(?:switch|convert|change)(?:\s+from\s+[\w\s-]+?)?(?:\s+back)?\s+to|back\s+to|replace\s+[\w\s-]+?\s+with)\s*(?:an?\s+|the\s+)?(?:\bsarna\b|self[- ]amplifying|自扩增|\bveev\b|\bsinv\b|sindbis)/i;
 
-  const preserveScaffold =
-    /(?:keep|preserve|retain)(?:\s+(?:the|my|our|this|that|current|existing|same|active|original|previous))*\s+(?:(?:linear|circular|circrna|sarna)\s+)?(?:scaffold|backbone|utr|ires|pie)|(?:scaffold|backbone|utr|ires|pie)\s+(?:unchanged|as[- ]is)|(?:保留|维持)(?:当前|现有|原|既有|目前|该)?(?:环状|线性|自扩增)?(?:骨架|模板|UTR|IRES|PIE)/i.test(
+  const preserveWholeScaffold =
+    /(?:keep|preserve|retain)(?:\s+(?:the|my|our|this|that|current|existing|same|active|original|previous))*\s+(?:(?:linear|circular|circrna|sarna)\s+)?scaffold|\bscaffold\s+(?:unchanged|as[- ]is)|(?:保留|维持)(?:当前|现有|原|既有|目前|该)?(?:环状|线性|自扩增)?(?:骨架|模板)/i.test(
       raw
     );
 
@@ -3760,7 +3760,7 @@ function parseDeterministicRefineFallback(utterance) {
 
   if (targetModality === "linear_mrna") {
     payload.modality = "linear_mrna";
-    if (!preserveScaffold) {
+    if (!preserveWholeScaffold) {
       payload.scaffold_id = /\bminimal\b|\bhbb\b|极简/i.test(raw)
         ? "cap1_minimal_structured_3utr"
         : "cap1_hba1_aes_mt_a30l70";
@@ -3769,19 +3769,22 @@ function parseDeterministicRefineFallback(utterance) {
   } else if (targetModality === "circrna") {
     payload.modality = "circrna";
     payload.uridine_chemistry = "unmodified_u";
-    if (!preserveScaffold) {
-      const backbone = /\banabaena\b/i.test(raw) ? "anabaena" : "t4td";
-      if (/\bcvb3\b/i.test(raw)) {
-        payload.scaffold_id = `circ_${backbone}_cvb3`;
-      } else {
-        payload.scaffold_id = `circ_${backbone}_hrvb3`;
-      }
+    if (!preserveWholeScaffold || destCircRe.test(raw)) {
+      const curScaf =
+        (typeof document !== "undefined" && document.getElementById("sel-scaffold") && document.getElementById("sel-scaffold").value) ||
+        "";
+      const curIsCirc = curScaf.startsWith("circ_");
+      const curBb = curIsCirc && /anabaena/i.test(curScaf) ? "anabaena" : "t4td";
+      const curIres = curIsCirc && /cvb3/i.test(curScaf) ? "cvb3" : "hrvb3";
+      const backbone = /\banabaena\b/i.test(raw) ? "anabaena" : /\bt4\s*_?\s*td\b/i.test(raw) ? "t4td" : curBb;
+      const ires = /\bcvb3\b/i.test(raw) ? "cvb3" : /\bhrv-?b3\b/i.test(raw) ? "hrvb3" : curIres;
+      payload.scaffold_id = `circ_${backbone}_${ires}`;
     }
     changed = true;
   } else if (targetModality === "sarna") {
     payload.modality = "sarna";
     payload.uridine_chemistry = "unmodified_u";
-    if (!preserveScaffold) {
+    if (!preserveWholeScaffold) {
       payload.scaffold_id = /\bsinv\b|sindbis/i.test(raw) ? "sarna_sinv" : "sarna_veev_tc83";
     }
     changed = true;
